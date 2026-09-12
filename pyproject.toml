@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "account-fleet"
-version = "0.2.4"
+version = "0.2.5"
 description = "Research and score target accounts for free with exact quote verification."
 readme = "README.md"
 license = "MIT"
