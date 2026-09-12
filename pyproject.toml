@@ -3,15 +3,15 @@ requires = ["setuptools>=77.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "account-fleet"
-version = "0.2.5"
-description = "Research and score target accounts for free with exact quote verification."
+name = "career-fleet"
+version = "0.1.0"
+description = "Autonomous career & employer intelligence engine with multi-lane screening and exact quote verification."
 readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE"]
 authors = [{ name = "NatesVibeCode" }]
 requires-python = ">=3.10"
-keywords = ["mcp", "agent-skills", "sqlite", "structured-output", "evidence-grounding", "prospecting", "account-research"]
+keywords = ["mcp", "agent-skills", "sqlite", "career-intelligence", "job-search", "evidence-grounding", "ats-discovery"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Environment :: Console",
@@ -31,10 +31,10 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/NatesVibeCode/account-fleet"
-Repository = "https://github.com/NatesVibeCode/account-fleet"
-Issues = "https://github.com/NatesVibeCode/account-fleet/issues"
-Security = "https://github.com/NatesVibeCode/account-fleet/security/policy"
+Homepage = "https://github.com/NatesVibeCode/career-fleet"
+Repository = "https://github.com/NatesVibeCode/career-fleet"
+Issues = "https://github.com/NatesVibeCode/career-fleet/issues"
+Security = "https://github.com/NatesVibeCode/career-fleet/security/policy"
 
 [project.optional-dependencies]
 dev = [
@@ -51,12 +51,14 @@ js = [
 ]
 
 [project.scripts]
+career-fleet = "career_fleet.cli:main"
+career-lanes = "career_fleet.cli:main"
 account-fleet = "free_fleet.cli:main"
 free-fleet = "free_fleet.cli:main"
 bulk-lanes = "free_fleet.cli:main"
 
 [tool.setuptools.packages.find]
-include = ["free_fleet*"]
+include = ["free_fleet*", "career_fleet*"]
 
 [tool.setuptools.package-data]
 free_fleet = [
