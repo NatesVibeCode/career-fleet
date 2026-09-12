@@ -14,6 +14,31 @@ from typing import Any
 
 from . import ui
 from .catalog import PriceState, RouteCatalog
+from .discover import (
+    BACKENDS as DISCOVER_BACKENDS,
+    USER_AGENT as DISCOVER_USER_AGENT,
+    DiscoverError,
+    crawl_site,
+    discover_sitemap_url,
+    fetch_ashby_org,
+    fetch_devto_tag,
+    fetch_discourse_search,
+    fetch_greenhouse_board,
+    fetch_hn_thread,
+    fetch_lemmy,
+    fetch_lever_org,
+    fetch_lobsters,
+    fetch_reddit_posts,
+    fetch_reddit_rss,
+    fetch_sitemap_urls,
+    fetch_smart_url,
+    fetch_stackexchange_questions,
+    fetch_yc_companies,
+    run_discovery,
+    to_input_items,
+    write_items_csv,
+    write_items_jsonl,
+)
 from .engine import Engine
 from .export import export_clean_packet
 from .input_data import load_input_items
@@ -792,6 +817,264 @@ def cmd_mcp(args: argparse.Namespace) -> None:
     raise ValueError(f"unknown mcp subcommand '{sub}'")
 
 
+def _write_discovered(
+    items: list,
+    output: str | None,
+    fmt: str,
+    default_name: str,
+    skipped: list[dict[str, str]] | None = None,
+) -> str:
+    if not items:
+        detail = ""
+        if skipped:
+            reasons = "; ".join(
+                f"{entry.get('url') or entry.get('query') or entry.get('source')}: {entry.get('reason')}"
+                for entry in skipped[:3]
+            )
+            detail = f" ({reasons})"
+        raise DiscoverError(f"no items discovered{detail}; see 'skipped' in --json output for full detail")
+    writer = write_items_jsonl if fmt == "jsonl" else write_items_csv
+    return str(writer(items, output or default_name))
+
+
+def _format_skips(skipped: list[dict[str, str]], limit: int = 3) -> str:
+    if not skipped:
+        return ""
+    lines = "\n".join(
+        f"  - {entry.get('url') or entry.get('query') or entry.get('source')}: {entry.get('reason')}"
+        for entry in skipped[:limit]
+    )
+    extra = f"\n  ... and {len(skipped) - limit} more (see --json)" if len(skipped) > limit else ""
+    return f"\nSkipped ({len(skipped)}):\n{lines}{extra}"
+
+
+def cmd_discover(args: argparse.Namespace) -> None:
+    backends = args.backend or ["ddgs", "hn"]
+    fmt = getattr(args, "format", "csv") or "csv"
+    snippets_only = bool(getattr(args, "snippets_only", False))
+    items, report = run_discovery(
+        queries=args.query,
+        backends=backends,
+        max_results=args.max_results,
+        fetch_full_text=not snippets_only,
+        searxng_url=getattr(args, "searxng_url", None),
+        timeout=float(getattr(args, "timeout", 20.0) or 20.0),
+        delay=float(getattr(args, "delay", 1.0) or 0.0),
+        respect_robots=not getattr(args, "ignore_robots", False),
+        max_chars=getattr(args, "max_chars", None),
+        render_js=bool(getattr(args, "js", False)),
+        reddit_subreddits=getattr(args, "subreddit", None) or [],
+        se_tagged=getattr(args, "se_tagged", None) or [],
+        se_site=getattr(args, "se_site", None) or "stackoverflow",
+        discourse_url=getattr(args, "discourse_url", None),
+        lemmy_instance=getattr(args, "lemmy_instance", None) or "https://programming.dev",
+    )
+    output = _write_discovered(items, getattr(args, "output", None), fmt, f"accounts.{fmt}", report["skipped"])
+    skipped = report["skipped"]
+    indicator_note = (
+        "\nNote: --snippets-only records are triage indicators (evidence=indicator), "
+        "not grounding-grade. Re-run without it for full text."
+        if snippets_only else ""
+    )
+    _emit(
+        {"items": len(items), "output": output, "format": fmt, "report": report},
+        args.json,
+        f"Discovered {len(items)} items from {report['hits']} hits -> {output}."
+        + _format_skips(skipped) + indicator_note,
+    )
+
+
+def cmd_fetch(args: argparse.Namespace) -> None:
+    import httpx as _httpx
+
+    fmt = getattr(args, "format", "csv") or "csv"
+    timeout = float(getattr(args, "timeout", 20.0) or 20.0)
+    delay = float(getattr(args, "delay", 1.0) or 0.0)
+    respect_robots = not getattr(args, "ignore_robots", False)
+    max_jobs = getattr(args, "max_jobs", None)
+
+    urls: list[str] = list(getattr(args, "url", None) or [])
+    url_file = getattr(args, "url_file", None)
+    if url_file:
+        try:
+            urls.extend(line.strip() for line in Path(url_file).read_text(encoding="utf-8").splitlines() if line.strip())
+        except OSError as exc:
+            raise DiscoverError(f"cannot read --url-file '{url_file}': {exc.strerror or exc}") from exc
+
+    greenhouse = getattr(args, "greenhouse_board", None)
+    ashby = getattr(args, "ashby_org", None)
+    lever = getattr(args, "lever_org", None)
+    yc = bool(getattr(args, "yc", False))
+    sitemap = getattr(args, "sitemap", None)
+    site = getattr(args, "site", None)
+    render_js = bool(getattr(args, "js", False))
+    subreddits = getattr(args, "subreddit", None) or []
+    reddit_query = getattr(args, "reddit_query", None)
+    hn_refs = getattr(args, "hn", None) or []
+    max_comments = int(getattr(args, "max_comments", 50) or 50)
+    se_query = getattr(args, "stackexchange_query", None)
+    se_tagged = getattr(args, "se_tag", None) or []
+    se_site = getattr(args, "se_site", None) or "stackoverflow"
+    se_answers = bool(getattr(args, "se_answers", False))
+    discourse = getattr(args, "discourse", None)
+    discourse_query = getattr(args, "discourse_query", None)
+    lobsters_tag = getattr(args, "lobsters_tag", None)
+    lemmy_query = getattr(args, "lemmy_query", None)
+    lemmy_instance = getattr(args, "lemmy_instance", None) or "https://programming.dev"
+    devto_tag = getattr(args, "devto_tag", None)
+    has_qa = any([se_query, discourse, lobsters_tag is not None, lemmy_query, devto_tag])
+    if not urls and not sitemap and not site and not subreddits and not reddit_query and not hn_refs and not has_qa and not greenhouse and not ashby and not lever and not yc:
+        raise DiscoverError("fetch requires --url, --url-file, --sitemap, --site, --subreddit, --reddit-query, --hn, a Q&A source, --greenhouse-board, --ashby-org, --lever-org, or --yc")
+    if render_js:
+        from .discover import require_playwright
+
+        require_playwright()
+
+    records: list = []
+    skipped: list[dict[str, str]] = []
+    ats_sources: list[tuple[str, Any, str]] = []
+    if greenhouse:
+        ats_sources.append((f"greenhouse:{greenhouse}", fetch_greenhouse_board, greenhouse))
+    if ashby:
+        ats_sources.append((f"ashby:{ashby}", fetch_ashby_org, ashby))
+    if lever:
+        ats_sources.append((f"lever:{lever}", fetch_lever_org, lever))
+    with _httpx.Client(timeout=timeout, follow_redirects=True, headers={"User-Agent": DISCOVER_USER_AGENT}) as client:
+        if sitemap:
+            try:
+                urls.extend(fetch_sitemap_urls(sitemap, client=client, timeout=timeout,
+                                               max_urls=max_jobs or 200))
+            except DiscoverError as exc:
+                skipped.append({"source": f"sitemap:{sitemap}", "reason": str(exc)})
+        if site:
+            try:
+                sitemap_url = discover_sitemap_url(site, client=client, timeout=timeout)
+                urls.extend(fetch_sitemap_urls(sitemap_url, client=client, timeout=timeout,
+                                               max_urls=max_jobs or 200))
+            except DiscoverError:
+                site_records, site_skipped = crawl_site(
+                    site if "://" in site else f"https://{site}",
+                    max_pages=int(getattr(args, "max_pages", 20) or 20),
+                    max_depth=int(getattr(args, "max_depth", 2) or 0),
+                    timeout=timeout, delay=delay, respect_robots=respect_robots,
+                    render_js=render_js, client=client,
+                )
+                records.extend(site_records)
+                skipped.extend(site_skipped)
+        if yc:
+            try:
+                before = len(records)
+                records.extend(fetch_yc_companies(
+                    query=getattr(args, "yc_query", None),
+                    batch=getattr(args, "yc_batch", None),
+                    tags=getattr(args, "yc_tag", None) or [],
+                    max_companies=max_jobs, timeout=timeout, client=client,
+                ))
+                if len(records) == before:
+                    skipped.append({"source": "ycombinator",
+                                    "reason": "0 companies matched (widen --yc-query/--yc-batch/--yc-tag)"})
+            except DiscoverError as exc:
+                skipped.append({"source": "ycombinator", "reason": str(exc)})
+        for source, fetcher, ref in ats_sources:
+            try:
+                before = len(records)
+                records.extend(fetcher(ref, max_jobs=max_jobs, timeout=timeout, client=client))
+                if len(records) == before:
+                    skipped.append({"source": source, "reason": "0 postings (empty board?)"})
+            except DiscoverError as exc:
+                skipped.append({"source": source, "reason": str(exc)})
+        for sub in subreddits:
+            try:
+                before = len(records)
+                records.extend(fetch_reddit_rss(sub, sort=getattr(args, "subreddit_sort", "new") or "new",
+                                                max_results=max_jobs or 25, timeout=timeout, client=client))
+                if len(records) == before:
+                    skipped.append({"source": f"reddit-rss:{sub}", "reason": "0 posts"})
+            except DiscoverError as exc:
+                skipped.append({"source": f"reddit-rss:{sub}", "reason": str(exc)})
+        if reddit_query:
+            try:
+                before = len(records)
+                records.extend(fetch_reddit_posts(reddit_query, subreddits=subreddits,
+                                                  max_posts=max_jobs, timeout=timeout, client=client))
+                if len(records) == before:
+                    skipped.append({"source": "reddit-search", "reason": "0 posts matched"})
+            except DiscoverError as exc:
+                skipped.append({"source": "reddit-search", "reason": str(exc)})
+        if se_query:
+            try:
+                before = len(records)
+                records.extend(fetch_stackexchange_questions(
+                    se_query, tagged=se_tagged, site=se_site, max_questions=max_jobs,
+                    include_answers=se_answers, timeout=timeout, client=client))
+                if len(records) == before:
+                    skipped.append({"source": f"stackexchange:{se_site}", "reason": "0 questions matched"})
+            except DiscoverError as exc:
+                skipped.append({"source": f"stackexchange:{se_site}", "reason": str(exc)})
+        if discourse:
+            try:
+                before = len(records)
+                micro_records, micro_skipped = fetch_discourse_search(
+                    discourse, discourse_query, max_topics=max_jobs, max_posts_each=max_comments,
+                    timeout=timeout, client=client)
+                records.extend(micro_records)
+                skipped.extend(micro_skipped)
+                if len(records) == before and not micro_skipped:
+                    skipped.append({"source": f"discourse:{discourse}", "reason": "0 topics matched"})
+            except DiscoverError as exc:
+                skipped.append({"source": f"discourse:{discourse}", "reason": str(exc)})
+        if lobsters_tag is not None:
+            try:
+                before = len(records)
+                records.extend(fetch_lobsters(tag=lobsters_tag or None, max_results=max_jobs or 25,
+                                              timeout=timeout, client=client))
+                if len(records) == before:
+                    skipped.append({"source": "lobsters", "reason": "0 stories"})
+            except DiscoverError as exc:
+                skipped.append({"source": "lobsters", "reason": str(exc)})
+        if lemmy_query:
+            try:
+                before = len(records)
+                records.extend(fetch_lemmy(lemmy_query, instance=lemmy_instance,
+                                           max_results=max_jobs or 25, timeout=timeout, client=client))
+                if len(records) == before:
+                    skipped.append({"source": f"lemmy:{lemmy_instance}", "reason": "0 posts matched"})
+            except DiscoverError as exc:
+                skipped.append({"source": f"lemmy:{lemmy_instance}", "reason": str(exc)})
+        if devto_tag:
+            try:
+                before = len(records)
+                records.extend(fetch_devto_tag(devto_tag, max_articles=max_jobs,
+                                               timeout=timeout, client=client))
+                if len(records) == before:
+                    skipped.append({"source": "dev.to", "reason": "0 articles"})
+            except DiscoverError as exc:
+                skipped.append({"source": "dev.to", "reason": str(exc)})
+        for ref in hn_refs:
+            try:
+                records.append(fetch_hn_thread(ref, max_comments=max_comments, timeout=timeout, client=client))
+            except DiscoverError as exc:
+                skipped.append({"source": f"hn:{ref}", "reason": str(exc)})
+        for url in urls:
+            try:
+                records.append(fetch_smart_url(url, client=client, respect_robots=respect_robots,
+                                               render_js=render_js))
+            except DiscoverError as exc:
+                skipped.append({"url": url, "reason": str(exc)})
+            if delay > 0:
+                import time as _time
+
+                _time.sleep(delay)
+
+    items = to_input_items(records, max_chars=getattr(args, "max_chars", None))
+    output = _write_discovered(items, getattr(args, "output", None), fmt, f"fetched.{fmt}", skipped)
+    _emit(
+        {"items": len(items), "output": output, "format": fmt, "skipped": skipped},
+        args.json,
+        f"Fetched {len(items)} items -> {output}." + _format_skips(skipped),
+    )
+
+
 def _input_options(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--id-column", help="CSV column to use for item ID")
     parser.add_argument("--text-column", help="CSV column to use for source text")
@@ -972,6 +1255,65 @@ def build_parser() -> argparse.ArgumentParser:
     # Note: --db and --json are also added via _common but we keep explicit for discoverability
     mcp_install.add_argument("--force", action="store_true", help="Overwrite existing free-fleet entry even if identical (no-op otherwise)")
 
+    discover = commands.add_parser("discover", help="Broad web search to accounts file (mechanical discovery)")
+    discover.add_argument("--query", action="append", required=True, help="Search query (repeatable)")
+    discover.add_argument("--backend", action="append", choices=sorted(DISCOVER_BACKENDS), help="Search backend (repeatable; default: ddgs + hn)")
+    discover.add_argument("--subreddit", action="append", help="Restrict reddit backend to subreddits (repeatable)")
+    discover.add_argument("--se-tagged", action="append", help="Restrict stackexchange backend to tags (repeatable)")
+    discover.add_argument("--se-site", default="stackoverflow", help="Stack Exchange site (default: stackoverflow)")
+    discover.add_argument("--discourse-url", help="Discourse instance to search (required for discourse backend)")
+    discover.add_argument("--lemmy-instance", default="https://programming.dev", help="Lemmy instance (default: programming.dev)")
+    discover.add_argument("--searxng-url", help="Self-hosted SearXNG base URL (required for searxng backend)")
+    discover.add_argument("--max-results", type=int, default=10, help="Max hits per query per backend (default: 10)")
+    discover.add_argument("--snippets-only", action="store_true", help="Store search snippets without fetching full pages")
+    discover.add_argument("--delay", type=float, default=1.0, help="Politeness delay between fetches in seconds (default: 1.0)")
+    discover.add_argument("--timeout", type=float, default=20.0, help="HTTP timeout in seconds (default: 20.0)")
+    discover.add_argument("--max-chars", type=int, default=None, help="Truncate item text to N chars (default: none)")
+    discover.add_argument("--ignore-robots", action="store_true", help="Ignore robots.txt (default: respect it)")
+    discover.add_argument("--js", action="store_true", help="Render JS-heavy pages via Playwright (experimental; needs account-fleet[js])")
+    discover.add_argument("--output", help="Output file (default: accounts.<format>)")
+    discover.add_argument("--format", choices=["csv", "jsonl"], default="csv", help="Output format (default: csv)")
+    discover.add_argument("--json", action="store_true", help="Emit machine-readable JSON")
+
+    fetch = commands.add_parser("fetch", help="Fetch URLs or ATS boards to accounts file")
+    fetch.add_argument("--url", action="append", help="URL to fetch and parse (repeatable)")
+    fetch.add_argument("--url-file", help="File with one URL per line")
+    fetch.add_argument("--sitemap", help="Sitemap URL: fetch every listed page (e.g. https://docs.example.com/sitemap.xml)")
+    fetch.add_argument("--site", help="Site origin or URL: use its sitemap, else BFS crawl same-origin pages")
+    fetch.add_argument("--max-pages", type=int, default=20, help="Max pages for --site crawl (default: 20)")
+    fetch.add_argument("--max-depth", type=int, default=2, help="Link-follow depth for --site crawl (default: 2)")
+    fetch.add_argument("--max-comments", type=int, default=50, help="Max comments per HN/Reddit thread (default: 50)")
+    fetch.add_argument("--subreddit", action="append", help="Fetch fresh posts from subreddit RSS (repeatable)")
+    fetch.add_argument("--subreddit-sort", default="new", choices=["new", "hot", "top", "rising"], help="Subreddit listing (default: new)")
+    fetch.add_argument("--reddit-query", help="Fetch full Reddit posts matching a query (Arctic Shift archive)")
+    fetch.add_argument("--hn", action="append", help="Fetch full HN thread by item id or URL (repeatable)")
+    fetch.add_argument("--stackexchange-query", help="Fetch full Stack Exchange question bodies for a query")
+    fetch.add_argument("--se-tag", action="append", help="Restrict Stack Exchange to tags (repeatable)")
+    fetch.add_argument("--se-site", default="stackoverflow", help="Stack Exchange site (default: stackoverflow)")
+    fetch.add_argument("--se-answers", action="store_true", help="Include top answer per question (costs API quota)")
+    fetch.add_argument("--discourse", help="Fetch full topics from a Discourse instance URL")
+    fetch.add_argument("--discourse-query", help="Search query within --discourse (omit for latest topics)")
+    fetch.add_argument("--lobsters-tag", nargs="?", const="", default=None, help="Fetch Lobsters newest (bare flag) or one tag's listing")
+    fetch.add_argument("--lemmy-query", help="Fetch full Lemmy posts/comments for a query")
+    fetch.add_argument("--lemmy-instance", default="https://programming.dev", help="Lemmy instance (default: programming.dev)")
+    fetch.add_argument("--devto-tag", help="Fetch Dev.to articles for a tag (full markdown bodies)")
+    fetch.add_argument("--greenhouse-board", help="Greenhouse board token (e.g. stripe)")
+    fetch.add_argument("--ashby-org", help="Ashby org slug (e.g. linear)")
+    fetch.add_argument("--lever-org", help="Lever org slug (fallback; many orgs migrated ATS)")
+    fetch.add_argument("--yc", action="store_true", help="Dump YC company directory profiles (indicator-grade)")
+    fetch.add_argument("--yc-query", help="Filter YC companies by keyword")
+    fetch.add_argument("--yc-batch", help="Filter YC companies by batch (e.g. W24)")
+    fetch.add_argument("--yc-tag", action="append", help="Filter YC companies by tag/industry (repeatable)")
+    fetch.add_argument("--js", action="store_true", help="Render JS-heavy pages via Playwright (experimental; needs account-fleet[js])")
+    fetch.add_argument("--max-jobs", type=int, default=None, help="Max items per source: postings per ATS board, pages per sitemap (default 200), companies for --yc, posts for feeds (default: source-specific)")
+    fetch.add_argument("--delay", type=float, default=1.0, help="Politeness delay between fetches in seconds (default: 1.0)")
+    fetch.add_argument("--timeout", type=float, default=20.0, help="HTTP timeout in seconds (default: 20.0)")
+    fetch.add_argument("--max-chars", type=int, default=None, help="Truncate item text to N chars (default: none)")
+    fetch.add_argument("--ignore-robots", action="store_true", help="Ignore robots.txt (default: respect it)")
+    fetch.add_argument("--output", help="Output file (default: fetched.<format>)")
+    fetch.add_argument("--format", choices=["csv", "jsonl"], default="csv", help="Output format (default: csv)")
+    fetch.add_argument("--json", action="store_true", help="Emit machine-readable JSON")
+
     return parser
 
 
@@ -1019,6 +1361,8 @@ def main() -> None:
         "doctor": cmd_doctor,
         "serve": cmd_serve,
         "quickstart": cmd_quickstart,
+        "discover": cmd_discover,
+        "fetch": cmd_fetch,
     }
     try:
         handlers[args.command](args)

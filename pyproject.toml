@@ -40,6 +40,15 @@ Security = "https://github.com/NatesVibeCode/account-fleet/security/policy"
 dev = [
     "pytest>=7.0.0",
 ]
+discover = [
+    "ddgs>=8.0",
+    "readability-lxml>=0.8",
+    "trafilatura>=1.0",
+    "pypdf>=4.0",
+]
+js = [
+    "playwright>=1.40",
+]
 
 [project.scripts]
 account-fleet = "free_fleet.cli:main"
