@@ -5,6 +5,8 @@ This is intentionally check-only. It never copies or overwrites source files.
 career-fleet may extend its first migration, shared models, and operations
 documentation with profile metadata, so those career-specific overlays are
 normalized or intentionally excluded from byte-for-byte comparison.
+Package-specific aliases, bundled skills, and task presets are also
+variant-specific and are intentionally outside the shared-file allowlist.
 """
 from __future__ import annotations
 
@@ -31,9 +33,7 @@ EXACT_FILES = (
     "free_fleet/input_data.py",
     "free_fleet/packer.py",
     "free_fleet/sessions.py",
-    "free_fleet/setup.py",
     "free_fleet/slicer.py",
-    "free_fleet/task.py",
     "free_fleet/ui.py",
     "free_fleet/migrations/002_intelligence_and_policy.sql",
     "free_fleet/data/routes.seed.json",
