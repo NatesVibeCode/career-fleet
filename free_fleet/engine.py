@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 from pydantic import ValidationError
-from .catalog import RouteCatalog
+from .catalog import RouteCatalog, is_observed_zero_price_route
 from .export import export_clean_packet
 from .grounding import normalize_grounding
 from .models import CandidateModelOutput, InputItem, PackedBatch, ProviderReceipt, RoutePolicy, TaskSpec
@@ -357,8 +357,40 @@ class Engine:
         # Reclaim any batches abandoned in 'leased' status from prior interrupted worker sessions
         self.store.reset_leased_batches(run_id)
         snapshot = self.store.run_snapshot(run_id)
+
+        # A completed run can always be re-exported; it must not require a
+        # currently available model route just to read already verified data.
+        has_work = any(
+            batch.get("status") in {"pending", "leased"}
+            for batch in (snapshot.get("batches") or {}).values()
+        )
+        if not has_work:
+            raw_out = snapshot.get("output_path")
+            export_path = output_packet_path or (
+                Path(raw_out) if raw_out else Path("runs") / run_id / "clean_packet.json"
+            )
+            return export_clean_packet(snapshot, export_path)
+
         if not self.policy and snapshot.get("policy"):
-            self.policy = RoutePolicy.model_validate(snapshot["policy"])
+            stored_policy = RoutePolicy.model_validate(snapshot["policy"])
+            # Run policy is retained as audit history, but a paid allowlist is
+            # never an approval token for a later process/session. Keep only
+            # currently free routes when resuming implicitly.
+            if stored_policy.allowed_routes:
+                route_map = {r["id"]: r for r in self.catalog.data.get("routes", [])}
+                free_routes = [
+                    route_id for route_id in stored_policy.allowed_routes
+                    if route_id in route_map and is_observed_zero_price_route(route_map[route_id])
+                ]
+                if len(free_routes) != len(stored_policy.allowed_routes):
+                    if not free_routes:
+                        raise RuntimeError(
+                            "This run includes a previously approved paid route; "
+                            "resume it with an explicit --route approval."
+                        )
+                    stored_policy.allowed_routes = free_routes
+                    stored_policy.free_only = True
+            self.policy = stored_policy
 
         available_free_routes = self.catalog.get_ladder(
             task_seed=str(time.time()),

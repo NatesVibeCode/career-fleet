@@ -202,12 +202,13 @@ def create_mcp_server(workspace_root: str | Path, db_path: str | Path | None = N
         run_id: Annotated[str, Field(description="Existing SQLite run identifier")],
         sessions: Annotated[int, Field(ge=1, le=64)] = 4,
         output_packet: Annotated[str | None, Field(description="Optional workspace-relative packet path")] = None,
+        policy: Annotated[RoutePolicy | None, Field(description="Optional explicit paid-route approval and policy for this resume session")] = None,
     ) -> CleanPacket:
-        """Resume pending batches from an existing run without rereading source files."""
+        """Resume pending batches from an existing run without rereading source files. Paid routes must be explicitly approved again in each new session; free routes remain the default."""
         task_spec = store.get_run_task(run_id)
         snapshot = store.run_snapshot(run_id)
         packet_path = workspace.path(output_packet) if output_packet else workspace.path(snapshot["output_path"])
-        packet = Engine(task=task_spec, store=store).resume_campaign(run_id, sessions, packet_path)
+        packet = Engine(task=task_spec, store=store, policy=policy).resume_campaign(run_id, sessions, packet_path)
         return CleanPacket.model_validate(packet)
 
     @server.tool(structured_output=True)

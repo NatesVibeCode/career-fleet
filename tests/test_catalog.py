@@ -111,7 +111,12 @@ def test_record_cost_paid_policy_within_spend_limit(tmp_path):
     }
     cat.save()
 
-    policy = RoutePolicy(max_cost_per_1k_input=2.0, max_cost_per_1k_output=3.0, max_request_cost=0.10)
+    policy = RoutePolicy(
+        allowed_routes=["r_paid"],
+        max_cost_per_1k_input=2.0,
+        max_cost_per_1k_output=3.0,
+        max_request_cost=0.10,
+    )
     cat.record_cost("r_paid", reported_cost=0.025, policy=policy)
 
     assert cat.data["routes"][0]["enabled"] is True
@@ -129,13 +134,140 @@ def test_record_cost_paid_policy_exceeding_max_request_cost(tmp_path):
     }
     cat.save()
 
-    policy = RoutePolicy(max_cost_per_1k_input=2.0, max_cost_per_1k_output=3.0, max_request_cost=0.01)
+    policy = RoutePolicy(
+        allowed_routes=["r_paid"],
+        max_cost_per_1k_input=2.0,
+        max_cost_per_1k_output=3.0,
+        max_request_cost=0.01,
+    )
     with pytest.raises(RouteCircuitBreaker) as exc:
         cat.record_cost("r_paid", reported_cost=0.05, policy=policy)
 
     assert "exceeded policy max_request_cost" in str(exc.value)
     assert cat.data["routes"][0]["enabled"] is False
     assert "max_request_cost" in cat.data["routes"][0]["disabled_reason"]
+
+
+def test_zero_cost_receipt_does_not_promote_paid_route(tmp_path):
+    cat = RouteCatalog(config_path=tmp_path / "routes.json")
+    cat.data = {
+        "revision": 1,
+        "routes": [{
+            "id": "r_paid",
+            "enabled": True,
+            "price_state": "unknown",
+            "cost_per_1k_input": 1.0,
+            "cost_per_1k_output": 2.0,
+        }],
+    }
+    cat.save()
+
+    cat.record_cost("r_paid", reported_cost=0.0)
+
+    assert cat.data["routes"][0]["price_state"] == PriceState.UNKNOWN.value
+    assert "r_paid" not in cat.get_ladder(free_only=True)
+
+
+def test_zero_price_route_rejects_nonzero_declared_cost(tmp_path):
+    cat = RouteCatalog(config_path=tmp_path / "routes.json")
+
+    with pytest.raises(ValueError, match="cannot declare non-zero token costs"):
+        cat.add_route(
+            "r_bad_free",
+            provider="paid",
+            cost_per_1k_input=1.0,
+            cost_per_1k_output=2.0,
+            price_state=PriceState.PRICE_OBSERVED_ZERO.value,
+        )
+
+
+def test_legacy_inconsistent_free_route_is_not_selected(tmp_path):
+    cat = RouteCatalog(config_path=tmp_path / "routes.json")
+    cat.data = {
+        "revision": 1,
+        "routes": [{
+            "id": "legacy/paid",
+            "enabled": True,
+            "price_state": PriceState.PRICE_OBSERVED_ZERO.value,
+            "cost_per_1k_input": 1.0,
+            "cost_per_1k_output": 2.0,
+        }],
+    }
+    cat.save()
+
+    assert cat.get_ladder(free_only=True) == []
+
+
+def test_openrouter_refresh_disables_stale_free_route(tmp_path, monkeypatch):
+    class FakeClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            pass
+
+        def get(self, url, **kwargs):
+            return httpx.Response(200, json={"data": []})
+
+    monkeypatch.setattr("httpx.Client", FakeClient)
+    cat = RouteCatalog(db_path=tmp_path / "state.db")
+    cat.add_route(
+        "openrouter/old-model",
+        provider="openrouter",
+        cost_per_1k_input=0.0,
+        cost_per_1k_output=0.0,
+        price_state=PriceState.PRICE_OBSERVED_ZERO.value,
+    )
+
+    cat.refresh_from_openrouter()
+
+    route = next(r for r in cat.data["routes"] if r["id"] == "openrouter/old-model")
+    assert route["enabled"] is False
+    assert route["price_state"] == PriceState.UNKNOWN.value
+    assert cat.get_ladder(free_only=True) == []
+
+
+def test_cost_limits_do_not_approve_paid_routes(tmp_path):
+    cat = RouteCatalog(config_path=tmp_path / "routes.json")
+    cat.data = {
+        "revision": 1,
+        "routes": [
+            {"id": "r_paid", "enabled": True, "price_state": "unknown", "cost_per_1k_input": 1.0, "cost_per_1k_output": 2.0},
+            {"id": "r_free", "enabled": True, "price_state": "price_observed_zero"},
+        ],
+    }
+    cat.save()
+
+    policy = RoutePolicy(max_cost_per_1k_input=2.0, max_cost_per_1k_output=3.0, max_request_cost=0.10)
+    ladder = cat.get_ladder(policy=policy, free_only=True)
+
+    assert "r_paid" not in ladder
+    assert "r_free" in ladder
+
+
+def test_explicit_route_approval_allows_paid_lane(tmp_path):
+    cat = RouteCatalog(config_path=tmp_path / "routes.json")
+    cat.data = {
+        "revision": 1,
+        "routes": [{
+            "id": "r_paid",
+            "enabled": True,
+            "price_state": "unknown",
+            "cost_per_1k_input": 1.0,
+            "cost_per_1k_output": 2.0,
+        }],
+    }
+    cat.save()
+
+    ladder = cat.get_ladder(
+        policy=RoutePolicy(allowed_routes=["r_paid"]),
+        free_only=True,
+    )
+
+    assert ladder == ["r_paid"]
 
 
 def test_add_route_cost_safety_defaults(tmp_path):

@@ -65,7 +65,7 @@ free-fleet export my-run --format json --output packet.json
 free-fleet db backup ./backup.db --json
 ```
 
-Resume needs only the run ID. SQLite already holds the batch payloads. Do not reconstruct a run from the original files.
+Resume normally needs only the run ID; free routes remain the default. A paid route approved for an earlier session must be requested again with `--route <route-id>`. SQLite already holds the batch payloads. Do not reconstruct a run from the original files.
 
 Packaged routes are disabled hints, not current price evidence. `routes --refresh` contacts providers and appends observations. Use it only when that mutation is in scope.
 

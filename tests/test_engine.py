@@ -2,8 +2,9 @@ import json
 
 from free_fleet.catalog import RouteCatalog
 from free_fleet.engine import Engine
-from free_fleet.models import TaskSpec
+from free_fleet.models import RoutePolicy, TaskSpec
 from free_fleet.packer import pack_items
+from free_fleet.store import FreeFleetStore
 
 
 class ProviderStub:
@@ -199,3 +200,51 @@ def test_inference_attempts_recorded_in_sqlite_on_failure_and_success(tmp_path):
     assert second_route in stats
     assert abs(stats[second_route]["total"] - 1.0) < 1e-3
     assert abs(stats[second_route]["completed"] - 1.0) < 1e-3
+
+
+def test_new_resume_session_does_not_reactivate_stored_paid_approval(tmp_path):
+    store = FreeFleetStore(tmp_path / "state.db")
+    catalog = RouteCatalog(db_path=store.path)
+    catalog.add_route(
+        "paid/model",
+        provider="stub",
+        cost_per_1k_input=1.0,
+        cost_per_1k_output=2.0,
+        enabled=True,
+        price_state="unknown",
+    )
+    task = TaskSpec(
+        name="paid-resume",
+        claims_schema={
+            "type": "object",
+            "properties": {"summary": {"type": "string"}},
+            "required": ["summary"],
+            "additionalProperties": False,
+        },
+    )
+    revision = store.register_task(task)
+    store.create_run(
+        run_id="paid-resume-run",
+        task_revision_id=revision,
+        input_path="input.jsonl",
+        input_digest="a" * 64,
+        total_items=1,
+        max_attempts=3,
+        batch_size=1,
+        output_path=str(tmp_path / "packet.json"),
+        policy=RoutePolicy(allowed_routes=["paid/model"]),
+    )
+    store.enqueue_batches(
+        "paid-resume-run",
+        pack_items([{"item_id": "i1", "text": "supported source text"}]),
+        max_attempts_per_batch=3,
+    )
+
+    fresh_engine = Engine(task=task, store=store, catalog=catalog)
+    try:
+        fresh_engine.resume_campaign("paid-resume-run", concurrency=1)
+    except RuntimeError as exc:
+        assert "previously approved paid route" in str(exc)
+        assert "explicit --route approval" in str(exc)
+    else:
+        raise AssertionError("a stored paid approval was reused by a new session")

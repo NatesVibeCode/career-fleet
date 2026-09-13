@@ -183,6 +183,17 @@ def rank_with_scores(
             continue
 
         if policy:
+            if getattr(policy, "free_only", False):
+                declared_costs = (r.get("cost_per_1k_input"), r.get("cost_per_1k_output"))
+                is_zero = (
+                    not any(cost is not None and cost != 0.0 for cost in declared_costs)
+                    and (
+                        r.get("price_state") == "price_observed_zero"
+                        or all(cost is not None and cost == 0.0 for cost in declared_costs)
+                    )
+                )
+                if not is_zero:
+                    continue
             allowed_t = policy.allowed_transports or policy.allowed_providers
             excluded_t = policy.excluded_transports or policy.excluded_providers
             if allowed_t and prov not in [p.lower() for p in allowed_t]:

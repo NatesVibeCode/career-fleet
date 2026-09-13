@@ -407,7 +407,8 @@ def cmd_resume(args: argparse.Namespace) -> None:
     task = store.get_run_task(args.run_id)
     snapshot = store.run_snapshot(args.run_id)
     output = Path(args.output or snapshot["output_path"])
-    packet = Engine(task=task, store=store).resume_campaign(
+    policy = _extract_policy(args)
+    packet = Engine(task=task, store=store, policy=policy).resume_campaign(
         args.run_id,
         concurrency=args.sessions,
         output_packet_path=output,
@@ -1196,6 +1197,7 @@ def build_parser() -> argparse.ArgumentParser:
     resume.add_argument("run_id")
     resume.add_argument("--sessions", type=int, default=4)
     resume.add_argument("--output")
+    _policy_options(resume)
     _common(resume)
 
     status = commands.add_parser("status", help="Show real-time progress, attempts, and route stats for a run")
