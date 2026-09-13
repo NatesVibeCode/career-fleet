@@ -9,6 +9,7 @@ import shlex
 import shutil
 import sys
 import time
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -41,7 +42,7 @@ from .discover import (
 )
 from .engine import Engine
 from .export import export_clean_packet
-from .input_data import load_input_items
+from .input_data import iter_input_items, load_input_items
 from .models import (
     CandidateModelOutput,
     CleanPacket,
@@ -53,10 +54,21 @@ from .models import (
     TaskSpec,
     ValidationReport,
 )
-from .packer import pack_items
+from .packer import iter_packed_batches, pack_items
+from .profile import IdealCompanyProfile
 from .store import BulkLanesStore, SCHEMA_SQL, SCHEMA_VERSION, default_db_path
 from .setup import installed_skill_matches, setup_workspace, skill_destination
 from .task import create_task_from_preset, load_task_spec, PRESETS
+
+
+def _positive_int(value: str) -> int:
+    try:
+        parsed = int(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("must be an integer") from exc
+    if parsed < 1:
+        raise argparse.ArgumentTypeError("must be at least 1")
+    return parsed
 
 
 def _split_csv_list(values: list[str] | str | None) -> list[str] | None:
@@ -115,24 +127,64 @@ def _extract_policy(args: argparse.Namespace) -> RoutePolicy | None:
     )
 
 
+def _workspace_path(value: str | Path, workspace_root: str | Path = ".") -> Path:
+    candidate = Path(value).expanduser()
+    return candidate if candidate.is_absolute() else Path(workspace_root).expanduser().resolve() / candidate
+
+
+def _input_source(args: argparse.Namespace) -> tuple[Path, dict[str, Any]]:
+    only_ids = getattr(args, "only_ids", None)
+    if isinstance(only_ids, str) and not any(separator in only_ids for separator in (",", ";", "\n")):
+        only_ids = _workspace_path(only_ids, getattr(args, "workspace_root", "."))
+    return _workspace_path(args.input, getattr(args, "workspace_root", ".")), {
+        "id_column": getattr(args, "id_column", None),
+        "text_column": getattr(args, "text_column", None),
+        "title_column": getattr(args, "title_column", None),
+        "uri_column": getattr(args, "uri_column", None),
+        "only_ids": only_ids,
+    }
+
+
+def _iter_input(args: argparse.Namespace):
+    source, options = _input_source(args)
+    return iter_input_items(source, **options)
+
+
+def _input_factory(args: argparse.Namespace):
+    source, options = _input_source(args)
+    return lambda: iter_input_items(source, **options)
+
+
 def _load_input(args: argparse.Namespace) -> list[InputItem]:
-    return load_input_items(
-        args.input,
-        id_column=getattr(args, "id_column", None),
-        text_column=getattr(args, "text_column", None),
-        title_column=getattr(args, "title_column", None),
-        uri_column=getattr(args, "uri_column", None),
-        only_ids=getattr(args, "only_ids", None),
-    )
+    """Compatibility helper for commands that intentionally need a list."""
+    return list(_iter_input(args))
 
 
 def _package_version() -> str:
-    for name in ("account-fleet", "free-fleet", "bulk-lanes"):
+    executable = Path(sys.argv[0]).stem.lower()
+    preferred = {
+        "career-fleet": "career-fleet",
+        "career-lanes": "career-fleet",
+        "account-fleet": "account-fleet",
+        "free-fleet": "free-fleet",
+        "bulk-lanes": "bulk-lanes",
+    }.get(executable)
+    package_names = [preferred] if preferred else []
+    package_names.extend(
+        name for name in ("career-fleet", "account-fleet", "free-fleet", "bulk-lanes")
+        if name not in package_names
+    )
+    for name in package_names:
         try:
             return importlib.metadata.version(name)
         except importlib.metadata.PackageNotFoundError:
             pass
-    return "0.2.5"
+    try:
+        from . import __version__
+
+        return __version__
+    except ImportError:
+        return "0.0.0"
 
 
 def _emit(value: Any, json_mode: bool, human: str | None = None) -> None:
@@ -151,13 +203,67 @@ def _store(args: argparse.Namespace) -> BulkLanesStore:
     return BulkLanesStore(path if path.is_absolute() else workspace / path)
 
 
-def _resolve_task(reference: str, store: BulkLanesStore) -> TaskSpec:
-    path = Path(reference)
+def _resolve_task(reference: str, store: BulkLanesStore, workspace_root: str | Path = ".") -> TaskSpec:
+    path = _workspace_path(reference, workspace_root)
     if path.is_file():
         spec = load_task_spec(path)
         store.register_task(spec)
         return spec
     return store.get_task(reference)
+
+
+def _resolve_profile(args: argparse.Namespace, store: BulkLanesStore) -> tuple[IdealCompanyProfile | None, str | None]:
+    """Load the selected ICP and return it with its immutable revision ID."""
+    profile_path = getattr(args, "profile", None)
+    if profile_path:
+        workspace = Path(getattr(args, "workspace_root", ".")).expanduser().resolve()
+        candidate = Path(profile_path).expanduser()
+        profile = IdealCompanyProfile.load(candidate if candidate.is_absolute() else workspace / candidate)
+        return profile, store.save_profile(profile)
+    if not getattr(args, "use_active_profile", False):
+        return None, None
+    revision = store.active_profile_revision_id("ideal_company")
+    return (store.load_profile("ideal_company"), revision) if revision else (None, None)
+
+
+def cmd_profile(args: argparse.Namespace) -> None:
+    """Create, inspect, and persist the account-side Ideal Company Profile."""
+    store = _store(args)
+    workspace = Path(getattr(args, "workspace_root", ".")).expanduser().resolve()
+    profile_path = Path(getattr(args, "path", "ideal_company_profile.json")).expanduser()
+    if not profile_path.is_absolute():
+        profile_path = workspace / profile_path
+    profile_exists = profile_path.is_file()
+    if getattr(args, "init", False) and profile_exists and not getattr(args, "force", False):
+        print(f"Error: Profile already exists at {profile_path}; use --force to replace it.", file=sys.stderr)
+        raise SystemExit(1)
+
+    if getattr(args, "init", False) or (not profile_exists and store.load_profile() is None):
+        profile = IdealCompanyProfile()
+        profile.save(profile_path)
+    elif profile_exists:
+        profile = IdealCompanyProfile.load(profile_path)
+    else:
+        profile = store.load_profile()
+        if profile is None:
+            raise FileNotFoundError(
+                f"No Ideal Company Profile found at {profile_path} or in {store.path}. Use 'account-fleet profile --init'."
+            )
+        profile.save(profile_path)
+
+    revision = store.save_profile(profile)
+    _emit(
+        {
+            "profile_kind": "ideal_company",
+            "revision": revision,
+            "database": str(store.path.resolve()),
+            "path": str(profile_path),
+            "profile": profile.model_dump(mode="json"),
+        },
+        getattr(args, "json", False),
+        f"Ideal Company Profile: {profile.profile_name} (v{profile.version})\n"
+        f"Revision: {revision}\nDatabase: {store.path.resolve()}\nPath: {profile_path}",
+    )
 
 
 def cmd_routes(args: argparse.Namespace) -> None:
@@ -295,10 +401,13 @@ def _infer_schema_from_example(path: Path, label_column: str | None = None) -> t
 
 
 def cmd_init(args: argparse.Namespace) -> None:
+    workspace = Path(getattr(args, "workspace_root", ".")).expanduser().resolve()
     from_example = getattr(args, "from_example", None)
     label_col = getattr(args, "label_column", None)
     if from_example:
-        example_path = Path(from_example)
+        example_path = Path(from_example).expanduser()
+        if not example_path.is_absolute():
+            example_path = workspace / example_path
         claims_schema, detected_label = _infer_schema_from_example(example_path, label_col)
         instructions = f"Classify each item and provide a supported summary. Labels were inferred from column '{detected_label}' in {example_path.name}."
         preset_name = f"from-example:{example_path.name}"
@@ -313,11 +422,17 @@ def cmd_init(args: argparse.Namespace) -> None:
         preset_name = args.preset
     store = _store(args)
     revision = store.register_task(spec)
-    sample_path = Path(args.sample or f"{args.name}.sample.jsonl")
+    sample_path = Path(args.sample or f"{args.name}.sample.jsonl").expanduser()
+    if not sample_path.is_absolute():
+        sample_path = workspace / sample_path
     if not sample_path.exists():
         sample_path.parent.mkdir(parents=True, exist_ok=True)
         sample = InputItem(item_id="item_1", title="Example", text="Replace this text with the source you want to process.")
         sample_path.write_text(json.dumps(sample.model_dump(mode="json", by_alias=True), ensure_ascii=False) + "\n")
+    next_validate = shlex.join([
+        "free-fleet", "validate", spec.name, "--input", str(sample_path),
+        "--db", str(store.path.resolve()), "--workspace-root", str(workspace),
+    ])
     _emit(
         {
             "created": True,
@@ -327,36 +442,38 @@ def cmd_init(args: argparse.Namespace) -> None:
             "database": str(store.path.resolve()),
             "sample_input": str(sample_path),
             "claims_schema": spec.claims_schema,
-            "next": f"free-fleet validate {spec.name} --input {sample_path}",
+            "next": next_validate,
         },
         args.json,
         f"Created task '{spec.name}' from '{preset_name}'.\n"
         f"Claims: {list(spec.claims_schema.get('properties', {}).keys())}\n"
-        f"Sample: {sample_path}\nNext: free-fleet validate {spec.name} --input {sample_path}",
+        f"Sample: {sample_path}\nNext: {next_validate}",
     )
 
 
 def cmd_validate(args: argparse.Namespace) -> None:
     store = _store(args)
-    task = _resolve_task(args.task, store)
-    items = _load_input(args)
-    batches = pack_items(items, task.batch_size, task.max_slice_chars)
+    task = _resolve_task(args.task, store, getattr(args, "workspace_root", "."))
+    batch_count = 0
+    total_items = 0
     # Detect long documents that were sliced into partial windows
     truncated = 0
     total_slices = 0
-    for b in batches:
+    for b in iter_packed_batches(_iter_input(args), task.batch_size, task.max_slice_chars):
+        batch_count += 1
         for itm in b.get("items", b.get("items", [])) if isinstance(b, dict) else []:
+            total_items += 1
             slices = itm.get("slices", []) if isinstance(itm, dict) else []
             total_slices += len(slices)
             if any(s.get("partial") for s in slices):
                 truncated += 1
     partial_msg = ""
     if truncated:
-        partial_msg = f"\nWarning: {truncated}/{len(items)} item(s) exceed max_slice_chars={task.max_slice_chars} and were tri-window sliced (head/mid/tail) with partial:true. Quotes must lie within one window; consider raising --max-slice-chars for fewer windows." if truncated else ""
+        partial_msg = f"\nWarning: {truncated}/{total_items} item(s) exceed max_slice_chars={task.max_slice_chars} and were tri-window sliced (head/mid/tail) with partial:true. Quotes must lie within one window; consider raising --max-slice-chars for fewer windows." if truncated else ""
     _emit(
-        ValidationReport(valid=True, task=task.name, input_items=len(items), batches=len(batches)),
+        ValidationReport(valid=True, task=task.name, input_items=total_items, batches=batch_count),
         args.json,
-        f"Valid. Task '{task.name}' will process {len(items)} items in {len(batches)} batches.{partial_msg}",
+        f"Valid. Task '{task.name}' will process {total_items} items in {batch_count} batches.{partial_msg}",
     )
     if truncated and not args.json:
         print(partial_msg, file=sys.stderr)
@@ -365,12 +482,16 @@ def cmd_validate(args: argparse.Namespace) -> None:
 def cmd_test(args: argparse.Namespace) -> None:
     store = _store(args)
     task = _resolve_task(args.task, store)
-    items = _load_input(args)
     policy = _extract_policy(args)
-    batches = pack_items(items[: task.batch_size], task.batch_size, task.max_slice_chars)
-    if not batches:
+    input_factory = _input_factory(args)
+    # Validate the complete source first, but only pack the first batch for
+    # the real inference call. This keeps the test bounded without accepting
+    # malformed records hidden after the first batch.
+    for _ in input_factory():
+        pass
+    batch = next(iter_packed_batches(input_factory(), task.batch_size, task.max_slice_chars), None)
+    if batch is None:
         raise ValueError("input contains no packable items to test")
-    batch = batches[0]
     engine = Engine(task=task, store=store, policy=policy)
     ok, results, receipt, error = engine.execute_batch(batch)
     _emit(
@@ -384,19 +505,24 @@ def cmd_test(args: argparse.Namespace) -> None:
 
 def cmd_run(args: argparse.Namespace) -> None:
     store = _store(args)
-    task = _resolve_task(args.task, store)
-    items = _load_input(args)
+    task = _resolve_task(args.task, store, getattr(args, "workspace_root", "."))
+    input_path, input_options = _input_source(args)
+    input_factory = lambda: iter_input_items(input_path, **input_options)
     policy = _extract_policy(args)
-    run_id = args.run_id or f"{task.name}-{int(time.time())}"
-    output = Path(args.output or f"runs/{run_id}/clean_packet.json")
+    profile, profile_revision_id = _resolve_profile(args, store)
+    run_id = args.run_id or f"{task.name}-{time.time_ns()}-{uuid.uuid4().hex[:8]}"
+    output = _workspace_path(args.output or f"runs/{run_id}/clean_packet.json", getattr(args, "workspace_root", "."))
     packet = Engine(task=task, store=store, policy=policy).run_campaign(
-        raw_items=items,
+        raw_items=input_factory(),
         run_id=run_id,
-        input_path=str(Path(args.input).resolve()),
+        input_path=str(input_path.resolve()),
         concurrency=args.sessions,
         max_attempts=args.max_attempts,
         output_packet_path=output,
         policy=policy,
+        profile_revision_id=profile_revision_id,
+        profile=profile,
+        raw_items_factory=input_factory,
     )
     _emit(
         {"run_id": run_id, "packet": str(output), "result": packet},
@@ -462,15 +588,17 @@ def cmd_eval(args: argparse.Namespace) -> None:
 
     store = _store(args)
     task = _resolve_task(args.task, store)
-    items = _load_input(args)
+    input_path, input_options = _input_source(args)
+    input_factory = lambda: iter_input_items(input_path, **input_options)
     target_routes = [r.strip() for r in args.routes.split(",") if r.strip()] if getattr(args, "routes", None) else None
 
     evaluator = RouteEvaluator(task=task, store=store)
     report = evaluator.evaluate_all(
-        samples=items,
+        samples=input_factory(),
         routes=target_routes,
         expected_claims_key=getattr(args, "expected_claims_col", None),
-        concurrency=int(getattr(args, "concurrency", 4) or 4),
+        concurrency=int(getattr(args, "concurrency", 4)),
+        samples_factory=input_factory,
     )
     if args.json:
         _emit(report, True)
@@ -519,6 +647,7 @@ def cmd_schema(args: argparse.Namespace) -> None:
         "candidate-output": CandidateModelOutput,
         "output": ModelOutput,
         "packet": CleanPacket,
+        "profile": IdealCompanyProfile,
     }
     from .store import get_database_schema_sql
     schema = (
@@ -555,7 +684,7 @@ def cmd_doctor(args: argparse.Namespace) -> None:
     opencode = shutil.which("opencode")
     openrouter_key = bool(os.environ.get("OPENROUTER_API_KEY"))
     checks = [
-        DoctorCheck(name="database", ok=store.schema_version() in ("1", "2"), detail=f"SQLite schema {store.schema_version()} at {store.path.resolve()}"),
+        DoctorCheck(name="database", ok=store.schema_version() in ("1", "2", "3", "4"), detail=f"SQLite schema {store.schema_version()} at {store.path.resolve()}"),
         DoctorCheck(name="opencode", ok=bool(opencode), detail=opencode or "opencode not found in PATH"),
         DoctorCheck(name="openrouter", ok=openrouter_key, detail="OPENROUTER_API_KEY configured" if openrouter_key else "optional key not configured"),
         DoctorCheck(name="routes", ok=bool(observed_routes), detail=f"{len(observed_routes)} enabled observed-zero routes"),
@@ -614,7 +743,7 @@ def cmd_quickstart(args: argparse.Namespace) -> None:
     if not saas_data.is_file():
         saas_data = _P.cwd() / "examples" / "saas_intelligence" / "sample_data.jsonl"
 
-    run_id = getattr(args, "run_id", None) or f"demo-{int(time.time())}"
+    run_id = getattr(args, "run_id", None) or f"demo-{time.time_ns()}-{uuid.uuid4().hex[:8]}"
     output = _P(getattr(args, "output", None) or f"runs/{run_id}/clean_packet.json")
 
     # Choose first available example task/input
@@ -730,9 +859,16 @@ def cmd_mcp_install(args: argparse.Namespace) -> None:
     workspace_root = Path(getattr(args, "workspace_root", ".")).expanduser().resolve()
     if not workspace_root.is_dir():
         raise ValueError(f"workspace root not found: {workspace_root}")
-    configured_db = getattr(args, "db", None) or os.environ.get("ACCOUNT_FLEET_DB") or os.environ.get("FREE_FLEET_DB")
+    configured_db = (
+        getattr(args, "db", None)
+        or os.environ.get("ACCOUNT_FLEET_DB")
+        or os.environ.get("FREE_FLEET_DB")
+        or os.environ.get("BULK_LANES_DB")
+    )
     db_path = Path(configured_db).expanduser() if configured_db else workspace_root / "free-fleet.db"
     db_path = (db_path if db_path.is_absolute() else workspace_root / db_path).resolve()
+    if not db_path.is_relative_to(workspace_root):
+        raise ValueError("MCP database must stay below the workspace root")
 
     cli_cmd = installed_cli_path()
     server_entry = {
@@ -1158,11 +1294,20 @@ def build_parser() -> argparse.ArgumentParser:
     init.add_argument("--label-column", help="Column containing labels in --from-example (auto-detected if omitted)")
     init.add_argument("--batch-size", type=int, default=4)
     init.add_argument("--sample", help="Sample input path")
+    init.add_argument("--workspace-root", default=".", help="Workspace root for relative paths")
     _common(init)
+
+    profile = commands.add_parser("profile", help="Create or inspect the Ideal Company Profile")
+    profile.add_argument("--path", default="ideal_company_profile.json", help="Path to the Ideal Company Profile JSON")
+    profile.add_argument("--init", action="store_true", help="Generate a fresh default profile")
+    profile.add_argument("--force", action="store_true", help="Replace an existing profile when used with --init")
+    profile.add_argument("--workspace-root", default=".", help="Workspace root for relative paths")
+    _common(profile)
 
     validate = commands.add_parser("validate", help="Validate a task and input without inference")
     validate.add_argument("task", help="Registered task name or TaskSpec JSON path")
     validate.add_argument("--input", required=True)
+    validate.add_argument("--workspace-root", default=".", help="Workspace root for relative paths")
     _input_options(validate)
     _common(validate)
 
@@ -1189,17 +1334,20 @@ def build_parser() -> argparse.ArgumentParser:
     run = commands.add_parser("run", help="Create and execute a resumable run")
     run.add_argument("task", help="Registered task name or TaskSpec JSON path")
     run.add_argument("--input", required=True)
-    run.add_argument("--sessions", type=int, default=4)
-    run.add_argument("--max-attempts", type=int, default=300)
+    run.add_argument("--sessions", type=_positive_int, default=4)
+    run.add_argument("--max-attempts", type=_positive_int, default=300)
     run.add_argument("--run-id")
     run.add_argument("--output")
+    run.add_argument("--profile", help="Optional Ideal Company Profile JSON; persist and attach its revision to this run")
+    run.add_argument("--use-active-profile", action="store_true", help="Explicitly attach the active Ideal Company Profile from SQLite")
+    run.add_argument("--workspace-root", default=".", help="Workspace root for relative paths")
     _input_options(run)
     _policy_options(run)
     _common(run)
 
     resume = commands.add_parser("resume", help="Resume a run from its SQLite queue")
     resume.add_argument("run_id")
-    resume.add_argument("--sessions", type=int, default=4)
+    resume.add_argument("--sessions", type=_positive_int, default=4)
     resume.add_argument("--output")
     _policy_options(resume)
     _common(resume)
@@ -1215,7 +1363,7 @@ def build_parser() -> argparse.ArgumentParser:
     eval_cmd.add_argument("--input", required=True, help="Evaluation dataset (CSV, JSONL, or JSON)")
     eval_cmd.add_argument("--routes", help="Optional comma-separated route IDs to test")
     eval_cmd.add_argument("--expected-claims-col", help="Column/metadata key containing ground-truth claims")
-    eval_cmd.add_argument("--concurrency", type=int, default=4, help="Parallel sample evaluation workers per route (default: 4)")
+    eval_cmd.add_argument("--concurrency", type=_positive_int, default=4, help="Parallel sample evaluation workers per route (default: 4)")
     _input_options(eval_cmd)
     _common(eval_cmd)
 
@@ -1238,7 +1386,7 @@ def build_parser() -> argparse.ArgumentParser:
     _common(export)
 
     schema = commands.add_parser("schema", help="Print an admitted JSON Schema")
-    schema.add_argument("kind", choices=["task", "input", "candidate-output", "output", "packet", "database"])
+    schema.add_argument("kind", choices=["task", "input", "candidate-output", "output", "packet", "profile", "database"])
 
     doctor = commands.add_parser("doctor", help="Check the local CLI, database, auth, and routes")
     doctor.add_argument("--scope", choices=["user", "project"], default="project")
@@ -1355,6 +1503,7 @@ def main() -> None:
         "cooldowns": cmd_cooldowns,
         "tasks": cmd_tasks,
         "init": cmd_init,
+        "profile": cmd_profile,
         "validate": cmd_validate,
         "test": cmd_test,
         "run": cmd_run,

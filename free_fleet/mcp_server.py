@@ -12,7 +12,7 @@ from pydantic import Field
 from .catalog import RouteCatalog
 from .engine import Engine
 from .export import export_clean_packet
-from .input_data import load_input_items
+from .input_data import iter_input_items
 from .models import (
     BatchTestResult,
     CandidateModelOutput,
@@ -24,6 +24,7 @@ from .models import (
     InputItem,
     ID_PATTERN,
     ModelOutput,
+    ProfileResult,
     RouteEvalReport,
     RoutePolicy,
     RoutesResult,
@@ -34,7 +35,8 @@ from .models import (
     TasksResult,
     ValidationReport,
 )
-from .packer import pack_items
+from .packer import iter_packed_batches, pack_items
+from .profile import IdealCompanyProfile
 from .store import BulkLanesStore, FreeFleetStore, SCHEMA_SQL, SCHEMA_VERSION
 from .task import create_task_from_preset, load_task_spec, PRESETS
 
@@ -57,8 +59,15 @@ class Workspace:
 
 def create_mcp_server(workspace_root: str | Path, db_path: str | Path | None = None) -> FastMCP:
     workspace = Workspace(workspace_root)
-    configured_db = db_path or os.environ.get("ACCOUNT_FLEET_DB") or os.environ.get("FREE_FLEET_DB")
+    configured_db = (
+        db_path
+        or os.environ.get("ACCOUNT_FLEET_DB")
+        or os.environ.get("FREE_FLEET_DB")
+        or os.environ.get("BULK_LANES_DB")
+    )
     resolved_db = workspace.path(str(configured_db)) if configured_db else workspace.path("free-fleet.db")
+    if not resolved_db.is_relative_to(workspace.root):
+        raise ValueError("MCP database must stay below the workspace root")
     store = FreeFleetStore(resolved_db)
 
     def resolve_task(reference: str) -> TaskSpec:
@@ -162,11 +171,17 @@ def create_mcp_server(workspace_root: str | Path, db_path: str | Path | None = N
     ) -> BatchTestResult:
         """Run one real inference batch and return only typed, source-grounded results."""
         task_spec = resolve_task(task)
-        items = load_input_items(workspace.path(input_path, exists=True), id_column=id_column, text_column=text_column)
-        batches = pack_items(items[:task_spec.batch_size], task_spec.batch_size, task_spec.max_slice_chars)
-        if not batches:
+        input_file = workspace.path(input_path, exists=True)
+        input_options = {"id_column": id_column, "text_column": text_column}
+        input_factory = lambda: iter_input_items(input_file, **input_options)
+        for _ in input_factory():
+            pass
+        batch = next(iter_packed_batches(
+            input_factory(), task_spec.batch_size, task_spec.max_slice_chars
+        ), None)
+        if batch is None:
             raise ValueError("input contains no packable items")
-        ok, results, receipt, error = Engine(task=task_spec, store=store).execute_batch(batches[0])
+        ok, results, receipt, error = Engine(task=task_spec, store=store).execute_batch(batch)
         return BatchTestResult.model_validate({
             "ok": ok,
             "results": results,
@@ -183,9 +198,16 @@ def create_mcp_server(workspace_root: str | Path, db_path: str | Path | None = N
     ) -> ValidationReport:
         """Validate a task and all input records offline without invoking a model."""
         task_spec = resolve_task(task)
-        items = load_input_items(workspace.path(input_path, exists=True), id_column=id_column, text_column=text_column)
-        batches = pack_items(items, task_spec.batch_size, task_spec.max_slice_chars)
-        return ValidationReport(valid=True, task=task_spec.name, input_items=len(items), batches=len(batches))
+        total_items = 0
+        batch_count = 0
+        for batch in iter_packed_batches(
+            iter_input_items(workspace.path(input_path, exists=True), id_column=id_column, text_column=text_column),
+            task_spec.batch_size,
+            task_spec.max_slice_chars,
+        ):
+            batch_count += 1
+            total_items += len(batch["items"])
+        return ValidationReport(valid=True, task=task_spec.name, input_items=total_items, batches=batch_count)
 
     @server.tool(structured_output=True)
     def free_fleet_run(
@@ -199,6 +221,8 @@ def create_mcp_server(workspace_root: str | Path, db_path: str | Path | None = N
         text_column: Annotated[str | None, Field(description="Optional CSV text column")] = None,
         only_ids: Annotated[str | None, Field(description="Optional workspace-relative file or comma-separated list of IDs to restrict input items to")] = None,
         policy: Annotated[RoutePolicy | None, Field(description="Optional RoutePolicy with privacy, transport, or cost bounds")] = None,
+        profile_path: Annotated[str | None, Field(description="Optional workspace-relative Ideal Company Profile JSON to persist and attach to this run")] = None,
+        use_active_profile: Annotated[bool, Field(description="Explicitly attach the active Ideal Company Profile from SQLite")] = False,
     ) -> CleanPacket:
         """Create and execute a bounded, resumable SQLite-backed bulk campaign."""
         task_spec = resolve_task(task)
@@ -213,16 +237,33 @@ def create_mcp_server(workspace_root: str | Path, db_path: str | Path | None = N
                     resolved_only_ids = only_ids
             except Exception:
                 resolved_only_ids = only_ids
-        items = load_input_items(input_file, id_column=id_column, text_column=text_column, only_ids=resolved_only_ids)
+        input_options = {
+            "id_column": id_column,
+            "text_column": text_column,
+            "only_ids": resolved_only_ids,
+        }
+        input_factory = lambda: iter_input_items(input_file, **input_options)
+        if profile_path:
+            profile = IdealCompanyProfile.load(workspace.path(profile_path, exists=True))
+            profile_revision_id = store.save_profile(profile)
+        elif use_active_profile:
+            profile_revision_id = store.active_profile_revision_id("ideal_company")
+            profile = store.load_profile("ideal_company") if profile_revision_id else None
+        else:
+            profile_revision_id = None
+            profile = None
         packet_path = workspace.path(output_packet) if output_packet else workspace.path(f"runs/{run_id}/clean_packet.json")
         packet = Engine(task=task_spec, store=store, policy=policy).run_campaign(
-            raw_items=items,
+            raw_items=input_factory(),
             run_id=run_id,
             input_path=str(input_file),
             concurrency=sessions,
             max_attempts=max_attempts,
             output_packet_path=packet_path,
             policy=policy,
+            profile_revision_id=profile_revision_id,
+            profile=profile,
+            raw_items_factory=input_factory,
         )
         return CleanPacket.model_validate(packet)
 
@@ -259,9 +300,13 @@ def create_mcp_server(workspace_root: str | Path, db_path: str | Path | None = N
         """Benchmark candidate routes against test samples and update intelligent ranking priors."""
         from .eval import RouteEvaluator
         task_spec = resolve_task(task)
-        items = load_input_items(workspace.path(input_path, exists=True), id_column=id_column, text_column=text_column)
+        input_file = workspace.path(input_path, exists=True)
+        input_options = {"id_column": id_column, "text_column": text_column}
+        input_factory = lambda: iter_input_items(input_file, **input_options)
         evaluator = RouteEvaluator(task=task_spec, store=store)
-        return evaluator.evaluate_all(samples=items, routes=routes)
+        return evaluator.evaluate_all(
+            samples=input_factory(), routes=routes, samples_factory=input_factory
+        )
 
     @server.tool(structured_output=True)
     def free_fleet_export(
@@ -304,7 +349,7 @@ def create_mcp_server(workspace_root: str | Path, db_path: str | Path | None = N
 
     @server.tool(structured_output=True)
     def free_fleet_schema(
-        kind: Annotated[str, Field(pattern="^(task|input|candidate-output|output|packet|database)$")],
+        kind: Annotated[str, Field(pattern="^(task|input|candidate-output|output|packet|profile|database)$")],
     ) -> SchemaResult:
         """Return an admitted JSON Schema or the authoritative SQLite schema."""
         models = {
@@ -313,6 +358,7 @@ def create_mcp_server(workspace_root: str | Path, db_path: str | Path | None = N
             "candidate-output": CandidateModelOutput,
             "output": ModelOutput,
             "packet": CleanPacket,
+            "profile": IdealCompanyProfile,
         }
         from .store import get_database_schema_sql
         document = (
@@ -330,7 +376,7 @@ def create_mcp_server(workspace_root: str | Path, db_path: str | Path | None = N
         opencode = shutil.which("opencode")
         openrouter = bool(os.environ.get("OPENROUTER_API_KEY"))
         checks = [
-            DoctorCheck(name="database", ok=store.schema_version() in ("1", "2"), detail=f"SQLite schema {store.schema_version()}"),
+            DoctorCheck(name="database", ok=store.schema_version() in ("1", "2", "3", "4"), detail=f"SQLite schema {store.schema_version()}"),
             DoctorCheck(name="opencode", ok=bool(opencode), detail=opencode or "opencode not found in PATH"),
             DoctorCheck(name="openrouter", ok=openrouter, detail="configured" if openrouter else "optional key not configured"),
             DoctorCheck(name="routes", ok=bool(routes), detail=f"{len(routes)} enabled observed-zero routes"),

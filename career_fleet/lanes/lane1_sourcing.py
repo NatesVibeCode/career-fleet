@@ -27,10 +27,13 @@ except ImportError:
 
 
 REMOTE_NEGATION_PATTERN = re.compile(
-    r"\b(?:no|not|without)\s+(?:fully\s+)?remote\b|"
-    r"\bremote\s+(?:work\s+)?(?:is\s+)?(?:not\s+)?(?:required|allowed|available|permitted|optional)\b",
+    r"\b(?:no|not|without)\s+(?:(?:a|an)\s+)?(?:fully\s+)?remote(?:[- ]?(?:role|position|job))?\b|"
+    r"\bremote\s+(?:work\s+)?(?:is\s+)?(?:not|never)\s+(?:required|allowed|available|permitted|possible|offered)\b|"
+    r"\bremote\s+(?:work\s+)?(?:is\s+)?optional\b|"
+    r"\b(?:cannot|can't|will\s+not|won't|may\s+not)\s+(?:(?:be|work)\s+)?(?:fully\s+)?remote(?:ly)?\b",
     re.I,
 )
+REMOTE_FIRST_PATTERN = re.compile(r"\bremote[- ]first\b", re.I)
 REMOTE_POSITIVE_PATTERN = re.compile(
     r"\b(?:fully|100%|completely|entirely)?\s*remote\b|"
     r"\bremote[- ]first\b|\bwork[- ]from[- ]anywhere\b",
@@ -40,6 +43,7 @@ REMOTE_ROLE_POSITIVE_PATTERN = re.compile(
     r"\bremote[- ]?(?:role|position|job)\b|"
     r"\b(?:this|the|a|your)\s+(?:role|position|job)\s+(?:is\s+)?(?:fully\s+)?remote\b|"
     r"\b(?:can|may|will)\s+work\s+(?:fully\s+)?remotely\b|"
+    r"\bremote\s+(?:work\s+)?(?:is\s+)?required\b|"
     r"\bwork\s+from\s+anywhere\b",
     re.I,
 )
@@ -53,6 +57,9 @@ def _is_remote_listing(text: str, location: str | None = None) -> bool:
         return False
     if location and not REMOTE_LOCATION_PATTERN.search(location):
         return bool(REMOTE_ROLE_POSITIVE_PATTERN.search(value))
+    if REMOTE_FIRST_PATTERN.search(value) and not REMOTE_ROLE_POSITIVE_PATTERN.search(value):
+        # "Remote-first" describes a company policy, not necessarily this role.
+        return False
     return bool(REMOTE_POSITIVE_PATTERN.search(value))
 
 
@@ -103,13 +110,7 @@ def run_lane1_sourcing(
     discovered = 0
     jobs_added = 0
     pages_skipped = 0
-    refreshed_companies: set[tuple[str, str]] = set()
-
-    def refresh_company(company_id: str) -> None:
-        key = (company_id, source_type)
-        if key not in refreshed_companies:
-            store.reset_company_pipeline(company_id, clear_postings=True, source_type=source_type)
-            refreshed_companies.add(key)
+    warnings: list[str] = []
 
     try:
         if source_type == "yc":
@@ -121,6 +122,7 @@ def run_lane1_sourcing(
                 query=None if is_batch else normalized_target,
                 max_companies=max_items,
             )
+            snapshots: dict[str, list[dict[str, Any]]] = {}
             for it in items:
                 source_record_id = it.item_id
                 cid = source_record_id
@@ -136,18 +138,21 @@ def run_lane1_sourcing(
                     website_url=website,
                     status="discovered",
                 )
-                refresh_company(cid)
-                store.add_job_posting(
-                    job_id=f"job-{source_record_id}-profile",
-                    company_id=cid,
-                    title=f"{name} - Overview",
-                    raw_text=it.text,
-                    job_url=it.source_uri,
-                    timezone=_item_metadata(it, "timezone"),
-                    is_remote=_is_remote_listing(it.text),
-                    source_type=source_type,
+                snapshots.setdefault(cid, []).append(
+                    {
+                        "id": f"job-{source_record_id}-profile",
+                        "company_id": cid,
+                        "title": f"{name} - Overview",
+                        "raw_text": it.text,
+                        "job_url": it.source_uri,
+                        "timezone": _item_metadata(it, "timezone"),
+                        "is_remote": _is_remote_listing(it.text),
+                    }
                 )
                 discovered += 1
+            for cid, postings in snapshots.items():
+                if store.replace_company_source_snapshot(cid, source_type, postings):
+                    jobs_added += len(postings)
 
         elif source_type == "greenhouse":
             items = fetch_greenhouse_board(board=target, max_jobs=max_items)
@@ -159,21 +164,25 @@ def run_lane1_sourcing(
                 ats_token=target,
                 status="discovered",
             )
-            refresh_company(cid)
             discovered += 1
-            for it in items:
-                store.add_job_posting(
-                    job_id=it.item_id,
-                    company_id=cid,
-                    title=it.title or "Unknown Role",
-                    raw_text=it.text,
-                    job_url=it.source_uri,
-                    location=_item_metadata(it, "location"),
-                    timezone=_item_metadata(it, "timezone"),
-                    is_remote=_is_remote_listing(it.text, _item_metadata(it, "location")),
-                    source_type=source_type,
-                )
-                jobs_added += 1
+            postings = [
+                {
+                    "id": it.item_id,
+                    "company_id": cid,
+                    "title": it.title or "Unknown Role",
+                    "raw_text": it.text,
+                    "job_url": it.source_uri,
+                    "location": _item_metadata(it, "location"),
+                    "timezone": _item_metadata(it, "timezone"),
+                    "is_remote": _is_remote_listing(it.text, _item_metadata(it, "location")),
+                }
+                for it in items
+            ]
+            if postings:
+                store.replace_company_source_snapshot(cid, source_type, postings)
+                jobs_added += len(postings)
+            else:
+                warnings.append(f"{source_type} returned no postings; kept the previous snapshot for {cid}")
 
         elif source_type == "ashby":
             items = fetch_ashby_org(org=target, max_jobs=max_items)
@@ -185,21 +194,25 @@ def run_lane1_sourcing(
                 ats_token=target,
                 status="discovered",
             )
-            refresh_company(cid)
             discovered += 1
-            for it in items:
-                store.add_job_posting(
-                    job_id=it.item_id,
-                    company_id=cid,
-                    title=it.title or "Unknown Role",
-                    raw_text=it.text,
-                    job_url=it.source_uri,
-                    location=_item_metadata(it, "location"),
-                    timezone=_item_metadata(it, "timezone"),
-                    is_remote=_is_remote_listing(it.text, _item_metadata(it, "location")),
-                    source_type=source_type,
-                )
-                jobs_added += 1
+            postings = [
+                {
+                    "id": it.item_id,
+                    "company_id": cid,
+                    "title": it.title or "Unknown Role",
+                    "raw_text": it.text,
+                    "job_url": it.source_uri,
+                    "location": _item_metadata(it, "location"),
+                    "timezone": _item_metadata(it, "timezone"),
+                    "is_remote": _is_remote_listing(it.text, _item_metadata(it, "location")),
+                }
+                for it in items
+            ]
+            if postings:
+                store.replace_company_source_snapshot(cid, source_type, postings)
+                jobs_added += len(postings)
+            else:
+                warnings.append(f"{source_type} returned no postings; kept the previous snapshot for {cid}")
 
         elif source_type == "lever":
             items = fetch_lever_org(org=target, max_jobs=max_items)
@@ -211,21 +224,25 @@ def run_lane1_sourcing(
                 ats_token=target,
                 status="discovered",
             )
-            refresh_company(cid)
             discovered += 1
-            for it in items:
-                store.add_job_posting(
-                    job_id=it.item_id,
-                    company_id=cid,
-                    title=it.title or "Unknown Role",
-                    raw_text=it.text,
-                    job_url=it.source_uri,
-                    location=_item_metadata(it, "location"),
-                    timezone=_item_metadata(it, "timezone"),
-                    is_remote=_is_remote_listing(it.text, _item_metadata(it, "location")),
-                    source_type=source_type,
-                )
-                jobs_added += 1
+            postings = [
+                {
+                    "id": it.item_id,
+                    "company_id": cid,
+                    "title": it.title or "Unknown Role",
+                    "raw_text": it.text,
+                    "job_url": it.source_uri,
+                    "location": _item_metadata(it, "location"),
+                    "timezone": _item_metadata(it, "timezone"),
+                    "is_remote": _is_remote_listing(it.text, _item_metadata(it, "location")),
+                }
+                for it in items
+            ]
+            if postings:
+                store.replace_company_source_snapshot(cid, source_type, postings)
+                jobs_added += len(postings)
+            else:
+                warnings.append(f"{source_type} returned no postings; kept the previous snapshot for {cid}")
 
         elif source_type == "site":
             parsed_target = urlparse(target)
@@ -243,26 +260,30 @@ def run_lane1_sourcing(
                 website_url=target,
                 status="discovered",
             )
-            refresh_company(cid)
             discovered += 1
-            for it in items:
-                store.add_job_posting(
-                    job_id=it.item_id,
-                    company_id=cid,
-                    title=it.title or "Site Page",
-                    raw_text=it.text,
-                    job_url=it.source_uri,
-                    location=_item_metadata(it, "location"),
-                    timezone=_item_metadata(it, "timezone"),
-                    is_remote=_is_remote_listing(it.text, _item_metadata(it, "location")),
-                    source_type=source_type,
-                )
-                jobs_added += 1
+            postings = [
+                {
+                    "id": it.item_id,
+                    "company_id": cid,
+                    "title": it.title or "Site Page",
+                    "raw_text": it.text,
+                    "job_url": it.source_uri,
+                    "location": _item_metadata(it, "location"),
+                    "timezone": _item_metadata(it, "timezone"),
+                    "is_remote": _is_remote_listing(it.text, _item_metadata(it, "location")),
+                }
+                for it in items
+            ]
+            if postings:
+                store.replace_company_source_snapshot(cid, source_type, postings)
+                jobs_added += len(postings)
+            else:
+                warnings.append(f"{source_type} returned no pages; kept the previous snapshot for {cid}")
 
         else:
             raise ValueError(f"Unknown source_type '{source_type}'. Choose from 'yc', 'greenhouse', 'ashby', 'lever', 'site'.")
 
-        return {
+        result = {
             "status": "success",
             "source_type": source_type,
             "target": target,
@@ -270,6 +291,9 @@ def run_lane1_sourcing(
             "postings_added": jobs_added,
             "pages_skipped": pages_skipped,
         }
+        if warnings:
+            result["warnings"] = warnings
+        return result
     except Exception as exc:
         error = str(exc)
         if "career-fleet" not in error:

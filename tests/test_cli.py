@@ -2,6 +2,8 @@ import json
 from argparse import Namespace
 
 from free_fleet import cli
+from free_fleet.models import TaskSpec
+from free_fleet.profile import IdealCompanyProfile
 from free_fleet.store import BulkLanesStore
 
 
@@ -20,6 +22,56 @@ def test_init_registers_task_and_writes_typed_sample(tmp_path, monkeypatch):
     task = BulkLanesStore(db).get_task("demo")
     assert set(task.claims_schema["properties"]) == {"priority", "reason"}
     assert (tmp_path / "demo.sample.jsonl").is_file()
+
+
+def test_profile_command_persists_typed_ideal_company_profile(tmp_path, capsys):
+    profile_path = tmp_path / "ideal_company_profile.json"
+    db_path = tmp_path / "state.db"
+    profile = IdealCompanyProfile(
+        profile_name="Database Buyers",
+        product_category="Database performance",
+        required_stack=["PostgreSQL"],
+    )
+    profile.save(profile_path)
+
+    cli.cmd_profile(cli.argparse.Namespace(
+        path=str(profile_path), init=False, force=False, db=str(db_path), json=True,
+    ))
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["profile_kind"] == "ideal_company"
+    stored = BulkLanesStore(db_path)
+    assert stored.load_profile().model_dump() == profile.model_dump()
+    assert stored.active_profile_revision_id() == payload["revision"]
+
+
+def test_ideal_company_profile_accepts_interview_document_shape():
+    profile = IdealCompanyProfile.model_validate({
+        "icp_profile": {
+            "product_category": "Database performance",
+            "architectural_layer": "Postgres proxy",
+            "required_stack": ["PostgreSQL"],
+        },
+        "calibrated_scoring_rubric": {"tier_1": "explicit pain"},
+    })
+    assert profile.product_category == "Database performance"
+    assert profile.calibrated_scoring_rubric == {"tier_1": "explicit pain"}
+
+
+def test_profile_path_is_attached_to_run_snapshot(tmp_path):
+    profile_path = tmp_path / "ideal_company_profile.json"
+    db_path = tmp_path / "state.db"
+    profile = IdealCompanyProfile(profile_name="Run ICP")
+    profile.save(profile_path)
+    store = BulkLanesStore(db_path)
+    revision = store.save_profile(IdealCompanyProfile.load(profile_path))
+    task_revision = store.register_task(TaskSpec(name="run-profile-task"))
+    store.create_run(
+        "run-with-profile", task_revision, "input.jsonl", "a" * 64, 0, 1, 1, "out.json",
+        profile_revision_id=revision,
+    )
+
+    assert store.run_snapshot("run-with-profile")["profile_revision_id"] == revision
 
 
 def test_validate_is_offline_and_strict(tmp_path, capsys):
@@ -305,5 +357,3 @@ def test_init_presets_score_and_account_research(tmp_path, capsys):
     out = json.loads(capsys.readouterr().out)
     assert out["created"] is True
     assert "passed" in out["claims_schema"]["properties"]
-
-

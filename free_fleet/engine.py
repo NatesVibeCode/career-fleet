@@ -1,7 +1,11 @@
 import concurrent.futures
+import hashlib
+import json
 import time
 import uuid
+from collections.abc import Callable, Iterable, Iterator
 from datetime import datetime, timezone
+from itertools import chain
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 from pydantic import ValidationError
@@ -9,11 +13,50 @@ from .catalog import RouteCatalog, is_observed_zero_price_route
 from .export import export_clean_packet
 from .grounding import normalize_grounding
 from .models import CandidateModelOutput, InputItem, PackedBatch, ProviderReceipt, RoutePolicy, TaskSpec
-from .packer import pack_items
+from .packer import iter_packed_batches
 from .providers.base import clean_llm_json
 from .providers.registry import ProviderRegistry
 from .sessions import SessionPool, WorkerSession
-from .store import BulkLanesStore, digest_json
+from .store import BulkLanesStore, STREAMING_INPUT_DIGEST
+
+
+class _InputManifest:
+    """Incrementally reproduce the canonical list digest without retaining items."""
+
+    def __init__(self) -> None:
+        self._hasher = hashlib.sha256()
+        self._hasher.update(b"[")
+        self.count = 0
+        self._finished = False
+
+    def add(self, raw_item: InputItem | dict[str, Any]) -> None:
+        if self._finished:
+            raise RuntimeError("input manifest is already finalized")
+        if not isinstance(raw_item, InputItem):
+            InputItem.model_validate(raw_item)
+        payload = raw_item.model_dump(mode="json", by_alias=True) if hasattr(raw_item, "model_dump") else raw_item
+        if self.count:
+            self._hasher.update(b",")
+        self._hasher.update(
+            json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()
+        )
+        self.count += 1
+
+    @property
+    def digest(self) -> str:
+        if not self._finished:
+            self._hasher.update(b"]")
+            self._finished = True
+        return self._hasher.hexdigest()
+
+
+def _manifest_stream(
+    records: Iterable[InputItem | dict[str, Any]],
+    manifest: _InputManifest,
+) -> Iterator[InputItem | dict[str, Any]]:
+    for raw_item in records:
+        manifest.add(raw_item)
+        yield raw_item
 
 class Engine:
     def __init__(
@@ -25,6 +68,7 @@ class Engine:
         policy: Optional[RoutePolicy] = None,
         registry: Optional[ProviderRegistry] = None,
         session_stickiness_tolerance: float = 0.10,
+        profile: Any | None = None,
     ):
         self.task = task
         self.store = store or (catalog.store if catalog else BulkLanesStore())
@@ -36,6 +80,7 @@ class Engine:
         # score. Beyond that the ranked ladder wins and the session migrates to
         # the route that actually verifies (see execute_batch success path).
         self.session_stickiness_tolerance = max(0.0, float(session_stickiness_tolerance))
+        self.profile = profile
 
     @property
     def opencode_prov(self):
@@ -85,6 +130,12 @@ class Engine:
             })
 
         user_content = self.task.render_prompt(simplified_items)
+        if self.profile is not None and hasattr(self.profile, "to_prompt_context"):
+            user_content = (
+                f"{self.profile.to_prompt_context()}\n\n"
+                "Apply this profile as the qualification context. Follow the task's output schema and evidence rules.\n\n"
+                f"{user_content}"
+            )
 
         # Get route ladder with intelligent ranking and active policy filtering.
         # Session affinity is kept only while the session route scores within
@@ -314,38 +365,110 @@ class Engine:
 
     def run_campaign(
         self,
-        raw_items: list[InputItem | dict[str, Any]],
+        raw_items: Iterable[InputItem | dict[str, Any]],
         run_id: str,
         input_path: str,
         concurrency: int = 4,
         max_attempts: int = 300,
         output_packet_path: Optional[Path] = None,
         policy: Optional[RoutePolicy] = None,
+        profile_revision_id: str | None = None,
+        profile: Any | None = None,
+        raw_items_factory: Callable[[], Iterable[InputItem | dict[str, Any]]] | None = None,
     ) -> dict:
-        """Register a campaign in SQLite, then execute its leased batches."""
-        if not raw_items:
-            raise ValueError("input contains no items")
+        """Stream input into the durable SQLite queue, then execute its batches."""
+        if concurrency < 1:
+            raise ValueError("concurrency must be greater than 0")
+        if max_attempts < 1:
+            raise ValueError("max_attempts must be greater than 0")
+        if self.max_attempts_per_batch < 1:
+            raise ValueError("max_attempts_per_batch must be greater than 0")
         if policy:
             self.policy = policy
-        batches = pack_items(raw_items, batch_size=self.task.batch_size, max_slice_chars=self.task.max_slice_chars)
+        selected_profile = profile if profile is not None else self.profile
+        if selected_profile is not None:
+            self.profile = selected_profile
+            if profile_revision_id is None and hasattr(selected_profile, "profile_kind"):
+                profile_revision_id = self.store.save_profile(selected_profile)
+        elif profile_revision_id is not None:
+            self.profile = self.store.load_profile_revision(profile_revision_id)
+            if self.profile is None:
+                raise ValueError(f"profile revision does not exist: {profile_revision_id}")
         task_revision = self.store.register_task(self.task)
-        canonical_input = [
-            item.model_dump(mode="json", by_alias=True) if hasattr(item, "model_dump") else item
-            for item in raw_items
-        ]
         output_path = (output_packet_path or Path("runs") / run_id / "clean_packet.json").expanduser().resolve()
-        self.store.create_run(
-            run_id=run_id,
-            task_revision_id=task_revision,
-            input_path=input_path,
-            input_digest=digest_json(canonical_input),
-            total_items=len(raw_items),
-            max_attempts=max_attempts,
-            batch_size=self.task.batch_size,
-            output_path=str(output_path),
-            policy=self.policy,
-        )
-        self.store.enqueue_batches(run_id, batches, self.max_attempts_per_batch)
+
+        # File-backed callers provide a factory so the source can be streamed
+        # once for its manifest and once for durable batch insertion.  Lists
+        # and other re-iterable containers get the same bounded path.  A
+        # one-shot iterator uses the streaming-run manifest in the store.
+        source_factory = raw_items_factory
+        one_shot: Iterator[InputItem | dict[str, Any]] | None = None
+        if source_factory is None:
+            candidate = iter(raw_items)
+            if candidate is raw_items:
+                one_shot = candidate
+            else:
+                source_factory = lambda: iter(raw_items)
+
+        if source_factory is not None:
+            first_manifest = _InputManifest()
+            for raw_item in source_factory():
+                first_manifest.add(raw_item)
+            if first_manifest.count == 0:
+                raise ValueError("input contains no items")
+            with self.store.streaming_run(
+                run_id=run_id,
+                task_revision_id=task_revision,
+                profile_revision_id=profile_revision_id,
+                input_path=input_path,
+                input_digest=first_manifest.digest,
+                total_items=first_manifest.count,
+                max_attempts=max_attempts,
+                batch_size=self.task.batch_size,
+                output_path=str(output_path),
+                policy=self.policy,
+            ) as writer:
+                second_manifest = _InputManifest()
+                position = 0
+                for batch in iter_packed_batches(
+                    _manifest_stream(source_factory(), second_manifest),
+                    batch_size=self.task.batch_size,
+                    max_slice_chars=self.task.max_slice_chars,
+                ):
+                    writer.enqueue_batch(batch, position, self.max_attempts_per_batch)
+                    position += 1
+                if (second_manifest.count, second_manifest.digest) != (first_manifest.count, first_manifest.digest):
+                    raise ValueError("input changed while it was being streamed; no batches were committed")
+        else:
+            if one_shot is None:
+                raise ValueError("raw_items must be iterable")
+            try:
+                first_item = next(one_shot)
+            except StopIteration as exc:
+                raise ValueError("input contains no items") from exc
+            with self.store.streaming_run(
+                run_id=run_id,
+                task_revision_id=task_revision,
+                profile_revision_id=profile_revision_id,
+                input_path=input_path,
+                input_digest=STREAMING_INPUT_DIGEST,
+                total_items=0,
+                max_attempts=max_attempts,
+                batch_size=self.task.batch_size,
+                output_path=str(output_path),
+                policy=self.policy,
+            ) as writer:
+                manifest = _InputManifest()
+                position = 0
+                for batch in iter_packed_batches(
+                    _manifest_stream(chain((first_item,), one_shot), manifest),
+                    batch_size=self.task.batch_size,
+                    max_slice_chars=self.task.max_slice_chars,
+                ):
+                    writer.enqueue_batch(batch, position, self.max_attempts_per_batch)
+                    position += 1
+                writer.finalize(manifest.digest, manifest.count)
+
         return self.resume_campaign(run_id, concurrency=concurrency, output_packet_path=output_path)
 
     def resume_campaign(
@@ -355,10 +478,22 @@ class Engine:
         output_packet_path: Optional[Path] = None,
     ) -> dict:
         """Resume pending SQLite queue work without reconstructing it from input files."""
+        if concurrency < 1:
+            raise ValueError("concurrency must be greater than 0")
         self.task = self.store.get_run_task(run_id)
+        snapshot = self.store.run_snapshot(run_id)
+        if snapshot.get("input_digest") == STREAMING_INPUT_DIGEST:
+            raise RuntimeError(f"run {run_id} is still ingesting input; finish the original process before resuming")
+        profile_revision_id = snapshot.get("profile_revision_id")
+        self.profile = (
+            self.store.load_profile_revision(profile_revision_id)
+            if profile_revision_id
+            else None
+        )
+        if profile_revision_id and self.profile is None:
+            raise ValueError(f"profile revision for run {run_id} does not exist: {profile_revision_id}")
         # Reclaim any batches abandoned in 'leased' status from prior interrupted worker sessions
         self.store.reset_leased_batches(run_id)
-        snapshot = self.store.run_snapshot(run_id)
 
         # A completed run can always be re-exported; it must not require a
         # currently available model route just to read already verified data.

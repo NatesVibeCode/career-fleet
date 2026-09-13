@@ -16,11 +16,11 @@ career-fleet triage --db "$DB" --profile "$PROFILE"
 career-fleet recon --lane all --db "$DB" --profile "$PROFILE"
 career-fleet list --status qualified --db "$DB"
 career-fleet export --db "$DB" --output qualified_targets.json
+```
 
 Discovery is refresh-safe: rerunning a source replaces that source's stale
 records and lane results while preserving records captured from other sources
 for the same company.
-```
 
 Source targets are:
 
@@ -41,7 +41,7 @@ Lane 3 is a gate, not the final decision. Lane 4 only evaluates companies with a
 
 ## Rerun safely
 
-Evaluation writes are idempotent: rerunning triage or recon updates the existing lane result instead of creating duplicate rows. Triage rechecks every tracked company, so profile edits take effect; it also clears downstream results that must be recalculated. Re-run `discover` when source postings need refreshing; discovery replaces that company's old postings and lane results before the funnel runs again.
+Evaluation writes are idempotent: rerunning triage or recon updates the existing lane result instead of creating duplicate rows. Triage rechecks every tracked company, so profile edits take effect; it also clears downstream results that must be recalculated. Re-run `discover` when source postings need refreshing; discovery replaces that source's old postings and lane results while preserving other source types before the funnel runs again.
 
 Use `dossier --company <id>` to inspect source URLs, lane verdicts, rationale, and quotes. Add `--show-source` to print the complete captured text before acting on an exported result.
 
@@ -55,7 +55,8 @@ Start with a neutral profile, then add only constraints the user actually wants:
   "negative_stack": ["Legacy Mainframe"],
   "dealbreakers": {
     "max_headcount": 150,
-    "policy": "remote_or_hybrid",
+    "require_verified_headcount": false,
+    "policy": "any",
     "disallowed_locations": ["Austin"],
     "reject_thin_wrappers": true,
     "reject_pure_quota": true,
@@ -68,4 +69,4 @@ Start with a neutral profile, then add only constraints the user actually wants:
 
 `candidate_timezone` checks business-hour overlap only when the captured company or posting record also has IANA timezone metadata.
 
-When `max_headcount` is set, an unknown headcount is rejected rather than treated as a match. Each `required_stack` entry must be evidenced for a systems pass; use `/` inside one entry for alternatives such as `Modern Cloud / Kubernetes`.
+When `max_headcount` is set, an unknown headcount is ignored by default because many ATS sources omit it. Set `require_verified_headcount` to `true` when the user wants unknown headcount to be rejected. Each `required_stack` entry must be evidenced for a systems pass; use `/` inside one entry for alternatives such as `Modern Cloud / Kubernetes`.

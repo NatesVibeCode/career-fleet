@@ -121,7 +121,19 @@ def _stable_suffix(value: str) -> str:
 
 def domain_of(url: str) -> str:
     try:
-        return urlparse(url).netloc.lower().split("@")[-1].split(":")[0]
+        candidate = str(url).strip()
+        parsed = urlparse(candidate if "://" in candidate else f"//{candidate}")
+        host = parsed.hostname
+        if not host:
+            return ""
+        host = host.rstrip(".").lower()
+        if host.startswith("www."):
+            host = host[4:]
+        try:
+            host = host.encode("idna").decode("ascii")
+        except UnicodeError:
+            pass
+        return host
     except Exception:
         return ""
 

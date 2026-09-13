@@ -11,6 +11,21 @@ This guide contains step-by-step execution recipes for AI agents (Codex, Claude,
 
 ### Agent Execution Protocol:
 
+#### Step 0: Save the Ideal Company Profile
+Create or update `ideal_company_profile.json` from the confirmed ICP, then
+persist it before registering or running the task. Use `--init` only when the
+file does not exist:
+
+```bash
+# first time only
+account-fleet profile --init
+# edit ideal_company_profile.json
+account-fleet profile
+```
+
+The SQLite database keeps the immutable profile revision so later runs can be
+audited against the exact ICP that was active.
+
 #### Step 1: Deconstruct the ICP
 - Architecture: `PostgreSQL`, `MySQL`, `ClickHouse`, `Redis`
 - Bottlenecks: `latency limits`, `slow queries`, `connection pooling`, `QPS ceiling`, `50k QPS`
@@ -47,6 +62,7 @@ Via MCP tool `free_fleet_run` (or CLI `account-fleet run`):
   "run_id": "db-campaign-01",
   "id_column": "item_id",
   "text_column": "text",
+  "profile_path": "ideal_company_profile.json",
   "sessions": 4,
   "policy": {
     "free_only": true

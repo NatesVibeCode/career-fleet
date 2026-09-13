@@ -41,6 +41,7 @@ CREATE TABLE IF NOT EXISTS current_routes (
 CREATE TABLE IF NOT EXISTS runs (
     run_id TEXT PRIMARY KEY,
     task_revision_id TEXT NOT NULL REFERENCES task_revisions(revision_id),
+    profile_revision_id TEXT REFERENCES profile_revisions(revision_id),
     input_path TEXT NOT NULL,
     input_digest TEXT NOT NULL,
     status TEXT NOT NULL CHECK(status IN ('running','completed','completed_with_failures','budget_exhausted')),
@@ -62,6 +63,7 @@ CREATE TABLE IF NOT EXISTS batches (
     status TEXT NOT NULL CHECK(status IN ('pending','leased','verified','failed')),
     attempts INTEGER NOT NULL DEFAULT 0 CHECK(attempts >= 0),
     max_attempts INTEGER NOT NULL CHECK(max_attempts > 0),
+    non_counting_attempts INTEGER NOT NULL DEFAULT 0 CHECK(non_counting_attempts >= 0),
     lease_owner TEXT,
     leased_at TEXT,
     error TEXT,

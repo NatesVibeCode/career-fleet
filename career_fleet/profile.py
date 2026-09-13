@@ -15,9 +15,19 @@ class Dealbreakers(BaseModel):
         ge=1,
         description="Optional maximum company headcount. Leave unset to avoid assuming a size preference."
     )
+    require_verified_headcount: bool = Field(
+        default=False,
+        description=(
+            "When true, an unknown or non-numeric headcount disqualifies a company; "
+            "leave false when sources such as ATS boards do not publish headcount."
+        ),
+    )
     policy: Literal["remote_only", "remote_or_hybrid", "any"] = Field(
         default="any",
-        description="Workplace policy requirement."
+        description=(
+            "Optional workplace policy. 'any' is the neutral default; choose "
+            "remote_only or remote_or_hybrid only when the user requests it."
+        )
     )
     disallowed_locations: List[str] = Field(
         default_factory=list,
@@ -100,6 +110,7 @@ class IdealEmployerProfile(BaseModel):
         """Produce structured criteria dictionary for Lane 2 Gatekeeper Triage."""
         return {
             "max_headcount": self.dealbreakers.max_headcount,
+            "require_verified_headcount": self.dealbreakers.require_verified_headcount,
             "policy": self.dealbreakers.policy,
             "disallowed_locations": self.dealbreakers.disallowed_locations,
             "reject_thin_wrappers": self.dealbreakers.reject_thin_wrappers,

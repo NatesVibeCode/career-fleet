@@ -6,7 +6,9 @@ career-fleet may extend its first migration, shared models, and operations
 documentation with profile metadata, so those career-specific overlays are
 normalized or intentionally excluded from byte-for-byte comparison.
 Package-specific aliases, bundled skills, and task presets are also
-variant-specific and are intentionally outside the shared-file allowlist.
+variant-specific and are intentionally outside the shared-file allowlist. The
+profile persistence path is shared, so its schema, store, engine, CLI, MCP,
+and setup files are checked explicitly.
 """
 from __future__ import annotations
 
@@ -28,6 +30,15 @@ EXACT_FILES = (
     "free_fleet/providers/openrouter.py",
     "free_fleet/providers/opencode.py",
     "free_fleet/catalog.py",
+    "free_fleet/profile.py",
+    "free_fleet/store.py",
+    "free_fleet/engine.py",
+    "free_fleet/models.py",
+    "free_fleet/cli.py",
+    "free_fleet/mcp_server.py",
+    "free_fleet/setup.py",
+    "free_fleet/__init__.py",
+    "free_fleet/migrations/003_profiles.sql",
     "free_fleet/export.py",
     "free_fleet/grounding.py",
     "free_fleet/input_data.py",
@@ -66,8 +77,8 @@ def _normalized_digest(path: Path, relative: str) -> str:
     text = path.read_text(encoding="utf-8")
     if relative.endswith("references/operations.md"):
         text = re.sub(
-            r'Schema version is `?"3"`?\. Account runs can also retain the exact immutable Ideal Company Profile revision used for the campaign\.',
-            'Schema version is `"2"`.',
+            r'Schema version is `?"(?:2|3|4)"`?(?:\. Account runs can also retain the exact immutable Ideal Company Profile revision used for the campaign\.)?\.?',
+            'Schema version is `"shared"`.',
             text,
         )
     return hashlib.sha256(text.encode("utf-8")).hexdigest()

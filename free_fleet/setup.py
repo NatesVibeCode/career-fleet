@@ -54,7 +54,7 @@ def installed_skill_matches(destination: Path) -> bool:
 
 
 def _install_skill(source: Path, destination: Path, *, dry_run: bool, force: bool) -> SetupAction:
-    if destination.exists() and not destination.is_dir():
+    if destination.is_symlink() or (destination.exists() and not destination.is_dir()):
         raise ValueError(f"skill destination is not a directory: {destination}")
     if destination.is_dir() and _same_skill(source, destination):
         return SetupAction(kind="skill", status="unchanged", path=str(destination))
@@ -64,13 +64,12 @@ def _install_skill(source: Path, destination: Path, *, dry_run: bool, force: boo
         )
     status = "planned" if dry_run else ("updated" if destination.exists() else "created")
     if not dry_run:
-        destination.mkdir(parents=True, exist_ok=True)
-        for source_file in source.rglob("*"):
-            if source_file.is_file():
-                relative = source_file.relative_to(source)
-                target = destination / relative
-                target.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(source_file, target)
+        if destination.exists():
+            # A forced update owns the managed skill directory. Replacing it
+            # removes files from an older package that no longer exist.
+            shutil.rmtree(destination)
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copytree(source, destination)
     return SetupAction(kind="skill", status=status, path=str(destination))
 
 
@@ -104,13 +103,31 @@ def setup_workspace(
         raise ValueError("workspace root must be a directory")
     home_path = Path(home).expanduser().resolve() if home is not None else Path.home().resolve()
     destination = skill_destination(scope, home_path, workspace, skill_root)
-    database = Path(db_path).expanduser() if db_path is not None else Path("free-fleet.db")
+    configured_db = (
+        os.environ.get("ACCOUNT_FLEET_DB")
+        or os.environ.get("FREE_FLEET_DB")
+        or os.environ.get("BULK_LANES_DB")
+    )
+    database = Path(db_path or configured_db or "free-fleet.db").expanduser()
     database = (database if database.is_absolute() else workspace / database).resolve()
     if not database.is_relative_to(workspace):
         raise ValueError("setup database must stay below the workspace root")
 
-    actions = [_install_skill(bundled_skill_path(), destination, dry_run=dry_run, force=force)]
     account_source = Path(__file__).resolve().parent / "resources" / "account_skill"
+    # Check every destination before writing any of them, so a conflicting
+    # second skill cannot leave setup half-complete.
+    skill_sources = [(bundled_skill_path(), destination)]
+    if account_source.is_dir():
+        skill_sources.append((account_source, destination.parent / "account-fleet"))
+    for source, target in skill_sources:
+        if target.is_symlink() or (target.exists() and not target.is_dir()):
+            raise ValueError(f"skill destination is not a directory: {target}")
+        if target.is_dir() and not _same_skill(source, target) and not force:
+            raise FileExistsError(
+                f"a different skill already exists at {target}; rerun with --force to update managed files"
+            )
+
+    actions = [_install_skill(bundled_skill_path(), destination, dry_run=dry_run, force=force)]
     if account_source.is_dir():
         actions.append(_install_skill(account_source, destination.parent / "account-fleet", dry_run=dry_run, force=force))
     refresh_result: dict[str, int | str] | None = None
@@ -151,9 +168,15 @@ def setup_workspace(
     next_commands: list[list[str]] = []
     if not refresh_routes or observed_route_count == 0:
         next_commands.append(["free-fleet", "routes", "--db", str(database), "--refresh", "--json"])
+    doctor_command = [
+        "free-fleet", "doctor", "--db", str(database), "--workspace-root", str(workspace),
+        "--scope", scope, "--json",
+    ]
+    if skill_root is not None:
+        doctor_command.extend(["--skill-root", str(skill_root)])
     next_commands.extend([
-        ["free-fleet", "doctor", "--db", str(database), "--workspace-root", str(workspace), "--json"],
-        ["free-fleet", "init", "my-task", "--db", str(database), "--preset", "classify"],
+        doctor_command,
+        ["free-fleet", "init", "my-task", "--db", str(database), "--workspace-root", str(workspace), "--preset", "classify"],
     ])
     return SetupReport(
         ready=ready,

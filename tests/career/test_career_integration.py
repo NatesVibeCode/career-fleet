@@ -3,7 +3,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from career_fleet.cli import cmd_discover, cmd_dossier, cmd_export, cmd_triage
+from career_fleet.cli import cmd_discover, cmd_dossier, cmd_export, cmd_profile, cmd_triage, get_profile
 import career_fleet.lanes.lane1_sourcing as lane1
 from career_fleet.lanes.lane2_triage import check_dealbreakers, run_lane2_triage
 from career_fleet.lanes.lane3_systems import run_lane3_systems
@@ -51,6 +51,30 @@ def test_database_source_text_flows_through_all_lanes(tmp_path):
         "qualified",
         "qualified",
     ]
+    profile_revision = store.active_profile_revision_id()
+    assert profile_revision
+    assert {evaluation["profile_revision_id"] for evaluation in dossier["evaluations"]} == {profile_revision}
+    assert store.load_profile().model_dump() == profile.model_dump()
+
+
+def test_profile_cli_persists_iep_to_selected_database(tmp_path):
+    profile_path = tmp_path / "profile.json"
+    db_path = tmp_path / "career.db"
+    profile = IdealEmployerProfile(profile_name="Persisted Career Profile", required_stack=["Go"])
+    profile.save(profile_path)
+
+    assert cmd_profile(SimpleNamespace(path=str(profile_path), db=str(db_path), init=False, force=False)) == 0
+    stored = CareerStore(db_path)
+    assert stored.load_profile().model_dump() == profile.model_dump()
+
+
+def test_implicit_profile_can_fall_back_to_stored_iep(tmp_path, monkeypatch):
+    store = CareerStore(tmp_path / "career.db")
+    profile = IdealEmployerProfile(profile_name="Database-backed IEP")
+    store.save_profile(profile)
+    monkeypatch.chdir(tmp_path)
+
+    assert get_profile(store=store).model_dump() == profile.model_dump()
 
 
 def test_lane2_uses_source_text_and_metadata_for_hard_filters(tmp_path):
@@ -93,10 +117,24 @@ def test_lane2_honors_configured_location_and_quota_rules():
     )["rule"] == "pure_quota"
 
 
+def test_default_profile_does_not_assume_remote_work():
+    result = check_dealbreakers(
+        {"id": "office-company", "headcount": 10},
+        [{"raw_text": "In-office platform engineering role.", "location": "Austin, TX", "is_remote": False}],
+        IdealEmployerProfile(),
+    )
+    assert result is None
+
+
 def test_lane2_fails_closed_for_unknown_headcount():
-    profile = IdealEmployerProfile(dealbreakers={"max_headcount": 50})
+    profile = IdealEmployerProfile(dealbreakers={"max_headcount": 50, "require_verified_headcount": True})
     result = check_dealbreakers({"id": "x", "headcount": None}, [{"raw_text": "Platform engineer"}], profile)
     assert result["rule"] == "headcount_unknown"
+
+
+def test_lane2_does_not_assume_ats_headcount_when_not_required():
+    profile = IdealEmployerProfile(dealbreakers={"max_headcount": 50})
+    assert check_dealbreakers({"id": "x", "headcount": None}, [{"raw_text": "Platform engineer"}], profile) is None
 
 
 def test_lane2_requires_role_level_remote_or_hybrid_evidence():
@@ -113,8 +151,37 @@ def test_lane2_requires_role_level_remote_or_hybrid_evidence():
     assert check_dealbreakers({"id": "x"}, unknown, remote_or_hybrid)["rule"] == "workplace_policy_unknown"
     hybrid_cloud = [{"raw_text": "We build hybrid cloud infrastructure.", "location": "Austin, TX", "is_remote": False}]
     assert check_dealbreakers({"id": "x"}, hybrid_cloud, remote_or_hybrid)["rule"] == "workplace_policy_unknown"
+    hybrid_first_company = [{"raw_text": "We are hybrid-first; this role is based in Austin.", "location": "Austin, TX", "is_remote": False}]
+    assert check_dealbreakers({"id": "x"}, hybrid_first_company, remote_or_hybrid)["rule"] == "workplace_policy_unknown"
     hybrid_role = [{"raw_text": "This is a hybrid role.", "location": "Austin, TX", "is_remote": False}]
     assert check_dealbreakers({"id": "x"}, hybrid_role, remote_or_hybrid) is None
+
+
+@pytest.mark.parametrize(
+    "text",
+    ["Remote work is required for this role.", "This is a remote role."],
+)
+def test_lane1_and_lane2_accept_explicit_remote_roles(text):
+    from career_fleet.lanes.lane1_sourcing import _is_remote_listing
+    from career_fleet.lanes.lane2_triage import _has_remote_evidence
+
+    posting = {"raw_text": text, "location": "Austin, TX", "is_remote": False}
+    assert _is_remote_listing(text, posting["location"])
+    assert _has_remote_evidence(posting)
+
+
+@pytest.mark.parametrize(
+    "text",
+    ["This is not a remote role.", "Remote work is not available.", "Hybrid work is not available."],
+)
+def test_workplace_negations_do_not_pass_remote_policies(text):
+    from career_fleet.lanes.lane1_sourcing import _is_remote_listing
+    from career_fleet.lanes.lane2_triage import _has_remote_evidence, _has_remote_or_hybrid_evidence
+
+    posting = {"raw_text": text, "location": "Austin, TX", "is_remote": False}
+    assert not _is_remote_listing(text, posting["location"])
+    assert not _has_remote_evidence(posting)
+    assert not _has_remote_or_hybrid_evidence(posting)
 
 
 def test_lane2_matches_full_state_names_in_configured_locations():
@@ -122,6 +189,20 @@ def test_lane2_matches_full_state_names_in_configured_locations():
     result = check_dealbreakers(
         {"id": "x"},
         [{"raw_text": "Platform engineer", "location": "Austin, Texas", "is_remote": False}],
+        profile,
+    )
+    assert result["rule"] == "configured_location"
+
+
+@pytest.mark.parametrize(
+    ("configured", "actual"),
+    [("San Francisco, CA", "SF, California"), ("New York, NY", "NYC")],
+)
+def test_lane2_matches_common_city_aliases(configured, actual):
+    profile = IdealEmployerProfile(dealbreakers={"policy": "any", "disallowed_locations": [configured]})
+    result = check_dealbreakers(
+        {"id": "x"},
+        [{"raw_text": "Platform engineer role is required in this location.", "location": actual, "is_remote": False}],
         profile,
     )
     assert result["rule"] == "configured_location"
@@ -313,7 +394,7 @@ def test_lane1_keeps_multiple_records_for_one_source_company(tmp_path, monkeypat
 def test_lane1_refresh_replaces_stale_postings_and_evaluations(tmp_path, monkeypatch):
     store = CareerStore(tmp_path / "refresh.db")
     store.upsert_company("acme", "Acme", ats_provider="greenhouse", ats_token="acme")
-    store.add_job_posting("old", "acme", "Old role", "Old source text")
+    store.add_job_posting("old", "acme", "Old role", "Old source text", source_type="greenhouse")
     store.record_evaluation("old-eval", "acme", "lane2_triage", "triaged", 1.0, "SURVIVOR", "old")
     monkeypatch.setattr(lane1, "fetch_greenhouse_board", lambda **kwargs: [item("new", "New source text")])
 
@@ -324,6 +405,38 @@ def test_lane1_refresh_replaces_stale_postings_and_evaluations(tmp_path, monkeyp
     assert [job["id"] for job in dossier["jobs"]] == ["new"]
     assert dossier["evaluations"] == []
     assert dossier["status"] == "discovered"
+
+
+def test_lane1_empty_refresh_keeps_last_known_snapshot(tmp_path, monkeypatch):
+    store = CareerStore(tmp_path / "empty-refresh.db")
+    store.upsert_company("acme", "Acme", ats_provider="greenhouse", ats_token="acme")
+    store.add_job_posting("old", "acme", "Old role", "Old source text", source_type="greenhouse")
+    store.record_evaluation("old-eval", "acme", "lane2_triage", "triaged", 1.0, "SURVIVOR", "old")
+    monkeypatch.setattr(lane1, "fetch_greenhouse_board", lambda **kwargs: [])
+
+    result = lane1.run_lane1_sourcing(store, "greenhouse", "acme", max_items=1)
+
+    assert result["status"] == "success"
+    assert result["warnings"]
+    dossier = store.get_company_dossier("acme")
+    assert [job["id"] for job in dossier["jobs"]] == ["old"]
+    assert [evaluation["id"] for evaluation in dossier["evaluations"]] == ["old-eval"]
+
+
+def test_lane1_bad_snapshot_is_atomic(tmp_path, monkeypatch):
+    store = CareerStore(tmp_path / "atomic-refresh.db")
+    store.upsert_company("acme", "Acme", ats_provider="greenhouse", ats_token="acme")
+    store.add_job_posting("old", "acme", "Old role", "Old source text", source_type="greenhouse")
+    monkeypatch.setattr(
+        lane1,
+        "fetch_greenhouse_board",
+        lambda **kwargs: [item("new", "New source text"), item("bad", "")],
+    )
+
+    result = lane1.run_lane1_sourcing(store, "greenhouse", "acme", max_items=2)
+
+    assert result["status"] == "error"
+    assert [job["id"] for job in store.get_company_dossier("acme")["jobs"]] == ["old"]
 
 
 def test_lane1_merges_a_site_refresh_with_existing_domain_record(tmp_path, monkeypatch):

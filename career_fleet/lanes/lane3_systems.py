@@ -152,6 +152,7 @@ def run_lane3_systems(
     A profile change must be able to invalidate a previously qualified
     company, so the company status alone is not used as a skip signal.
     """
+    profile_revision_id = store.save_profile(profile)
     survivors = []
     for company in store.list_companies():
         if company["status"] not in ("triaged", "qualified"):
@@ -185,6 +186,7 @@ def run_lane3_systems(
             rationale=res["rationale"],
             quotes=res["quotes"],
             model_used="deterministic-wedge-scorer",
+            profile_revision_id=profile_revision_id,
         )
         evaluated += 1
 

@@ -32,7 +32,7 @@ Inspect the active profile with `career-fleet profile --path profile.json`. The 
 
 Under `remote_only`, the captured source must show role-level remote evidence. A missing or contradictory location is rejected as unverified. `remote_or_hybrid` also requires positive remote or hybrid evidence. Add source timezone metadata before enabling `candidate_timezone` checks.
 
-If `max_headcount` is configured, the company must have a numeric captured headcount. Unknown headcount is rejected so the hard limit cannot be bypassed by missing metadata.
+If `max_headcount` is configured, numeric headcount above the limit is rejected. Missing or non-numeric headcount is allowed by default because many ATS boards omit it; set `dealbreakers.require_verified_headcount` to `true` when missing data should be a rejection.
 
 Use `dossier --company <id>` to see posting URLs and the exact rule quote that caused a rejection. Add `--show-source` to print the complete captured posting text.
 

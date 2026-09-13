@@ -8,6 +8,7 @@ import random
 import re
 import sqlite3
 import time
+from collections.abc import Iterable
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -29,17 +30,22 @@ from .models import (
 )
 
 
-SCHEMA_VERSION = "2"
+SCHEMA_VERSION = "4"
+STREAMING_INPUT_DIGEST = "__streaming_input_pending__"
+MAX_NON_COUNTING_RETRIES = 12
 
 SCHEMA_PATH = Path(__file__).resolve().parent / "migrations" / "001_control_plane.sql"
 SCHEMA_SQL = SCHEMA_PATH.read_text(encoding="utf-8")
 MIGRATION_002_PATH = Path(__file__).resolve().parent / "migrations" / "002_intelligence_and_policy.sql"
+MIGRATION_003_PATH = Path(__file__).resolve().parent / "migrations" / "003_profiles.sql"
 
 
 def get_database_schema_sql() -> str:
     parts = [SCHEMA_SQL]
     if MIGRATION_002_PATH.is_file():
         parts.append(MIGRATION_002_PATH.read_text(encoding="utf-8"))
+    if MIGRATION_003_PATH.is_file():
+        parts.append(MIGRATION_003_PATH.read_text(encoding="utf-8"))
     return "\n".join(parts)
 
 
@@ -90,6 +96,95 @@ class ManagedConnection(sqlite3.Connection):
             self.close()
 
 
+class _StreamingRunWriter:
+    """Keep run creation and streamed batch ingestion in one SQLite transaction."""
+
+    def __init__(
+        self,
+        store: "FreeFleetStore",
+        *,
+        run_id: str,
+        task_revision_id: str,
+        input_path: str,
+        input_digest: str,
+        total_items: int,
+        max_attempts: int,
+        batch_size: int,
+        output_path: str,
+        policy: RoutePolicy | None,
+        profile_revision_id: str | None,
+    ):
+        self.store = store
+        self.run_id = run_id
+        self.task_revision_id = task_revision_id
+        self.input_path = input_path
+        self.input_digest = input_digest
+        self.total_items = total_items
+        self.max_attempts = max_attempts
+        self.batch_size = batch_size
+        self.output_path = output_path
+        self.policy = policy
+        self.profile_revision_id = profile_revision_id
+        self.connection: sqlite3.Connection | None = None
+        self.finalized = input_digest != STREAMING_INPUT_DIGEST
+
+    def __enter__(self) -> "_StreamingRunWriter":
+        self.connection = self.store.connect()
+        try:
+            self.connection.execute("BEGIN IMMEDIATE")
+            self.store._create_run_connection(
+                self.connection,
+                run_id=self.run_id,
+                task_revision_id=self.task_revision_id,
+                input_path=self.input_path,
+                input_digest=self.input_digest,
+                total_items=self.total_items,
+                max_attempts=self.max_attempts,
+                batch_size=self.batch_size,
+                output_path=self.output_path,
+                policy=self.policy,
+                profile_revision_id=self.profile_revision_id,
+            )
+            return self
+        except Exception:
+            self.connection.rollback()
+            self.connection.close()
+            self.connection = None
+            raise
+
+    def enqueue_batch(self, batch: dict[str, Any], position: int, max_attempts_per_batch: int) -> None:
+        if self.connection is None:
+            raise RuntimeError("streaming run is not open")
+        self.store._enqueue_batch_connection(
+            self.connection,
+            self.run_id,
+            batch,
+            max_attempts_per_batch,
+            position,
+        )
+
+    def finalize(self, input_digest: str, total_items: int) -> None:
+        if self.connection is None:
+            raise RuntimeError("streaming run is not open")
+        self.store._complete_streaming_input_connection(
+            self.connection, self.run_id, input_digest, total_items
+        )
+        self.finalized = True
+
+    def __exit__(self, exc_type, exc_val, exc_tb) -> bool:
+        if self.connection is None:
+            return False
+        try:
+            if exc_type is None and self.finalized:
+                self.connection.commit()
+            else:
+                self.connection.rollback()
+        finally:
+            self.connection.close()
+            self.connection = None
+        return False
+
+
 class FreeFleetStore:
     def __init__(self, path: str | Path | None = None):
         self.path = Path(path) if path is not None else default_db_path()
@@ -112,9 +207,18 @@ class FreeFleetStore:
             connection.executescript(SCHEMA_SQL)
             if MIGRATION_002_PATH.is_file():
                 connection.executescript(MIGRATION_002_PATH.read_text(encoding="utf-8"))
+            if MIGRATION_003_PATH.is_file():
+                connection.executescript(MIGRATION_003_PATH.read_text(encoding="utf-8"))
             cols = [row["name"] for row in connection.execute("PRAGMA table_info(runs)").fetchall()]
             if "policy_json" not in cols:
                 connection.execute("ALTER TABLE runs ADD COLUMN policy_json TEXT")
+            if "profile_revision_id" not in cols:
+                connection.execute("ALTER TABLE runs ADD COLUMN profile_revision_id TEXT")
+            batch_cols = [row["name"] for row in connection.execute("PRAGMA table_info(batches)").fetchall()]
+            if "non_counting_attempts" not in batch_cols:
+                connection.execute(
+                    "ALTER TABLE batches ADD COLUMN non_counting_attempts INTEGER NOT NULL DEFAULT 0"
+                )
             connection.execute(
                 """CREATE TABLE IF NOT EXISTS route_claim_bias(
                     task_name TEXT NOT NULL,
@@ -209,6 +313,84 @@ class FreeFleetStore:
             ).fetchall()
         return [dict(row) for row in rows]
 
+    def save_profile(self, profile: Any, profile_kind: str | None = None) -> str:
+        """Persist an immutable profile revision and make it active."""
+        kind = profile_kind or getattr(profile, "profile_kind", "ideal_company")
+        if kind not in {"ideal_company", "ideal_employer"}:
+            raise ValueError(f"unsupported profile kind: {kind}")
+        payload = profile.model_dump(mode="json", by_alias=True)
+        encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+        revision_id = digest_json({"profile_kind": kind, "profile": payload})
+        with self.connect() as connection:
+            connection.execute(
+                """INSERT OR IGNORE INTO profile_revisions(
+                    revision_id,profile_kind,profile_name,profile_version,profile_json,created_at
+                ) VALUES(?,?,?,?,?,?)""",
+                (
+                    revision_id,
+                    kind,
+                    str(getattr(profile, "profile_name", kind)),
+                    str(getattr(profile, "version", "1.0.0")),
+                    encoded,
+                    now_iso(),
+                ),
+            )
+            connection.execute(
+                """INSERT INTO active_profiles(profile_kind,revision_id,updated_at)
+                   VALUES(?,?,?)
+                   ON CONFLICT(profile_kind) DO UPDATE SET
+                       revision_id=excluded.revision_id,
+                       updated_at=excluded.updated_at""",
+                (kind, revision_id, now_iso()),
+            )
+        return revision_id
+
+    def load_profile(self, profile_kind: str = "ideal_company") -> Any | None:
+        """Load the active typed profile for a profile kind, if one exists."""
+        if profile_kind not in {"ideal_company", "ideal_employer"}:
+            raise ValueError(f"unsupported profile kind: {profile_kind}")
+        with self.connect() as connection:
+            row = connection.execute(
+                """SELECT r.profile_json
+                   FROM active_profiles a
+                   JOIN profile_revisions r ON r.revision_id=a.revision_id
+                   WHERE a.profile_kind=?""",
+                (profile_kind,),
+            ).fetchone()
+        return self._profile_from_row(row, profile_kind)
+
+    def load_profile_revision(self, revision_id: str, profile_kind: str = "ideal_company") -> Any | None:
+        """Load one immutable profile revision by ID for run resumption."""
+        if profile_kind not in {"ideal_company", "ideal_employer"}:
+            raise ValueError(f"unsupported profile kind: {profile_kind}")
+        with self.connect() as connection:
+            row = connection.execute(
+                "SELECT profile_json FROM profile_revisions WHERE revision_id=? AND profile_kind=?",
+                (revision_id, profile_kind),
+            ).fetchone()
+        return self._profile_from_row(row, profile_kind)
+
+    @staticmethod
+    def _profile_from_row(row: Any, profile_kind: str) -> Any | None:
+        if row is None:
+            return None
+        if profile_kind == "ideal_company":
+            from .profile import IdealCompanyProfile
+
+            return IdealCompanyProfile.model_validate(json.loads(row["profile_json"]))
+        return json.loads(row["profile_json"])
+
+    def active_profile_revision_id(self, profile_kind: str = "ideal_company") -> str | None:
+        """Return the active profile revision selected for a profile kind."""
+        if profile_kind not in {"ideal_company", "ideal_employer"}:
+            raise ValueError(f"unsupported profile kind: {profile_kind}")
+        with self.connect() as connection:
+            row = connection.execute(
+                "SELECT revision_id FROM active_profiles WHERE profile_kind=?",
+                (profile_kind,),
+            ).fetchone()
+        return str(row["revision_id"]) if row else None
+
     def upsert_route(self, route: RouteInfo) -> None:
         value = route.model_dump(mode="json")
         observed_at = now_iso()
@@ -264,44 +446,155 @@ class FreeFleetStore:
         batch_size: int,
         output_path: str,
         policy: RoutePolicy | None = None,
+        profile_revision_id: str | None = None,
+    ) -> None:
+        with self.connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            self._create_run_connection(
+                connection,
+                run_id=run_id,
+                task_revision_id=task_revision_id,
+                input_path=input_path,
+                input_digest=input_digest,
+                total_items=total_items,
+                max_attempts=max_attempts,
+                batch_size=batch_size,
+                output_path=output_path,
+                policy=policy,
+                profile_revision_id=profile_revision_id,
+            )
+
+    def _create_run_connection(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        run_id: str,
+        task_revision_id: str,
+        input_path: str,
+        input_digest: str,
+        total_items: int,
+        max_attempts: int,
+        batch_size: int,
+        output_path: str,
+        policy: RoutePolicy | None = None,
+        profile_revision_id: str | None = None,
     ) -> None:
         if not re.fullmatch(ID_PATTERN, run_id) or len(run_id) > 128:
             raise ValueError("run_id must use 1-128 letters, numbers, dots, underscores, or hyphens")
         policy_json = json.dumps(policy.model_dump(mode="json"), separators=(",", ":")) if policy else None
-        with self.connect() as connection:
-            connection.execute("BEGIN IMMEDIATE")
-            existing = connection.execute("SELECT * FROM runs WHERE run_id=?", (run_id,)).fetchone()
-            if existing is not None:
-                expected = (task_revision_id, input_digest, total_items, max_attempts, batch_size)
-                actual = (
-                    existing["task_revision_id"], existing["input_digest"], existing["total_items"],
-                    existing["max_attempts"], existing["batch_size"],
-                )
-                if actual != expected:
-                    raise ValueError(f"run_id already exists with different inputs or limits: {run_id}")
-                return
-            connection.execute(
-                """INSERT INTO runs(
-                    run_id,task_revision_id,input_path,input_digest,status,total_items,max_attempts,
-                    attempts_used,batch_size,output_path,policy_json,created_at
-                ) VALUES(?,?,?,?, 'running',?,?,0,?,?,?,?)""",
-                (run_id, task_revision_id, input_path, input_digest, total_items, max_attempts, batch_size, output_path, policy_json, now_iso()),
+        if profile_revision_id is not None:
+            profile_row = connection.execute(
+                "SELECT profile_kind FROM profile_revisions WHERE revision_id=?",
+                (profile_revision_id,),
+            ).fetchone()
+            if profile_row is None:
+                raise ValueError(f"profile revision does not exist: {profile_revision_id}")
+            if profile_row["profile_kind"] != "ideal_company":
+                raise ValueError(f"profile revision is not an Ideal Company Profile: {profile_revision_id}")
+        existing = connection.execute("SELECT * FROM runs WHERE run_id=?", (run_id,)).fetchone()
+        if existing is not None:
+            expected = (task_revision_id, profile_revision_id, input_digest, total_items, max_attempts, batch_size)
+            actual = (
+                existing["task_revision_id"], existing["profile_revision_id"], existing["input_digest"], existing["total_items"],
+                existing["max_attempts"], existing["batch_size"],
             )
+            if actual != expected:
+                raise ValueError(f"run_id already exists with different inputs or limits: {run_id}")
+            return
+        connection.execute(
+            """INSERT INTO runs(
+                run_id,task_revision_id,profile_revision_id,input_path,input_digest,status,total_items,max_attempts,
+                attempts_used,batch_size,output_path,policy_json,created_at
+            ) VALUES(?,?,?,?,?,'running',?,?,0,?,?,?,?)""",
+            (run_id, task_revision_id, profile_revision_id, input_path, input_digest, total_items, max_attempts, batch_size, output_path, policy_json, now_iso()),
+        )
 
-    def enqueue_batches(self, run_id: str, batches: list[dict[str, Any]], max_attempts_per_batch: int) -> None:
+    def streaming_run(
+        self,
+        *,
+        run_id: str,
+        task_revision_id: str,
+        input_path: str,
+        input_digest: str,
+        total_items: int,
+        max_attempts: int,
+        batch_size: int,
+        output_path: str,
+        policy: RoutePolicy | None = None,
+        profile_revision_id: str | None = None,
+    ) -> _StreamingRunWriter:
+        """Return an atomic writer for bounded, durable batch ingestion."""
+        return _StreamingRunWriter(
+            self,
+            run_id=run_id,
+            task_revision_id=task_revision_id,
+            input_path=input_path,
+            input_digest=input_digest,
+            total_items=total_items,
+            max_attempts=max_attempts,
+            batch_size=batch_size,
+            output_path=output_path,
+            policy=policy,
+            profile_revision_id=profile_revision_id,
+        )
+
+    @staticmethod
+    def _complete_streaming_input_connection(
+        connection: sqlite3.Connection,
+        run_id: str,
+        input_digest: str,
+        total_items: int,
+    ) -> None:
+        row = connection.execute(
+            "SELECT input_digest,total_items FROM runs WHERE run_id=?", (run_id,)
+        ).fetchone()
+        if row is None:
+            raise KeyError(f"run not found: {run_id}")
+        if row["input_digest"] != STREAMING_INPUT_DIGEST:
+            if row["input_digest"] == input_digest and row["total_items"] == total_items:
+                return
+            raise ValueError(f"run {run_id} already has a finalized input manifest")
+        connection.execute(
+            "UPDATE runs SET input_digest=?,total_items=? WHERE run_id=?",
+            (input_digest, total_items, run_id),
+        )
+
+    def enqueue_batches(
+        self,
+        run_id: str,
+        batches: Iterable[dict[str, Any]],
+        max_attempts_per_batch: int,
+        position_offset: int = 0,
+    ) -> None:
+        if max_attempts_per_batch <= 0:
+            raise ValueError("max_attempts_per_batch must be greater than 0")
+        if position_offset < 0:
+            raise ValueError("position_offset must be non-negative")
         with self.connect() as connection:
-            for position, raw_batch in enumerate(batches):
-                batch = PackedBatch.model_validate(raw_batch).model_dump(mode="json")
-                connection.execute(
-                    """INSERT OR IGNORE INTO batches(
-                        run_id,batch_id,position,item_ids_json,payload_json,status,attempts,max_attempts
-                    ) VALUES(?,?,?,?,?,'pending',0,?)""",
-                    (
-                        run_id, batch["batch_id"], position,
-                        json.dumps([item["item_id"] for item in batch["items"]]),
-                        json.dumps(batch, ensure_ascii=False, separators=(",", ":")), max_attempts_per_batch,
-                    ),
+            for position, raw_batch in enumerate(batches, start=position_offset):
+                self._enqueue_batch_connection(
+                    connection, run_id, raw_batch, max_attempts_per_batch, position
                 )
+
+    @staticmethod
+    def _enqueue_batch_connection(
+        connection: sqlite3.Connection,
+        run_id: str,
+        raw_batch: dict[str, Any],
+        max_attempts_per_batch: int,
+        position: int,
+    ) -> None:
+        batch = PackedBatch.model_validate(raw_batch).model_dump(mode="json")
+        connection.execute(
+            """INSERT OR IGNORE INTO batches(
+                run_id,batch_id,position,item_ids_json,payload_json,status,attempts,max_attempts
+            ) VALUES(?,?,?,?,?,'pending',0,?)""",
+            (
+                run_id, batch["batch_id"], position,
+                json.dumps([item["item_id"] for item in batch["items"]]),
+                json.dumps(batch, ensure_ascii=False, separators=(",", ":")), max_attempts_per_batch,
+            ),
+        )
 
     def lease_batch(self, run_id: str, worker_id: str, lease_timeout_seconds: int = 300) -> dict[str, Any] | None:
         connection = self.connect()
@@ -315,10 +608,11 @@ class FreeFleetStore:
                 return None
             row = connection.execute(
                 """SELECT * FROM batches
-                   WHERE run_id=? AND attempts < max_attempts
+                   WHERE run_id=? AND attempts - non_counting_attempts < max_attempts
+                     AND non_counting_attempts < ?
                      AND (status='pending' OR (status='leased' AND leased_at < datetime('now', ?)))
                    ORDER BY position LIMIT 1""",
-                (run_id, f"-{lease_timeout_seconds} seconds"),
+                (run_id, MAX_NON_COUNTING_RETRIES, f"-{lease_timeout_seconds} seconds"),
             ).fetchone()
             if row is None:
                 connection.commit()
@@ -410,7 +704,7 @@ class FreeFleetStore:
                 (run_id, batch_id, result_id),
             )
             connection.execute(
-                """UPDATE batches SET status='verified',error=NULL,completed_at=?
+                """UPDATE batches SET status='verified',error=NULL,non_counting_attempts=0,completed_at=?
                    WHERE run_id=? AND batch_id=?""",
                 (completed, run_id, batch_id),
             )
@@ -431,14 +725,15 @@ class FreeFleetStore:
         with self.connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
             row = connection.execute(
-                "SELECT attempts,max_attempts,lease_owner,status FROM batches WHERE run_id=? AND batch_id=?",
+                "SELECT attempts,non_counting_attempts,max_attempts,lease_owner,status FROM batches WHERE run_id=? AND batch_id=?",
                 (run_id, batch_id),
             ).fetchone()
             if row is None or row["status"] != "leased" or row["lease_owner"] != worker_id:
                 raise ValueError("batch lease is not owned by this worker")
             if receipt is not None:
                 self._insert_receipt(connection, receipt, run_id, batch_id)
-            next_status = "failed" if row["attempts"] >= row["max_attempts"] else "pending"
+            counting_attempts = int(row["attempts"]) - int(row["non_counting_attempts"])
+            next_status = "failed" if counting_attempts >= row["max_attempts"] else "pending"
             completed = now_iso()
             connection.execute(
                 """UPDATE batches SET status=?,error=?,lease_owner=NULL,leased_at=NULL,
@@ -518,6 +813,7 @@ class FreeFleetStore:
             "run_id": run["run_id"], "created_at": run["created_at"], "finished_at": run["finished_at"],
             "task": task.model_dump(mode="json", by_alias=True),
             "task_revision": run["task_revision_id"],
+            "profile_revision_id": run["profile_revision_id"] if "profile_revision_id" in run.keys() else None,
             "status": run["status"], "total_items": run["total_items"], "max_attempts": run["max_attempts"],
             "attempts_used": run["attempts_used"], "input_path": run["input_path"],
             "input_digest": run["input_digest"], "output_path": run["output_path"], "batches": batches,
@@ -540,20 +836,28 @@ class FreeFleetStore:
         with self.connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
             row = connection.execute(
-                "SELECT attempts,lease_owner,status FROM batches WHERE run_id=? AND batch_id=?",
+                "SELECT attempts,non_counting_attempts,lease_owner,status FROM batches WHERE run_id=? AND batch_id=?",
                 (run_id, batch_id),
             ).fetchone()
             if row is None or row["status"] != "leased" or row["lease_owner"] != worker_id:
                 return
+            next_non_counting_attempts = int(row["non_counting_attempts"]) + 1
+            exhausted = next_non_counting_attempts >= MAX_NON_COUNTING_RETRIES
+            next_status = "failed" if exhausted else "pending"
+            next_error = (
+                f"{reason or 'Non-counting retry'}; retry cap reached ({MAX_NON_COUNTING_RETRIES})"
+                if exhausted else reason
+            )
             connection.execute(
-                """UPDATE batches SET status='pending',lease_owner=NULL,leased_at=NULL,error=?,max_attempts=max_attempts+1
+                """UPDATE batches SET status=?,lease_owner=NULL,leased_at=NULL,error=?,
+                   non_counting_attempts=?,completed_at=CASE WHEN ?='failed' THEN ? ELSE NULL END
                    WHERE run_id=? AND batch_id=?""",
-                (reason or None, run_id, batch_id),
+                (next_status, next_error or None, next_non_counting_attempts, next_status, now_iso(), run_id, batch_id),
             )
             connection.execute("UPDATE runs SET attempts_used=max(0, attempts_used-1) WHERE run_id=?", (run_id,))
             connection.execute(
                 """UPDATE batch_attempts SET status='failed',error=?,completed_at=? WHERE attempt_id=?""",
-                (reason or "Lease released", now_iso(), attempt_id),
+                (next_error or "Lease released", now_iso(), attempt_id),
             )
 
     def reset_leased_batches(self, run_id: str, lease_timeout_seconds: int = 300) -> int:
@@ -1082,8 +1386,25 @@ class FreeFleetStore:
         """
         if not errors:
             raise ValueError("errors must be non-empty")
-        batch_mean = sum(float(e) for e in errors) / len(errors)
-        batch_n = len(errors)
+        return self.update_route_claim_bias_stats(
+            task_name,
+            route_id,
+            sum(float(e) for e in errors),
+            len(errors),
+        )
+
+    def update_route_claim_bias_stats(
+        self,
+        task_name: str,
+        route_id: str,
+        error_sum: float,
+        sample_count: int,
+    ) -> dict[str, Any]:
+        """Merge an aggregate bias batch without retaining every sample error."""
+        if sample_count <= 0:
+            raise ValueError("sample_count must be greater than 0")
+        batch_mean = float(error_sum) / sample_count
+        batch_n = int(sample_count)
         with self.connect() as connection:
             row = connection.execute(
                 "SELECT bias, sample_count FROM route_claim_bias WHERE task_name=? AND route_id=?",
@@ -1228,6 +1549,7 @@ class FreeFleetStore:
             run_id=run_id,
             status=run["status"],
             task_name=task_name,
+            profile_revision_id=run["profile_revision_id"] if "profile_revision_id" in run.keys() else None,
             total_items=run["total_items"],
             verified_items=verified_items,
             batches=batches_summary,

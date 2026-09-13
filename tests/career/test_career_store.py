@@ -2,6 +2,7 @@ import tempfile
 import unittest
 import sqlite3
 from pathlib import Path
+from career_fleet.profile import IdealEmployerProfile
 from career_fleet.store import CareerStore
 
 
@@ -60,6 +61,21 @@ class TestStore(unittest.TestCase):
         finally:
             store.close()
 
+    def test_profile_revisions_are_stored_and_active_profile_round_trips(self):
+        first = IdealEmployerProfile(profile_name="First", dealbreakers={"policy": "any"})
+        second = IdealEmployerProfile(profile_name="Second", dealbreakers={"policy": "remote_only"})
+
+        first_revision = self.store.save_profile(first)
+        self.assertEqual(self.store.active_profile_revision_id(), first_revision)
+        self.assertEqual(self.store.load_profile().model_dump(), first.model_dump())
+
+        second_revision = self.store.save_profile(second)
+        self.assertNotEqual(second_revision, first_revision)
+        self.assertEqual(self.store.active_profile_revision_id(), second_revision)
+        self.assertEqual(self.store.load_profile().model_dump(), second.model_dump())
+        with self.store.connect() as con:
+            self.assertEqual(con.execute("SELECT COUNT(*) FROM profile_revisions").fetchone()[0], 2)
+
     def test_existing_database_gets_new_source_metadata_columns(self):
         legacy_path = Path(self.tmpdir.name) / "legacy.db"
         legacy = sqlite3.connect(legacy_path)
@@ -90,3 +106,23 @@ class TestStore(unittest.TestCase):
         self.assertIn("timezone", company_columns)
         self.assertIn("timezone", posting_columns)
         self.assertIn("source_type", posting_columns)
+
+    def test_evaluations_require_a_real_iep_revision(self):
+        self.store.upsert_company("acme", "Acme")
+        with self.assertRaisesRegex(ValueError, "profile revision does not exist"):
+            self.store.record_evaluation(
+                "ev-missing", "acme", "lane2_triage", "triaged", 1.0,
+                "SURVIVOR", "test", profile_revision_id="missing-revision",
+            )
+
+    def test_new_database_has_profile_foreign_keys(self):
+        with self.store.connect() as connection:
+            active_fks = connection.execute("PRAGMA foreign_key_list(active_profiles)").fetchall()
+            eval_fks = connection.execute("PRAGMA foreign_key_list(evaluations)").fetchall()
+        self.assertTrue(any(row[2] == "profile_revisions" and row[3] == "revision_id" for row in active_fks))
+        self.assertTrue(any(row[2] == "profile_revisions" and row[3] == "profile_revision_id" for row in eval_fks))
+
+    def test_company_domains_are_normalized_before_matching(self):
+        self.store.upsert_company("acme", "Acme", domain="https://www.Example.com.:443/jobs")
+        self.assertEqual(self.store.get_company_by_domain("example.com.")["id"], "acme")
+        self.assertEqual(self.store.list_companies()[0]["domain"], "example.com")

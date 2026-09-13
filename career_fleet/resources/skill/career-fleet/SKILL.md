@@ -7,7 +7,11 @@ description: "Operate Career Fleet for generic users: install it, create a profi
 
 Use this skill when someone needs to install, configure, run, or explain the Career Fleet command-line workflow. The goal is a reproducible workspace containing a profile, local SQLite database, captured source text, lane evaluations, and exportable dossiers.
 
-Keep the user's profile authoritative. Do not invent personal constraints or silently substitute a default profile. The generated profile is neutral until the user edits it.
+Keep the user's profile authoritative. Do not invent personal constraints or silently substitute a default profile. The generated profile is neutral until the user edits it. Workplace policy is optional and defaults to `any`; never assume that a user wants remote or hybrid work.
+
+Treat `profile.json` as the editable authoring file and SQLite as the durable
+IEP record: screening runs persist an immutable profile revision and attach it
+to each evaluation.
 
 ---
 
@@ -44,6 +48,7 @@ Before prompting the user:
 2. Infer the 6 Core Signals:
    - *Architectural Wedge*: What high-impact problem does the candidate solve? (e.g. 0-to-1 GTM systems, distributed runtimes, ML data pipelines).
    - *Required Tech Stack*: What must the company run? (e.g. Python, Go, PostgreSQL, Kafka, Kubernetes).
+   - *Workplace Preference*: Only if the user states one: no restriction (`any`), remote-only, or remote-or-hybrid.
    - *Negative Exclusions / Dealbreakers*: Disqualifiers (e.g. 5-day non-local office mandates, bloated headcounts, prompt wrappers).
    - *Hiring Catalyst*: What acute operational pain creates the role? (e.g. scaling bottlenecks, moving past founder-led sales).
    - *Target Leader Persona*: Who does the candidate partner with? (e.g. low-ego technical builders).

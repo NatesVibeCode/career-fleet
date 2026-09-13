@@ -85,8 +85,10 @@ account-fleet discover \
   --query '"Postgres" ("latency" OR "50k QPS") hiring' \
   --max-results 20 --output accounts.csv
 
-# Self-hosted SearXNG instead of ddgs (requires `pip install account-fleet[discover]` for ddgs;
-# SearXNG itself needs no extra package, just a running instance)
+# Self-hosted SearXNG instead of ddgs. Install the optional discovery extra
+# for the distribution you use (`career-fleet[discover]` in the combined
+# package, or `account-fleet[discover]` in the standalone package):
+# SearXNG itself needs no extra package, just a running instance.
 account-fleet discover --query '"ClickHouse" scaling hiring' \
   --backend searxng --searxng-url http://localhost:8888 --output accounts.csv
 
@@ -118,7 +120,8 @@ account-fleet fetch --site docs.example.com --max-pages 20 --max-depth 2 --outpu
 # Arbitrary URLs (engineering blogs, docs, changelogs, PDFs) to verbatim text
 account-fleet fetch --url https://example.com/blog/scaling-postgres --output accounts.csv
 
-# JS-heavy pages (experimental; needs `pip install account-fleet[js]`)
+# JS-heavy pages (experimental; install the matching optional `js` extra:
+# `career-fleet[js]` in the combined package or `account-fleet[js]` standalone)
 account-fleet fetch --url https://example.com/app --js --output accounts.csv
 ```
 

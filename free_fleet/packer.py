@@ -1,20 +1,30 @@
 """Typed item batching and prompt packaging."""
 import hashlib
 import json
+from collections.abc import Iterable, Iterator
 from typing import Any
 
 from .models import InputItem, PackedBatch
 from .slicer import slice_document
 
-def pack_items(
-    raw_records: list[InputItem | dict[str, Any]],
+def _pack_cards(cards: list[dict[str, Any]]) -> dict[str, Any]:
+    batch_hash = hashlib.sha256(json.dumps([c["item_id"] for c in cards], sort_keys=True).encode()).hexdigest()[:16]
+    batch = PackedBatch.model_validate({
+        "batch_id": f"batch_{batch_hash}",
+        "items": cards,
+    })
+    return batch.model_dump(mode="json")
+
+
+def iter_packed_batches(
+    raw_records: Iterable[InputItem | dict[str, Any]],
     batch_size: int = 6,
     max_slice_chars: int = 6000
-) -> list[dict[str, Any]]:
-    """Transforms raw records into sliced cards and packs them into bounded batches."""
+) -> Iterator[dict[str, Any]]:
+    """Yield packed batches while retaining only one batch of cards in memory."""
     if batch_size <= 0:
         raise ValueError("batch_size must be greater than 0")
-    cards = []
+    cards: list[dict[str, Any]] = []
     for raw_record in raw_records:
         record = raw_record if isinstance(raw_record, InputItem) else InputItem.model_validate(raw_record)
         iid = record.item_id
@@ -32,15 +42,18 @@ def pack_items(
             "slices": slices,
             "full_char_length": len(text)
         })
+        if len(cards) >= batch_size:
+            yield _pack_cards(cards)
+            cards = []
 
-    batches = []
-    for i in range(0, len(cards), batch_size):
-        chunk = cards[i:i + batch_size]
-        batch_hash = hashlib.sha256(json.dumps([c["item_id"] for c in chunk], sort_keys=True).encode()).hexdigest()[:16]
-        batch = PackedBatch.model_validate({
-            "batch_id": f"batch_{batch_hash}",
-            "items": chunk
-        })
-        batches.append(batch.model_dump(mode="json"))
+    if cards:
+        yield _pack_cards(cards)
 
-    return batches
+
+def pack_items(
+    raw_records: Iterable[InputItem | dict[str, Any]],
+    batch_size: int = 6,
+    max_slice_chars: int = 6000
+) -> list[dict[str, Any]]:
+    """Compatibility wrapper that intentionally materializes all packed batches."""
+    return list(iter_packed_batches(raw_records, batch_size=batch_size, max_slice_chars=max_slice_chars))

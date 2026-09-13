@@ -2,6 +2,12 @@
 
 This guide explains how to construct a deterministic 0–100 scoring contract so that LLMs evaluate accounts consistently and extract character-exact evidence.
 
+Keep the reusable ICP separate from the task rubric. Store the confirmed
+`IdealCompanyProfile` with `account-fleet profile`; the task revision describes
+the output fields and scoring instructions for one campaign. Runs retain the
+profile revision ID in SQLite so a result can be reviewed against the exact
+profile that was active.
+
 ---
 
 ## 1. The 4-Tier Scoring Rubric
@@ -46,9 +52,13 @@ When initializing a task via CLI or MCP (`account-fleet init` or `free_fleet_ini
       "fit_tier": {
         "enum": ["tier_1", "tier_2", "tier_3", "unfit"],
         "description": "tier_1 (85-100), tier_2 (70-84), tier_3 (50-69), unfit (<50)"
+      },
+      "reasoning": {
+        "type": "string",
+        "description": "Short explanation grounded in the cited source evidence"
       }
     },
-    "required": ["score", "identified_gap", "fit_tier"],
+    "required": ["score", "identified_gap", "fit_tier", "reasoning"],
     "additionalProperties": false
   }
 }
@@ -65,7 +75,8 @@ When the free model returns candidate results:
   "claims": {
     "score": 98,
     "identified_gap": "Legacy billing migration to Kafka",
-    "fit_tier": "tier_1"
+    "fit_tier": "tier_1",
+    "reasoning": "The source explicitly describes a legacy billing migration to Kafka."
   },
   "quotes": [
     {

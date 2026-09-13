@@ -7,6 +7,11 @@ description: Turn conversational ICPs into scored target account deliverables us
 
 Turn a founder or seller's conversational Ideal Customer Profile (ICP) into a ranked pipeline of qualified target accounts, where every single qualification is backed by a verbatim quote from an active job post or engineering document.
 
+The account-side profile is a typed `IdealCompanyProfile`. Keep its editable JSON
+in `ideal_company_profile.json`, and persist the active content-addressed revision
+in SQLite with `account-fleet profile`. Task revisions remain the execution rubric;
+each run records the selected profile revision when one is available.
+
 ---
 
 ## The Outbound Account Execution Pipeline
@@ -44,6 +49,14 @@ Before asking the operator anything, inspect:
 - Ask **only** for signals that are genuinely missing or ambiguous (typically the breaking point catalyst or 2–3 anchor logos).
 
 See [references/icp-interview.md](references/icp-interview.md) for detailed thought processes, signal definitions, and interview templates.
+
+After the focused interview, save the confirmed profile before discovery:
+
+```bash
+account-fleet profile --init
+# edit ideal_company_profile.json
+account-fleet profile
+```
 
 ---
 
@@ -110,9 +123,13 @@ Register a typed task with an explicit 0–100 rubric. Every high score must cit
     "fit_tier": {
       "enum": ["tier_1", "tier_2", "tier_3", "unfit"],
       "description": "tier_1 (85-100), tier_2 (70-84), tier_3 (50-69), unfit (<50)"
+    },
+    "reasoning": {
+      "type": "string",
+      "description": "Short explanation grounded in the cited source evidence"
     }
   },
-  "required": ["score", "identified_gap", "fit_tier"],
+  "required": ["score", "identified_gap", "fit_tier", "reasoning"],
   "additionalProperties": false
 }
 ```
@@ -141,9 +158,15 @@ account-fleet run target-research \
   --id-column item_id \
   --text-column text \
   --run-id campaign-01 \
+  --profile ideal_company_profile.json \
   --free-only \
   --sessions 4
 ```
+
+Profile use is explicit. Pass `--profile PATH` to select and persist a profile,
+or pass `--use-active-profile` to attach the active profile from SQLite. Without
+either option, no profile is attached, so generic tasks are not changed by
+account-specific onboarding state.
 
 ### The Invariant: Substring Verification Gate
 Every model claim must include an exact quote. Under the hood:

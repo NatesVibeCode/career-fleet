@@ -12,6 +12,7 @@ This example demonstrates how to research, qualify, score, and rank target accou
 
 - `sample_accounts.csv`: Sample accounts with authentic engineering job postings and infrastructure initiatives (Stripe, Hyper AI, Pinecone, PostHog, Supabase, etc.).
 - `task.json`: Pre-configured closed task specification requiring a numeric `score` (0–100), `fit_tier`, `identified_gap`, and `reasoning`.
+- `ideal_company_profile.json`: Typed ICP profile that can be persisted and attached to a run for auditability.
 
 ---
 
@@ -22,6 +23,9 @@ You can initialize directly from the built-in `account-research` (or `score`) pr
 
 ```bash
 free-fleet init account-research --preset account-research
+
+# Persist the ICP in the same SQLite database before running
+account-fleet profile --path examples/account_research/ideal_company_profile.json --db free-fleet.db
 ```
 
 Or register the bundled `task.json`:

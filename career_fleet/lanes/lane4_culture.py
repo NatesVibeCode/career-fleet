@@ -98,6 +98,7 @@ def run_lane4_culture(
     profile: IdealEmployerProfile,
 ) -> Dict[str, Any]:
     """Execute Lane 4 Culture & Leadership evaluation on qualified targets."""
+    profile_revision_id = store.save_profile(profile)
     qualified = []
     for company in store.list_companies():
         if company["status"] not in ("qualified", "triaged"):
@@ -126,6 +127,7 @@ def run_lane4_culture(
             rationale=res["rationale"],
             quotes=res["quotes"],
             model_used="deterministic-culture-scorer",
+            profile_revision_id=profile_revision_id,
         )
         evaluated += 1
 

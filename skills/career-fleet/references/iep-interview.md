@@ -12,8 +12,8 @@ Only after this authorized scan should the agent conduct a focused, 3-question i
 
 If any of the 6 core signals are missing after the autonomous scan, present these 3 focused questions:
 
-### Question 1: Non-Negotiable Dealbreakers
-> *"What hard constraints immediately disqualify an opportunity for you? (e.g., in-person office mandates outside your metro, company size exceeding 80 people, specific tech stacks, or pure quota grinding)?"*
+### Question 1: Work Arrangement & Non-Negotiable Dealbreakers
+> *"Should screening require a workplace arrangement? Choose no restriction, remote-only, or remote-or-hybrid. If you have other hard constraints that immediately disqualify an opportunity, what are they (e.g., in-person office mandates outside your metro, company size exceeding 80 people, specific tech stacks, or pure quota grinding)?"*
 
 ### Question 2: The Hiring Catalyst & Problem Wedge
 > *"What acute operational breaking point or technical challenge are you most energized to solve for a founder? (e.g., taking an unsiloed commercial engine from 0 to 1, rewriting a legacy v1 data pipeline, or building regulated compliance infrastructure)?"*
@@ -25,4 +25,4 @@ If any of the 6 core signals are missing after the autonomous scan, present thes
 
 ## Profile Synthesis
 
-Initialize `profile.json` once with `career-fleet profile --init`, confirm the inferred values with the user, then edit the generated JSON with the answers. The command refuses to overwrite an existing profile unless `--force` is supplied.
+Initialize `profile.json` once with `career-fleet profile --init`, confirm the inferred values with the user, then edit the generated JSON with the answers. Set `dealbreakers.policy` to `any` unless the user explicitly chooses a remote-only or remote-or-hybrid screen. Never infer this preference from a resume or project history. The command refuses to overwrite an existing profile unless `--force` is supplied.

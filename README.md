@@ -57,7 +57,12 @@ career-fleet init
 career-fleet profile
 ```
 
-The generated profile is intentionally neutral. Edit `profile.json` to set your stack, dealbreakers, leadership signals, and (optionally) `dealbreakers.candidate_timezone` before relying on qualification results. If a profile is missing, triage and recon stop with an error instead of silently using neutral criteria.
+The generated profile is intentionally neutral. Edit `profile.json` to set your stack, dealbreakers, leadership signals, and (optionally) `dealbreakers.candidate_timezone` before relying on qualification results. Workplace screening is also opt-in: `dealbreakers.policy` defaults to `any`, so the lanes do not assume remote or hybrid work. Choose `remote_only` or `remote_or_hybrid` only when the user explicitly wants that filter. If a profile is missing, triage and recon stop with an error instead of silently using neutral criteria.
+
+`profile.json` is the editable authoring file; the selected IEP is also stored in
+SQLite as an immutable profile revision, and each lane evaluation records the
+revision it used. Account research uses the same pattern with
+`ideal_company_profile.json` and `account-fleet profile`.
 
 ### 2. Discover target companies & job postings (Lane 1)
 

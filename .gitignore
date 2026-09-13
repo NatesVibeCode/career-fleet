@@ -23,6 +23,10 @@ evidence/
 *.sqlite3-wal
 *.tmp
 profile.json
+/ideal_company_profile.json
+/accounts.csv
+/ranked_accounts*.csv
+/top_25_ranked_accounts.csv
 qualified_targets*.json
 .DS_Store
 

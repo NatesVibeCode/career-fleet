@@ -19,7 +19,8 @@
   ],
   "dealbreakers": {
     "max_headcount": 80,
-    "policy": "remote_only",
+    "require_verified_headcount": false,
+    "policy": "any",
     "disallowed_locations": [
       "San Francisco in-office mandate",
       "New York in-office mandate"

@@ -1,9 +1,11 @@
+import sqlite3
 from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 
 from free_fleet.models import ProviderReceipt, RouteInfo, TaskSpec
 from free_fleet.packer import pack_items
+from free_fleet.profile import IdealCompanyProfile
 from free_fleet.store import BulkLanesStore, digest_json
 
 
@@ -27,13 +29,99 @@ def test_schema_has_recovered_control_plane_tables(tmp_path):
     assert {
         "task_revisions", "current_tasks", "route_observations", "current_routes",
         "runs", "batches", "batch_attempts", "model_runs", "batch_results", "current_batch_results", "worker_sessions",
-        "route_cooldowns", "route_evaluations", "inference_attempts",
+        "route_cooldowns", "route_evaluations", "inference_attempts", "profile_revisions", "active_profiles",
     } <= tables
-    assert store.schema_version() == "2"
+    assert store.schema_version() == "4"
     with store.connect() as connection:
         task_columns = {row[1] for row in connection.execute("PRAGMA table_info(task_revisions)")}
     assert "spec_json" not in task_columns
     assert {"format_version", "instructions", "batch_size", "max_slice_chars", "min_quote_chars", "claims_schema_json"} <= task_columns
+
+
+def test_ideal_company_profile_revisions_round_trip_and_activate(tmp_path):
+    store = BulkLanesStore(tmp_path / "profiles.db")
+    first = IdealCompanyProfile(profile_name="First ICP", required_stack=["PostgreSQL"])
+    second = IdealCompanyProfile(profile_name="Second ICP", required_stack=["Kafka"])
+
+    first_revision = store.save_profile(first)
+    assert store.active_profile_revision_id() == first_revision
+    assert store.load_profile().model_dump() == first.model_dump()
+
+    second_revision = store.save_profile(second)
+    assert second_revision != first_revision
+    assert store.active_profile_revision_id() == second_revision
+    assert store.load_profile().model_dump() == second.model_dump()
+    with store.connect() as connection:
+        assert connection.execute("SELECT count(*) FROM profile_revisions WHERE profile_kind='ideal_company'").fetchone()[0] == 2
+
+
+def test_legacy_database_migrates_profile_tables_and_run_reference(tmp_path):
+    db_path = tmp_path / "legacy.db"
+    with sqlite3.connect(db_path) as connection:
+        connection.executescript(
+            """
+            CREATE TABLE bulk_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+            INSERT INTO bulk_meta(key, value) VALUES ('schema_version', '2');
+            CREATE TABLE runs (
+                run_id TEXT PRIMARY KEY,
+                task_revision_id TEXT NOT NULL,
+                input_path TEXT NOT NULL,
+                input_digest TEXT NOT NULL,
+                status TEXT NOT NULL,
+                total_items INTEGER NOT NULL,
+                max_attempts INTEGER NOT NULL,
+                attempts_used INTEGER NOT NULL DEFAULT 0,
+                batch_size INTEGER NOT NULL,
+                output_path TEXT,
+                created_at TEXT NOT NULL,
+                finished_at TEXT
+            );
+            """
+        )
+
+    store = BulkLanesStore(db_path)
+    with store.connect() as connection:
+        run_columns = {row[1] for row in connection.execute("PRAGMA table_info(runs)")}
+        tables = {row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+    assert {"policy_json", "profile_revision_id"} <= run_columns
+    assert {"profile_revisions", "active_profiles"} <= tables
+    assert store.schema_version() == "4"
+
+
+def test_run_snapshot_records_selected_profile_revision(tmp_path):
+    store = BulkLanesStore(tmp_path / "run-profile.db")
+    profile_revision = store.save_profile(IdealCompanyProfile(profile_name="Audited ICP"))
+    task_revision = store.register_task(_task())
+    store.create_run(
+        run_id="profile-run",
+        task_revision_id=task_revision,
+        input_path="input.jsonl",
+        input_digest="a" * 64,
+        total_items=0,
+        max_attempts=1,
+        batch_size=1,
+        output_path="output.json",
+        profile_revision_id=profile_revision,
+    )
+
+    assert store.run_snapshot("profile-run")["profile_revision_id"] == profile_revision
+
+
+def test_run_rejects_unknown_profile_revision(tmp_path):
+    store = BulkLanesStore(tmp_path / "missing-profile.db")
+    task_revision = store.register_task(_task())
+    with pytest.raises(ValueError, match="profile revision does not exist"):
+        store.create_run(
+            run_id="missing-profile-run",
+            task_revision_id=task_revision,
+            input_path="input.jsonl",
+            input_digest="a" * 64,
+            total_items=0,
+            max_attempts=1,
+            batch_size=1,
+            output_path="output.json",
+            profile_revision_id="missing-revision",
+        )
 
 
 def test_concurrent_lease_claims_batch_once(tmp_path):

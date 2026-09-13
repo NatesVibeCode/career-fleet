@@ -26,7 +26,7 @@ def test_setup_installs_bundled_skill_and_database_idempotently(tmp_path):
     assert first.actions[0].status == "created"
     assert second.actions[0].status == "unchanged"
     assert Path(first.skill_path, "SKILL.md").is_file()
-    assert BulkLanesStore(first.database).schema_version() == "2"
+    assert BulkLanesStore(first.database).schema_version() == "4"
     assert Path(first.stdio_server.command).stem in {"account-fleet", "free-fleet", "bulk-lanes"}
     assert Path(first.skill_path).with_name("account-fleet").joinpath("SKILL.md").is_file()
     assert first.database in first.stdio_server.args
@@ -97,6 +97,36 @@ def test_setup_refuses_different_existing_skill_without_force(tmp_path):
             workspace_root=workspace,
             home=home,
         )
+
+
+def test_force_update_removes_stale_managed_skill_files(tmp_path):
+    home = tmp_path / "home"
+    workspace = tmp_path / "workspace"
+    home.mkdir()
+    workspace.mkdir()
+    setup_workspace(scope="user", workspace_root=workspace, home=home)
+    stale = home / ".agents/skills/free-fleet/stale-from-old-release.md"
+    stale.write_text("stale")
+
+    setup_workspace(scope="user", workspace_root=workspace, home=home, force=True)
+
+    assert not stale.exists()
+
+
+def test_setup_preflights_all_skill_destinations_before_writing(tmp_path):
+    home = tmp_path / "home"
+    workspace = tmp_path / "workspace"
+    conflict = home / ".agents/skills/account-fleet"
+    home.mkdir()
+    workspace.mkdir()
+    conflict.mkdir(parents=True)
+    (conflict / "SKILL.md").write_text("user skill")
+
+    with pytest.raises(FileExistsError, match="--force"):
+        setup_workspace(scope="user", workspace_root=workspace, home=home)
+
+    assert not (home / ".agents/skills/free-fleet").exists()
+    assert not (workspace / "free-fleet.db").exists()
 
 
 def test_setup_database_cannot_escape_workspace(tmp_path):

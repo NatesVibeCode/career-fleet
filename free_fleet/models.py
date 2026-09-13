@@ -388,6 +388,12 @@ class TaskRegistrationResult(ClosedModel):
     revision: str = Field(pattern=r"^[0-9a-f]{64}$")
 
 
+class ProfileResult(ClosedModel):
+    profile_kind: Literal["ideal_company", "ideal_employer"]
+    revision: str = Field(pattern=r"^[0-9a-f]{64}$")
+    profile: dict[str, JsonValue]
+
+
 class TaskSummary(ClosedModel):
     task_name: str
     revision_id: str = Field(pattern=r"^[0-9a-f]{64}$")
@@ -418,7 +424,7 @@ class DoctorReport(ClosedModel):
 
 
 class SchemaResult(ClosedModel):
-    kind: Literal["task", "input", "candidate-output", "output", "packet", "database"]
+    kind: Literal["task", "input", "candidate-output", "output", "packet", "profile", "database"]
     schema_document: dict[str, JsonValue]
 
 
@@ -469,6 +475,7 @@ class RunStatusReport(ClosedModel):
     run_id: str
     status: str
     task_name: str
+    profile_revision_id: str | None = None
     total_items: int = Field(default=0, ge=0)
     verified_items: int = Field(default=0, ge=0)
     batches: BatchStatusCounts
@@ -516,4 +523,3 @@ class CooldownsReport(ClosedModel):
     cooldowns: list[CooldownDetail] = Field(default_factory=list)
     cleared: int | None = None
     route_id: str | None = None
-

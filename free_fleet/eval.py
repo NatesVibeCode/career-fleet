@@ -4,7 +4,9 @@ from __future__ import annotations
 import json
 import time
 import uuid
+from collections.abc import Callable, Iterable, Iterator
 from datetime import datetime, timezone
+from itertools import islice
 from typing import Any, Dict, List, Optional
 from pydantic import ValidationError
 
@@ -32,17 +34,20 @@ class RouteEvaluator:
     def evaluate_route(
         self,
         route_id: str,
-        samples: List[InputItem],
+        samples: Iterable[InputItem],
         expected_claims_key: Optional[str] = None,
         concurrency: int = 4,
     ) -> RouteEvalResult:
+        if concurrency < 1:
+            raise ValueError("concurrency must be greater than 0")
         routes_by_id = {r["id"]: r for r in self.catalog.data.get("routes", [])}
         route_info = routes_by_id.get(route_id, {})
         provider_hint = route_info.get("provider")
         provider = self.registry.resolve(provider_hint, route_id)
 
-        total = len(samples)
-        # Threaded per-sample evaluation for throughput
+        total = 0
+        sample_iterator = iter(samples)
+        # Threaded per-sample evaluation for throughput, with a bounded input window.
         import concurrent.futures as _cf
 
         def _eval_one(item: InputItem) -> dict:
@@ -63,22 +68,33 @@ class RouteEvaluator:
             )
             return {"ok": ok, "response_text": response_text, "receipt": receipt, "item": item}
 
-        # Execute with bounded concurrency
-        if concurrency <= 1 or total <= 1:
-            raw_results = [_eval_one(it) for it in samples]
-        else:
-            with _cf.ThreadPoolExecutor(max_workers=min(concurrency, total)) as ex:
-                raw_results = list(ex.map(_eval_one, samples))
+        def _result_stream() -> Iterator[dict]:
+            nonlocal total
+            window_size = max(1, concurrency)
+            while True:
+                window = list(islice(sample_iterator, window_size))
+                if not window:
+                    return
+                total += len(window)
+                if concurrency <= 1:
+                    for item in window:
+                        yield _eval_one(item)
+                else:
+                    with _cf.ThreadPoolExecutor(max_workers=min(concurrency, len(window))) as ex:
+                        yield from ex.map(_eval_one, window)
+
         # Aggregate
         schema_passed = 0
         grounding_passed = 0
         correct_count = 0
         rate_limits = 0
         errors = 0
-        durations: List[float] = []
-        bias_errors: List[float] = []
+        duration_sum = 0.0
+        duration_count = 0
+        bias_error_sum = 0.0
+        bias_error_count = 0
 
-        for res in raw_results:
+        for res in _result_stream():
             item = res["item"]
             ok = res["ok"]
             response_text = res["response_text"]
@@ -86,7 +102,8 @@ class RouteEvaluator:
 
             dur = receipt.get("duration_seconds")
             if dur is not None and dur > 0:
-                durations.append(dur)
+                duration_sum += float(dur)
+                duration_count += 1
 
             attempt_rec = {
                 "attempt_id": f"eval:{route_id}:{item.item_id}:{uuid.uuid4().hex[:8]}",
@@ -204,15 +221,16 @@ class RouteEvaluator:
                         correct_count += 1
                 else:
                     try:
-                        bias_errors.append(
+                        bias_error_sum += (
                             float(actual_claims.get(expected_claims_key, "")) - float(expected_raw)  # type: ignore[arg-type]
                         )
+                        bias_error_count += 1
                     except (ValueError, TypeError):
                         pass
                     if str(actual_claims.get(expected_claims_key, "")).lower() == str(expected_raw).lower():
                         correct_count += 1
 
-        avg_lat = (sum(durations) / len(durations)) if durations else 0.0
+        avg_lat = (duration_sum / duration_count) if duration_count else 0.0
         schema_rate = (schema_passed / total) if total > 0 else 0.0
         grounding_rate = (grounding_passed / total) if total > 0 else 0.0
         accuracy = (correct_count / total) if (expected_claims_key and total > 0) else None
@@ -265,9 +283,11 @@ class RouteEvaluator:
             "composite_score": comp,
         })
         # Persist rater bias for bias-adjusted export ranking (numeric goldens only).
-        if bias_errors and hasattr(self.store, "update_route_claim_bias"):
+        if bias_error_count and hasattr(self.store, "update_route_claim_bias_stats"):
             try:
-                self.store.update_route_claim_bias(self.task.name, route_id, bias_errors)
+                self.store.update_route_claim_bias_stats(
+                    self.task.name, route_id, bias_error_sum, bias_error_count
+                )
             except Exception:
                 pass
 
@@ -275,30 +295,48 @@ class RouteEvaluator:
 
     def evaluate_all(
         self,
-        samples: List[InputItem],
+        samples: Iterable[InputItem],
         routes: Optional[List[str]] = None,
         expected_claims_key: Optional[str] = None,
         concurrency: int = 4,
+        samples_factory: Callable[[], Iterable[InputItem]] | None = None,
     ) -> RouteEvalReport:
+        if concurrency < 1:
+            raise ValueError("concurrency must be greater than 0")
         target_routes = routes or self.catalog.get_ladder(free_only=True)
+        if samples_factory is None:
+            sample_iterator = iter(samples)
+            if sample_iterator is samples and len(target_routes) > 1:
+                raise ValueError("samples_factory is required for one-shot samples across multiple routes")
+            sample_factory = (lambda: sample_iterator) if sample_iterator is samples else (lambda: iter(samples))
+        else:
+            sample_factory = samples_factory
         results = []
         # Parallelize across routes as well when multiple routes
         if len(target_routes) > 1 and concurrency > 1:
             import concurrent.futures as _cf
             with _cf.ThreadPoolExecutor(max_workers=min(len(target_routes), 4)) as ex:
-                futures = {ex.submit(self.evaluate_route, rid, samples, expected_claims_key, 1): rid for rid in target_routes}
+                futures = {
+                    ex.submit(self.evaluate_route, rid, sample_factory(), expected_claims_key, 1): rid
+                    for rid in target_routes
+                }
                 for fut in _cf.as_completed(futures):
                     results.append(fut.result())
         else:
             for rid in target_routes:
-                results.append(self.evaluate_route(rid, samples, expected_claims_key=expected_claims_key, concurrency=concurrency))
+                results.append(self.evaluate_route(
+                    rid,
+                    sample_factory(),
+                    expected_claims_key=expected_claims_key,
+                    concurrency=concurrency,
+                ))
 
         # Sort by composite score descending
         results.sort(key=lambda r: r.composite_score, reverse=True)
 
         return RouteEvalReport(
             task=self.task.name,
-            samples=len(samples),
+            samples=results[0].total_samples if results else 0,
             evaluated_at=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
             routes=results,
         )

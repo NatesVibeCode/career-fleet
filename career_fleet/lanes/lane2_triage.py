@@ -41,9 +41,15 @@ QUOTA_PATTERNS = [
 ]
 
 REMOTE_NEGATION_PATTERNS = [
-    re.compile(r"\b(?:no|not|without)\s+(?:fully\s+)?remote\b", re.I),
-    re.compile(r"\bremote\s+(?:work\s+)?(?:is\s+)?(?:not\s+)?(?:required|allowed|available|permitted|optional)\b", re.I),
+    re.compile(
+        r"\b(?:no|not|without)\s+(?:(?:a|an)\s+)?(?:fully\s+)?remote(?:[- ]?(?:role|position|job))?\b|"
+        r"\bremote\s+(?:work\s+)?(?:is\s+)?(?:not|never)\s+(?:required|allowed|available|permitted|possible|offered)\b|"
+        r"\bremote\s+(?:work\s+)?(?:is\s+)?optional\b|"
+        r"\b(?:cannot|can't|will\s+not|won't|may\s+not)\s+(?:(?:be|work)\s+)?(?:fully\s+)?remote(?:ly)?\b",
+        re.I,
+    ),
 ]
+REMOTE_FIRST_PATTERN = re.compile(r"\bremote[- ]first\b", re.I)
 
 REMOTE_POSITIVE_PATTERN = re.compile(
     r"\b(?:fully|100%|completely|entirely)?\s*remote\b|"
@@ -54,15 +60,23 @@ REMOTE_ROLE_POSITIVE_PATTERN = re.compile(
     r"\bremote[- ]?(?:role|position|job)\b|"
     r"\b(?:this|the|a|your)\s+(?:role|position|job)\s+(?:is\s+)?(?:fully\s+)?remote\b|"
     r"\b(?:can|may|will)\s+work\s+(?:fully\s+)?remotely\b|"
+    r"\bremote\s+(?:work\s+)?(?:is\s+)?required\b|"
     r"\bwork[- ]from[- ]anywhere\b",
     re.I,
 )
-HYBRID_WORKPLACE_PATTERN = re.compile(
-    r"\bhybrid[- ]?(?:first|role|position|schedule|work|working|team|model|office)\b|"
-    r"\b(?:work|working)\s+(?:in\s+)?a\s+hybrid\b",
+HYBRID_FIRST_PATTERN = re.compile(r"\bhybrid[- ]first\b", re.I)
+HYBRID_ROLE_POSITIVE_PATTERN = re.compile(
+    r"\bhybrid[- ]?(?:role|position|schedule)\b|"
+    r"\b(?:this|the|a|your)\s+(?:role|position|job)\s+(?:is\s+)?hybrid\b|"
+    r"\b(?:can|may|will)\s+work\s+(?:in\s+)?a\s+hybrid\b",
     re.I,
 )
-HYBRID_NEGATION_PATTERN = re.compile(r"\b(?:no|not|without)\s+hybrid\b", re.I)
+HYBRID_NEGATION_PATTERN = re.compile(
+    r"\b(?:no|not|without)\s+(?:(?:a|an)\s+)?hybrid(?:[- ]?(?:role|position|job|work|schedule|model))?\b|"
+    r"\bhybrid\s+(?:work|working|schedule|model|role|position)?\s*(?:is|are)\s+(?:not|never)\s+(?:required|available|offered|permitted|allowed|possible|provided)\b|"
+    r"\b(?:cannot|can't|will\s+not|won't|may\s+not)\s+(?:(?:be|work)\s+)?(?:a\s+)?hybrid\b",
+    re.I,
+)
 REMOTE_LOCATION_PATTERN = re.compile(r"\b(?:remote|anywhere)\b", re.I)
 
 LOCATION_STOPWORDS = {
@@ -71,24 +85,26 @@ LOCATION_STOPWORDS = {
     "the", "week", "with",
 }
 
-LOCATION_ALIASES = {
+# Use one token for multi-word places so either side of an alias comparison
+# works ("SF" ↔ "San Francisco", "NYC" ↔ "New York").
+LOCATION_CANONICAL_ALIASES = {
+    "san francisco": "san_francisco",
+    "sf": "san_francisco",
+    "new york": "new_york",
+    "nyc": "new_york",
+    "ny": "new_york",
+    "california": "california",
     "ca": "california",
-    "california": "ca",
+    "colorado": "colorado",
     "co": "colorado",
-    "colorado": "co",
+    "illinois": "illinois",
     "il": "illinois",
-    "illinois": "il",
+    "massachusetts": "massachusetts",
     "ma": "massachusetts",
-    "massachusetts": "ma",
-    "ny": "new york",
-    "new york": "ny",
+    "texas": "texas",
     "tx": "texas",
-    "texas": "tx",
+    "washington": "washington",
     "wa": "washington",
-    "washington": "wa",
-    "sf": "san francisco",
-    "san francisco": "sf",
-    "nyc": "new york",
 }
 
 
@@ -107,21 +123,24 @@ def _screening_text(company: Dict[str, Any], postings: List[Dict[str, Any]]) -> 
 
 def _location_matches(text: str, configured_location: str) -> bool:
     """Match the meaningful location words, ignoring policy words."""
-    terms = [
-        token
-        for token in re.findall(r"[A-Za-z0-9]+", configured_location.casefold())
-        if token not in LOCATION_STOPWORDS
-    ]
+    def canonical_tokens(value: str) -> set[str]:
+        normalized = " ".join(re.findall(r"[A-Za-z0-9]+", value.casefold()))
+        for variant, canonical in sorted(LOCATION_CANONICAL_ALIASES.items(), key=lambda pair: len(pair[0]), reverse=True):
+            normalized = re.sub(
+                r"(?<!\w)" + re.escape(variant) + r"(?!\w)",
+                canonical,
+                normalized,
+            )
+        return {
+            token
+            for token in re.findall(r"[A-Za-z0-9_]+", normalized)
+            if token not in LOCATION_STOPWORDS
+        }
+
+    terms = canonical_tokens(configured_location)
     if not terms:
         return False
-    for term in terms:
-        alternatives = {term}
-        alias = LOCATION_ALIASES.get(term)
-        if alias:
-            alternatives.add(alias)
-        if not any(re.search(r"(?<!\w)" + re.escape(option) + r"(?!\w)", text, re.I) for option in alternatives):
-            return False
-    return True
+    return terms <= canonical_tokens(text)
 
 
 def _has_remote_evidence(posting: Dict[str, Any]) -> bool:
@@ -137,6 +156,8 @@ def _has_remote_evidence(posting: Dict[str, Any]) -> bool:
         # concrete city in an ATS location field unless the role itself is
         # explicitly remote.
         return bool(REMOTE_ROLE_POSITIVE_PATTERN.search(raw_text))
+    if REMOTE_FIRST_PATTERN.search(text) and not REMOTE_ROLE_POSITIVE_PATTERN.search(raw_text):
+        return False
     return bool(REMOTE_POSITIVE_PATTERN.search(text))
 
 
@@ -147,7 +168,12 @@ def _has_remote_or_hybrid_evidence(posting: Dict[str, Any]) -> bool:
     if HYBRID_NEGATION_PATTERN.search(text):
         return _has_remote_evidence(posting)
     hybrid_location = bool(re.search(r"\bhybrid\b", location, re.I))
-    return hybrid_location or bool(HYBRID_WORKPLACE_PATTERN.search(raw_text)) or _has_remote_evidence(posting)
+    if hybrid_location or HYBRID_ROLE_POSITIVE_PATTERN.search(raw_text):
+        return True
+    if HYBRID_FIRST_PATTERN.search(text):
+        # "Hybrid-first" describes a company policy, not necessarily this role.
+        return _has_remote_evidence(posting)
+    return _has_remote_evidence(posting)
 
 
 def _configured_location_mandate(text: str, configured_location: str) -> Optional[str]:
@@ -251,11 +277,12 @@ def check_dealbreakers(
     headcount = company.get("headcount")
     if dealbreakers.max_headcount is not None:
         if headcount is None:
-            return {
-                "disqualified": True,
-                "reason": "Headcount could not be verified while a maximum headcount is configured.",
-                "rule": "headcount_unknown",
-            }
+            if dealbreakers.require_verified_headcount:
+                return {
+                    "disqualified": True,
+                    "reason": "Headcount could not be verified while a maximum headcount is configured.",
+                    "rule": "headcount_unknown",
+                }
         try:
             hc_int = int(headcount)
             if hc_int > dealbreakers.max_headcount:
@@ -265,11 +292,12 @@ def check_dealbreakers(
                     "rule": "headcount_limit",
                 }
         except (ValueError, TypeError):
-            return {
-                "disqualified": True,
-                "reason": f"Headcount value {headcount!r} could not be verified while a maximum headcount is configured.",
-                "rule": "headcount_unknown",
-            }
+            if dealbreakers.require_verified_headcount:
+                return {
+                    "disqualified": True,
+                    "reason": f"Headcount value {headcount!r} could not be verified while a maximum headcount is configured.",
+                    "rule": "headcount_unknown",
+                }
 
     # 2. In-person mandate check across job postings and structured metadata.
     combined_text = _screening_text(company, postings)
@@ -378,6 +406,7 @@ def run_lane2_triage(
     Lane 2 result invalidates downstream lane results in the store.
     """
     discovered = store.list_companies()
+    profile_revision_id = store.save_profile(profile)
     triaged = 0
     passed = 0
     dropped = 0
@@ -398,6 +427,7 @@ def run_lane2_triage(
                 verdict="DISQUALIFIED",
                 rationale=dq["reason"],
                 quotes=[dq.get("quote")] if dq.get("quote") else [],
+                profile_revision_id=profile_revision_id,
             )
             dropped += 1
         else:
@@ -409,6 +439,7 @@ def run_lane2_triage(
                 score=1.0,
                 verdict="SURVIVOR",
                 rationale="Passed all deterministic gatekeeper dealbreaker checks.",
+                profile_revision_id=profile_revision_id,
             )
             passed += 1
         triaged += 1

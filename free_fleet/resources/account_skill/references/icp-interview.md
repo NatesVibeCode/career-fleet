@@ -180,3 +180,13 @@ Output the finalized profile and rubric into a typed configuration:
 ```
 
 With this complete specification, proceed immediately to Phase 2 (Discovery) and Phase 3 (Batch Qualification Gate).
+
+Save the confirmed `icp_profile` fields as the typed account profile before
+starting discovery. The JSON is the editable authoring file; SQLite stores the
+immutable revision and active pointer:
+
+```bash
+account-fleet profile --init
+# edit ideal_company_profile.json with the confirmed profile
+account-fleet profile
+```

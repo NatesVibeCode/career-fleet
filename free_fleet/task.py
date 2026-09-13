@@ -53,8 +53,9 @@ PRESETS: dict[str, dict[str, Any]] = {
             "score": {"type": "integer", "minimum": 0, "maximum": 100},
             "identified_gap": {"type": "string"},
             "fit_tier": {"enum": ["tier_1", "tier_2", "tier_3", "unfit"]},
+            "reasoning": {"type": "string"},
         },
-        "required": ["score", "identified_gap", "fit_tier"],
+        "required": ["score", "identified_gap", "fit_tier", "reasoning"],
     },
 }
 
@@ -88,4 +89,3 @@ def load_task_spec(task_path: str | Path) -> TaskSpec:
     if not path.is_file():
         raise FileNotFoundError(f"task file not found: {path}")
     return TaskSpec.model_validate_json(path.read_text(encoding="utf-8"))
-

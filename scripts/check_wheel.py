@@ -65,6 +65,8 @@ def main():
         assert (workspace / ".agents/skills/free-fleet/SKILL.md").is_file()
         if args.distribution == "account-fleet":
             assert (workspace / ".agents/skills/account-fleet/references/mcp-recipes.md").is_file()
+            run("profile", "--init")
+            assert (workspace / "ideal_company_profile.json").is_file()
             run("init", "research", "--preset", "account-research")
         demo = run("quickstart", "--demo", "--run-id", "portable-demo")
         assert demo["verified"] == (10 if args.distribution == "account-fleet" else 2)

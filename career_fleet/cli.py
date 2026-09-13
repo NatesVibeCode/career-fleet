@@ -61,59 +61,96 @@ def _positive_int(value: str) -> int:
     return parsed
 
 
-def get_profile(path: Optional[str] = None) -> IdealEmployerProfile:
-    p = Path(path).expanduser() if path is not None else Path("profile.json")
+def _workspace_path(value: str | Path, workspace_root: str | Path = ".") -> Path:
+    candidate = Path(value).expanduser()
+    if candidate.is_absolute():
+        return candidate
+    return Path(workspace_root).expanduser().resolve() / candidate
+
+
+def get_profile(
+    path: Optional[str] = None,
+    store: CareerStore | None = None,
+    workspace_root: str | Path = ".",
+) -> IdealEmployerProfile:
+    p = _workspace_path(path, workspace_root) if path is not None else _workspace_path("profile.json", workspace_root)
     if p.exists():
-        return IdealEmployerProfile.load(p)
+        profile = IdealEmployerProfile.load(p)
+        if store is not None:
+            store.save_profile(profile)
+        return profile
+    if path is None and store is not None:
+        stored_profile = store.load_profile()
+        if stored_profile is not None:
+            return stored_profile
     raise FileNotFoundError(
-        f"Profile file not found at: {p}. Run 'career-fleet profile --init' or pass --profile PATH."
+        f"No profile found at {p} or in the selected database. Run 'career-fleet profile --init' or pass --profile PATH."
     )
 
 
-def _open_store(db_path: str) -> CareerStore | None:
+def _open_store(db_path: str, workspace_root: str | Path = ".") -> CareerStore | None:
+    resolved_db = _workspace_path(db_path, workspace_root)
     try:
-        return CareerStore(db_path)
+        return CareerStore(resolved_db)
     except (OSError, sqlite3.Error) as exc:
-        print(f"Error: Could not open database {db_path}: {exc}", file=sys.stderr)
+        print(f"Error: Could not open database {resolved_db}: {exc}", file=sys.stderr)
         return None
 
 
 def cmd_init(args):
-    db_path = getattr(args, "db", "career_fleet.db")
-    if _open_store(db_path) is None:
+    workspace = Path(getattr(args, "workspace_root", ".")).expanduser().resolve()
+    db_path = _workspace_path(getattr(args, "db", "career_fleet.db"), workspace)
+    store = _open_store(str(db_path), workspace)
+    if store is None:
         return 1
-    profile_path = Path("profile.json")
-    if not profile_path.exists():
-        prof = IdealEmployerProfile()
-        try:
+    profile_path = workspace / "profile.json"
+    try:
+        if profile_path.exists():
+            prof = IdealEmployerProfile.load(profile_path)
+        elif not getattr(args, "init", False) and (stored_profile := store.load_profile()) is not None:
+            prof = stored_profile
             prof.save(profile_path)
-        except OSError as exc:
-            print(f"Error: Could not write profile {profile_path}: {exc}", file=sys.stderr)
-            return 1
-        print(_ok(f"Initialized default Ideal Employer Profile at {profile_path}"))
+        else:
+            prof = IdealEmployerProfile()
+            prof.save(profile_path)
+            print(_ok(f"Initialized default Ideal Employer Profile at {profile_path}"))
+        store.save_profile(prof)
+    except (OSError, ValueError, sqlite3.Error) as exc:
+        print(f"Error: Could not initialize profile {profile_path}: {exc}", file=sys.stderr)
+        return 1
     print(_ok(f"Initialized CareerStore database at {db_path}"))
 
 
 def cmd_profile(args):
-    prof_path = Path(getattr(args, "path", "profile.json")).expanduser()
+    workspace = Path(getattr(args, "workspace_root", ".")).expanduser().resolve()
+    prof_path = _workspace_path(getattr(args, "path", "profile.json"), workspace)
     profile_exists = Path(prof_path).exists()
     if getattr(args, "init", False) and profile_exists and not getattr(args, "force", False):
         print(f"Error: Profile already exists at {prof_path}; use --force to replace it.", file=sys.stderr)
         return 1
-    if getattr(args, "init", False) or not profile_exists:
-        prof = IdealEmployerProfile()
-        try:
-            prof.save(prof_path)
-        except OSError as exc:
-            print(f"Error: Could not write profile {prof_path}: {exc}", file=sys.stderr)
-            return 1
-        print(_ok(f"Wrote initial Ideal Employer Profile to {prof_path}"))
-        return 0
 
+    store = _open_store(getattr(args, "db", "career_fleet.db"), workspace)
+    if store is None:
+        return 1
     try:
-        prof = IdealEmployerProfile.load(prof_path)
-    except (OSError, ValueError) as exc:
-        print(f"Error: Could not load profile {prof_path}: {exc}", file=sys.stderr)
+        if getattr(args, "init", False) or (not profile_exists and store.load_profile() is None):
+            prof = IdealEmployerProfile()
+            prof.save(prof_path)
+            store.save_profile(prof)
+            print(_ok(f"Wrote initial Ideal Employer Profile to {prof_path}"))
+            return 0
+        if profile_exists:
+            prof = IdealEmployerProfile.load(prof_path)
+        else:
+            prof = store.load_profile()
+            if prof is None:
+                raise FileNotFoundError(
+                    f"No profile found at {prof_path} or in the selected database. Run 'career-fleet profile --init'."
+                )
+            prof.save(prof_path)
+        store.save_profile(prof)
+    except (OSError, ValueError, sqlite3.Error) as exc:
+        print(f"Error: Could not load or store profile {prof_path}: {exc}", file=sys.stderr)
         return 1
     print("==========================================================================================")
     print(f"                      IDEAL EMPLOYER PROFILE: {prof.profile_name} (v{prof.version})")
@@ -129,6 +166,7 @@ def cmd_profile(args):
         print(f"  {_bullet()} {s}")
     print(f"\nHard Dealbreakers:")
     print(f"  {_bullet()} Max Headcount: {prof.dealbreakers.max_headcount}")
+    print(f"  {_bullet()} Verified Headcount: {prof.dealbreakers.require_verified_headcount}")
     print(f"  {_bullet()} Policy:        {prof.dealbreakers.policy}")
     print(f"  {_bullet()} Disallowed:    {', '.join(prof.dealbreakers.disallowed_locations)}")
     print(f"  {_bullet()} Reject Wrapper:{prof.dealbreakers.reject_thin_wrappers}")
@@ -147,7 +185,7 @@ def cmd_profile(args):
 
 
 def cmd_discover(args):
-    store = _open_store(getattr(args, "db", "career_fleet.db"))
+    store = _open_store(getattr(args, "db", "career_fleet.db"), getattr(args, "workspace_root", "."))
     if store is None:
         return 1
     try:
@@ -170,12 +208,16 @@ def cmd_discover(args):
 
 
 def cmd_triage(args):
-    store = _open_store(getattr(args, "db", "career_fleet.db"))
+    store = _open_store(getattr(args, "db", "career_fleet.db"), getattr(args, "workspace_root", "."))
     if store is None:
         return 1
     try:
-        prof = get_profile(getattr(args, "profile", None))
-    except (OSError, ValueError) as exc:
+        prof = get_profile(
+            getattr(args, "profile", None),
+            store=store,
+            workspace_root=getattr(args, "workspace_root", "."),
+        )
+    except (OSError, ValueError, sqlite3.Error) as exc:
         print(f"Error: Could not load profile: {exc}", file=sys.stderr)
         return 1
     res = run_lane2_triage(store, prof)
@@ -190,12 +232,16 @@ def cmd_triage(args):
 
 
 def cmd_recon(args):
-    store = _open_store(getattr(args, "db", "career_fleet.db"))
+    store = _open_store(getattr(args, "db", "career_fleet.db"), getattr(args, "workspace_root", "."))
     if store is None:
         return 1
     try:
-        prof = get_profile(getattr(args, "profile", None))
-    except (OSError, ValueError) as exc:
+        prof = get_profile(
+            getattr(args, "profile", None),
+            store=store,
+            workspace_root=getattr(args, "workspace_root", "."),
+        )
+    except (OSError, ValueError, sqlite3.Error) as exc:
         print(f"Error: Could not load profile: {exc}", file=sys.stderr)
         return 1
     lane = getattr(args, "lane", "all")
@@ -211,7 +257,7 @@ def cmd_recon(args):
 
 
 def cmd_list(args):
-    store = _open_store(getattr(args, "db", "career_fleet.db"))
+    store = _open_store(getattr(args, "db", "career_fleet.db"), getattr(args, "workspace_root", "."))
     if store is None:
         return 1
     status_filter = getattr(args, "status", None)
@@ -231,7 +277,7 @@ def cmd_list(args):
 
 
 def cmd_dossier(args):
-    store = _open_store(getattr(args, "db", "career_fleet.db"))
+    store = _open_store(getattr(args, "db", "career_fleet.db"), getattr(args, "workspace_root", "."))
     if store is None:
         return 1
     dossier = store.get_company_dossier(args.company)
@@ -277,7 +323,7 @@ def cmd_dossier(args):
 
 
 def cmd_export(args):
-    store = _open_store(getattr(args, "db", "career_fleet.db"))
+    store = _open_store(getattr(args, "db", "career_fleet.db"), getattr(args, "workspace_root", "."))
     if store is None:
         return 1
     qualified = [c for c in store.list_companies() if c["status"] == "qualified"]
@@ -324,10 +370,13 @@ def main():
 
     p_init = subparsers.add_parser("init", help="Initialize SQLite DB and profile template")
     p_init.add_argument("--db", default="career_fleet.db", help="SQLite database path")
+    p_init.add_argument("--workspace-root", default=".", help="Workspace root for relative paths")
     p_init.set_defaults(func=cmd_init)
 
     p_prof = subparsers.add_parser("profile", help="Inspect or generate Ideal Employer Profile")
     p_prof.add_argument("--path", default="profile.json", help="Path to profile.json")
+    p_prof.add_argument("--db", default="career_fleet.db", help="SQLite database path for the stored profile")
+    p_prof.add_argument("--workspace-root", default=".", help="Workspace root for relative paths")
     p_prof.add_argument("--init", action="store_true", help="Generate fresh default profile")
     p_prof.add_argument("--force", action="store_true", help="Replace an existing profile when used with --init")
     p_prof.set_defaults(func=cmd_profile)
@@ -340,14 +389,16 @@ def main():
     p_disc.set_defaults(func=cmd_discover)
 
     p_trig = subparsers.add_parser("triage", help="Lane 2: Gatekeeper triage (dealbreakers)")
-    p_trig.add_argument("--profile", default=None, help="Path to profile.json (default: ./profile.json; required)")
+    p_trig.add_argument("--profile", default=None, help="Path to profile.json (default: ./profile.json; otherwise use the active IEP in SQLite)")
     p_trig.add_argument("--db", default="career_fleet.db", help="SQLite database path")
+    p_trig.add_argument("--workspace-root", default=".", help="Workspace root for relative paths")
     p_trig.set_defaults(func=cmd_triage)
 
     p_rec = subparsers.add_parser("recon", help="Lanes 3 & 4: Systems wedge & culture recon")
     p_rec.add_argument("--lane", choices=["systems", "culture", "all"], default="all", help="Which lane to run")
-    p_rec.add_argument("--profile", default=None, help="Path to profile.json (default: ./profile.json; required)")
+    p_rec.add_argument("--profile", default=None, help="Path to profile.json (default: ./profile.json; otherwise use the active IEP in SQLite)")
     p_rec.add_argument("--db", default="career_fleet.db", help="SQLite database path")
+    p_rec.add_argument("--workspace-root", default=".", help="Workspace root for relative paths")
     p_rec.set_defaults(func=cmd_recon)
 
     p_list = subparsers.add_parser("list", help="List tracked companies")

@@ -4,6 +4,7 @@ from free_fleet.catalog import RouteCatalog
 from free_fleet.engine import Engine
 from free_fleet.models import RoutePolicy, TaskSpec
 from free_fleet.packer import pack_items
+from free_fleet.profile import IdealCompanyProfile
 from free_fleet.store import FreeFleetStore
 
 
@@ -14,6 +15,7 @@ class ProviderStub:
 
     def run_prompt(self, route_id, prompt, system_prompt=None, timeout_sec=120, session_id=None):
         self.calls += 1
+        self.last_prompt = prompt
         receipt = {
             "id": "receipt-1",
             "session_id": session_id,
@@ -111,6 +113,37 @@ def test_campaign_state_and_receipts_live_in_sqlite(tmp_path):
     calls = engine.opencode_prov.calls
     engine.resume_campaign("run-1", concurrency=2, output_packet_path=output)
     assert engine.opencode_prov.calls == calls
+
+
+def test_profile_context_is_used_and_revision_survives_resume(tmp_path):
+    engine = _engine(tmp_path, {
+        "items": [{
+            "item_id": "i1",
+            "claims": {"summary": "supported"},
+            "quotes": [{"slice_id": "full", "text": "supported source text"}],
+        }]
+    })
+    profile = IdealCompanyProfile(
+        profile_name="Database Buyers",
+        required_stack=["PostgreSQL"],
+    )
+    output = tmp_path / "profile-packet.json"
+    packet = engine.run_campaign(
+        raw_items=[{"item_id": "i1", "text": "supported source text"}],
+        run_id="profile-context-run",
+        input_path="input.jsonl",
+        max_attempts=3,
+        output_packet_path=output,
+        profile=profile,
+    )
+
+    revision = engine.store.active_profile_revision_id()
+    assert revision
+    assert engine.store.run_snapshot("profile-context-run")["profile_revision_id"] == revision
+    assert "IDEAL COMPANY PROFILE: Database Buyers" in engine.opencode_prov.last_prompt
+    assert packet["total_verified_records"] == 1
+    engine.resume_campaign("profile-context-run", output_packet_path=output)
+    assert engine.profile.profile_name == "Database Buyers"
 
 
 def test_inference_attempts_recorded_in_sqlite_on_failure_and_success(tmp_path):

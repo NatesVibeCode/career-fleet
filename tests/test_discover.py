@@ -13,6 +13,7 @@ from free_fleet.discover import (
     RawRecord,
     SearchHit,
     canonical_url,
+    domain_of,
     extract_text,
     fetch_ashby_org,
     fetch_greenhouse_board,
@@ -37,6 +38,18 @@ def clear_robots_cache():
     discover._robots_cache.clear()
     yield
     discover._robots_cache.clear()
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        ("https://www.Example.com.:443/jobs", "example.com"),
+        ("example.com", "example.com"),
+        ("https://user:pass@www.example.com/path", "example.com"),
+    ],
+)
+def test_domain_of_returns_one_canonical_hostname(value, expected):
+    assert domain_of(value) == expected
 
 
 class FakeResponse:

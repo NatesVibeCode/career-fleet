@@ -86,13 +86,15 @@ Runs can be restricted by policy:
 
 ## Database
 
-The default is `./free-fleet.db`. Select a different database with `--db PATH` or `FREE_FLEET_DB`.
+The default is `./free-fleet.db`. Select a different database with `--db PATH` or
+`ACCOUNT_FLEET_DB`, `FREE_FLEET_DB`, or `BULK_LANES_DB` (the first configured
+variable wins).
 
 ```bash
 free-fleet schema database
 ```
 
-The queue uses WAL, foreign keys, busy timeout, and atomic `BEGIN IMMEDIATE` leases. Attempt and model-run evidence is retained. Schema version is `"2"`.
+The queue uses WAL, foreign keys, busy timeout, and atomic `BEGIN IMMEDIATE` leases. Attempt and model-run evidence is retained. Schema version is `"4"`. Account runs can also retain the exact immutable Ideal Company Profile revision used for the campaign.
 
 ## MCP
 
