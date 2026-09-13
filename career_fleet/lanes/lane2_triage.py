@@ -37,12 +37,17 @@ def check_dealbreakers(
 
     # 1. Headcount check
     headcount = company.get("headcount")
-    if headcount and dealbreakers.max_headcount and headcount > dealbreakers.max_headcount:
-        return {
-            "disqualified": True,
-            "reason": f"Headcount ({headcount}) exceeds maximum threshold ({dealbreakers.max_headcount})",
-            "rule": "headcount_limit",
-        }
+    if headcount is not None and dealbreakers.max_headcount is not None:
+        try:
+            hc_int = int(headcount)
+            if hc_int > dealbreakers.max_headcount:
+                return {
+                    "disqualified": True,
+                    "reason": f"Headcount ({hc_int}) exceeds maximum threshold ({dealbreakers.max_headcount})",
+                    "rule": "headcount_limit",
+                }
+        except (ValueError, TypeError):
+            pass
 
     # 2. In-person mandate check across job postings
     combined_text = "\n".join(p.get("raw_text", "") for p in postings)

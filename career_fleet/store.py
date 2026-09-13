@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import sqlite3
 import time
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -67,16 +68,21 @@ class CareerStore:
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._init_db()
 
-    def connect(self) -> sqlite3.Connection:
+    @contextmanager
+    def connect(self):
         con = sqlite3.connect(self.db_path)
         con.row_factory = sqlite3.Row
         con.execute("PRAGMA foreign_keys = ON")
         con.execute("PRAGMA journal_mode = WAL")
-        return con
+        try:
+            yield con
+        finally:
+            con.close()
 
     def _init_db(self) -> None:
         with self.connect() as con:
-            con.executescript(SCHEMA)
+            with con:
+                con.executescript(SCHEMA)
 
     def upsert_company(
         self,
@@ -92,26 +98,27 @@ class CareerStore:
         status: str = "discovered",
     ) -> None:
         with self.connect() as con:
-            con.execute(
-                """
-                INSERT INTO companies (
-                    id, name, domain, stage, headcount, hq_location,
-                    ats_provider, ats_token, website_url, status, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-                ON CONFLICT(id) DO UPDATE SET
-                    name = excluded.name,
-                    domain = COALESCE(excluded.domain, companies.domain),
-                    stage = COALESCE(excluded.stage, companies.stage),
-                    headcount = COALESCE(excluded.headcount, companies.headcount),
-                    hq_location = COALESCE(excluded.hq_location, companies.hq_location),
-                    ats_provider = COALESCE(excluded.ats_provider, companies.ats_provider),
-                    ats_token = COALESCE(excluded.ats_token, companies.ats_token),
-                    website_url = COALESCE(excluded.website_url, companies.website_url),
-                    status = excluded.status,
-                    updated_at = CURRENT_TIMESTAMP
-                """,
-                (company_id, name, domain, stage, headcount, hq_location, ats_provider, ats_token, website_url, status),
-            )
+            with con:
+                con.execute(
+                    """
+                    INSERT INTO companies (
+                        id, name, domain, stage, headcount, hq_location,
+                        ats_provider, ats_token, website_url, status, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                    ON CONFLICT(id) DO UPDATE SET
+                        name = excluded.name,
+                        domain = COALESCE(excluded.domain, companies.domain),
+                        stage = COALESCE(excluded.stage, companies.stage),
+                        headcount = COALESCE(excluded.headcount, companies.headcount),
+                        hq_location = COALESCE(excluded.hq_location, companies.hq_location),
+                        ats_provider = COALESCE(excluded.ats_provider, companies.ats_provider),
+                        ats_token = COALESCE(excluded.ats_token, companies.ats_token),
+                        website_url = COALESCE(excluded.website_url, companies.website_url),
+                        status = excluded.status,
+                        updated_at = CURRENT_TIMESTAMP
+                    """,
+                    (company_id, name, domain, stage, headcount, hq_location, ats_provider, ats_token, website_url, status),
+                )
 
     def list_companies(self, status: Optional[str] = None) -> List[Dict[str, Any]]:
         with self.connect() as con:
@@ -132,14 +139,15 @@ class CareerStore:
         job_url: Optional[str] = None,
     ) -> None:
         with self.connect() as con:
-            con.execute(
-                """
-                INSERT OR REPLACE INTO job_postings (
-                    id, company_id, title, location, is_remote, job_url, raw_text, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-                """,
-                (job_id, company_id, title, location, 1 if is_remote else 0, job_url, raw_text),
-            )
+            with con:
+                con.execute(
+                    """
+                    INSERT OR REPLACE INTO job_postings (
+                        id, company_id, title, location, is_remote, job_url, raw_text, created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                    """,
+                    (job_id, company_id, title, location, 1 if is_remote else 0, job_url, raw_text),
+                )
 
     def record_evaluation(
         self,
@@ -155,19 +163,20 @@ class CareerStore:
     ) -> None:
         quotes_json = json.dumps(quotes or [])
         with self.connect() as con:
-            con.execute(
-                """
-                INSERT INTO evaluations (
-                    id, company_id, lane, status, score, verdict, rationale, quotes_json, model_used, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-                """,
-                (eval_id, company_id, lane, status, score, verdict, rationale, quotes_json, model_used),
-            )
-            # Update company status if disqualified or qualified
-            if status == "disqualified":
-                con.execute("UPDATE companies SET status = 'disqualified', disqualification_reason = ? WHERE id = ?", (verdict, company_id))
-            elif status == "qualified" and lane in ("lane3_systems", "lane4_culture"):
-                con.execute("UPDATE companies SET status = 'qualified' WHERE id = ? AND status != 'disqualified'", (company_id,))
+            with con:
+                con.execute(
+                    """
+                    INSERT INTO evaluations (
+                        id, company_id, lane, status, score, verdict, rationale, quotes_json, model_used, created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                    """,
+                    (eval_id, company_id, lane, status, score, verdict, rationale, quotes_json, model_used),
+                )
+                # Update company status if disqualified or qualified
+                if status == "disqualified":
+                    con.execute("UPDATE companies SET status = 'disqualified', disqualification_reason = ? WHERE id = ?", (verdict, company_id))
+                elif status == "qualified" and lane in ("lane3_systems", "lane4_culture"):
+                    con.execute("UPDATE companies SET status = 'qualified' WHERE id = ? AND status != 'disqualified'", (company_id,))
 
     def get_company_dossier(self, company_id: str) -> Optional[Dict[str, Any]]:
         with self.connect() as con:

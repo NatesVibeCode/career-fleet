@@ -16,6 +16,37 @@ from career_fleet.lanes import (
 )
 
 
+from typing import Optional
+
+# Reconfigure stdout/stderr on platforms (like Windows cp1252) where console encoding fails on unicode
+if sys.stdout and hasattr(sys.stdout, "reconfigure"):
+    try:
+        sys.stdout.reconfigure(errors="replace")
+    except Exception:
+        pass
+if sys.stderr and hasattr(sys.stderr, "reconfigure"):
+    try:
+        sys.stderr.reconfigure(errors="replace")
+    except Exception:
+        pass
+
+
+def _ok(msg: str) -> str:
+    try:
+        "\u2713".encode(sys.stdout.encoding or "utf-8")
+        return f"✓ {msg}"
+    except Exception:
+        return f"[OK] {msg}"
+
+
+def _bullet() -> str:
+    try:
+        "\u2022".encode(sys.stdout.encoding or "utf-8")
+        return "•"
+    except Exception:
+        return "*"
+
+
 def get_profile(path: Optional[str] = None) -> IdealEmployerProfile:
     p = Path(path) if path else Path("profile.json")
     if p.exists():
@@ -30,8 +61,8 @@ def cmd_init(args):
     if not profile_path.exists():
         prof = IdealEmployerProfile()
         prof.save(profile_path)
-        print(f"✓ Initialized default Ideal Employer Profile at {profile_path}")
-    print(f"✓ Initialized CareerStore database at {db_path}")
+        print(_ok(f"Initialized default Ideal Employer Profile at {profile_path}"))
+    print(_ok(f"Initialized CareerStore database at {db_path}"))
 
 
 def cmd_profile(args):
@@ -39,7 +70,7 @@ def cmd_profile(args):
     if getattr(args, "init", False) or not Path(prof_path).exists():
         prof = IdealEmployerProfile()
         prof.save(prof_path)
-        print(f"✓ Wrote initial Ideal Employer Profile to {prof_path}")
+        print(_ok(f"Wrote initial Ideal Employer Profile to {prof_path}"))
         return
 
     prof = IdealEmployerProfile.load(prof_path)
@@ -48,15 +79,15 @@ def cmd_profile(args):
     print("==========================================================================================")
     print(f"Capabilities:")
     for c in prof.wedge_capabilities:
-        print(f"  • {c}")
+        print(f"  {_bullet()} {c}")
     print(f"\nRequired Stack:")
     for s in prof.required_stack:
-        print(f"  • {s}")
+        print(f"  {_bullet()} {s}")
     print(f"\nHard Dealbreakers:")
-    print(f"  • Max Headcount: {prof.dealbreakers.max_headcount}")
-    print(f"  • Policy:        {prof.dealbreakers.policy}")
-    print(f"  • Disallowed:    {', '.join(prof.dealbreakers.disallowed_locations)}")
-    print(f"  • Reject Wrapper:{prof.dealbreakers.reject_thin_wrappers}")
+    print(f"  {_bullet()} Max Headcount: {prof.dealbreakers.max_headcount}")
+    print(f"  {_bullet()} Policy:        {prof.dealbreakers.policy}")
+    print(f"  {_bullet()} Disallowed:    {', '.join(prof.dealbreakers.disallowed_locations)}")
+    print(f"  {_bullet()} Reject Wrapper:{prof.dealbreakers.reject_thin_wrappers}")
     print(f"\nAnchor Exemplars:  {', '.join(prof.anchor_companies)}")
     print("==========================================================================================")
 
@@ -69,7 +100,7 @@ def cmd_discover(args):
         target=args.target,
         max_items=getattr(args, "max", 50),
     )
-    print(f"✓ Lane 1 Discovery completed: {res['companies_discovered']} companies discovered, {res['postings_added']} postings ingested.")
+    print(_ok(f"Lane 1 Discovery completed: {res['companies_discovered']} companies discovered, {res['postings_added']} postings ingested."))
 
 
 def cmd_triage(args):
@@ -92,11 +123,11 @@ def cmd_recon(args):
 
     if lane in ("systems", "all"):
         res3 = run_lane3_systems(store, prof)
-        print(f"✓ Lane 3 Systems Wedge evaluation completed on {res3['evaluated']} companies.")
+        print(_ok(f"Lane 3 Systems Wedge evaluation completed on {res3['evaluated']} companies."))
 
     if lane in ("culture", "all"):
         res4 = run_lane4_culture(store, prof)
-        print(f"✓ Lane 4 Culture Recon evaluation completed on {res4['evaluated']} companies.")
+        print(_ok(f"Lane 4 Culture Recon evaluation completed on {res4['evaluated']} companies."))
 
 
 def cmd_list(args):
@@ -139,7 +170,7 @@ def cmd_dossier(args):
         if quotes:
             print("    Quotes:")
             for q in quotes:
-                print(f"      • \"{q}\"")
+                print(f"      {_bullet()} \"{q}\"")
     print("==========================================================================================")
 
 
@@ -148,8 +179,9 @@ def cmd_export(args):
     qualified = [c for c in store.list_companies() if c["status"] == "qualified"]
     dossiers = [store.get_company_dossier(c["id"]) for c in qualified]
     out_path = Path(getattr(args, "output", "qualified_targets.json"))
+    out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(json.dumps(dossiers, indent=2), encoding="utf-8")
-    print(f"✓ Exported {len(dossiers)} qualified company dossiers to {out_path}")
+    print(_ok(f"Exported {len(dossiers)} qualified company dossiers to {out_path}"))
 
 
 def main():

@@ -27,6 +27,16 @@ def score_culture_and_team(
     profile: IdealEmployerProfile,
 ) -> Dict[str, Any]:
     """Score operational culture, founder traits, and distribution."""
+    if not text or not text.strip():
+        return {
+            "score": 0.0,
+            "verdict": "UNKNOWN",
+            "positives": [],
+            "concerns": [],
+            "quotes": [],
+            "rationale": "No captured source text available to evaluate operational culture.",
+        }
+
     positives = []
     concerns = []
     quotes = []

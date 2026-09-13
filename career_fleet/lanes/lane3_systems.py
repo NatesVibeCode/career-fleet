@@ -23,6 +23,16 @@ def score_technical_wedge(
     profile: IdealEmployerProfile,
 ) -> Dict[str, Any]:
     """Score technical wedge depth and extract supporting quotes."""
+    if not text or not text.strip():
+        return {
+            "score": 0.0,
+            "verdict": "UNKNOWN",
+            "matched_wedges": [],
+            "matched_stack": [],
+            "quotes": [],
+            "rationale": "No captured source text available to evaluate technical wedge.",
+        }
+
     matched_wedges = []
     quotes = []
 
@@ -34,8 +44,13 @@ def score_technical_wedge(
             end = min(len(text), match.end() + 30)
             quotes.append(text[start:end].strip())
 
-    # Stack alignment check
-    matched_stack = [s for s in profile.required_stack if re.search(r"\b" + re.escape(s) + r"\b", text, re.I)]
+    # Stack alignment check (handles slash-separated technologies like 'Modern Cloud / Kubernetes')
+    matched_stack = []
+    for s in profile.required_stack:
+        parts = [p.strip() for p in s.split("/") if p.strip()]
+        for part in parts:
+            if re.search(r"\b" + re.escape(part) + r"\b", text, re.I) and part not in matched_stack:
+                matched_stack.append(part)
 
     score = min(1.0, (len(matched_wedges) * 0.3) + (len(matched_stack) * 0.15))
     verdict = "HIGH FIT" if score >= 0.7 else ("STRONG FIT" if score >= 0.4 else "MARGINAL")
