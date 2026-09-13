@@ -2,8 +2,9 @@
 """Check the shared free-fleet contract across local sibling repositories.
 
 This is intentionally check-only. It never copies or overwrites source files.
-career-fleet may extend its first migration with profile metadata, so that
-career-specific overlay is intentionally not compared byte-for-byte.
+career-fleet may extend its first migration and shared models with profile
+metadata, so those career-specific overlays are intentionally not compared
+byte-for-byte.
 """
 from __future__ import annotations
 
@@ -17,7 +18,6 @@ from pathlib import Path
 EXACT_FILES = (
     "scripts/check_fleet_drift.py",
     "tests/test_route_policy_contract.py",
-    "free_fleet/models.py",
     "free_fleet/providers/base.py",
     "free_fleet/providers/registry.py",
     "free_fleet/ui.py",
