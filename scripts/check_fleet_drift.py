@@ -2,6 +2,8 @@
 """Check the shared free-fleet contract across local sibling repositories.
 
 This is intentionally check-only. It never copies or overwrites source files.
+career-fleet may extend its first migration with profile metadata, so that
+career-specific overlay is intentionally not compared byte-for-byte.
 """
 from __future__ import annotations
 
@@ -19,7 +21,6 @@ EXACT_FILES = (
     "free_fleet/providers/base.py",
     "free_fleet/providers/registry.py",
     "free_fleet/ui.py",
-    "free_fleet/migrations/001_control_plane.sql",
     "free_fleet/migrations/002_intelligence_and_policy.sql",
     "free_fleet/data/routes.seed.json",
     "free_fleet/resources/skill/references/task-contracts.md",
