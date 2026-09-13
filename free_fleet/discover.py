@@ -1777,6 +1777,35 @@ BACKENDS: dict[str, Callable[..., list[SearchHit]]] = {
 # Structured ATS intake (keyless JSON APIs)
 # ---------------------------------------------------------------------------
 
+def _ats_field_text(value: Any) -> str:
+    if isinstance(value, dict):
+        value = value.get("name") or value.get("label") or value.get("value") or ""
+    if isinstance(value, (list, tuple)):
+        return ", ".join(_ats_field_text(item) for item in value if item)
+    return str(value or "").strip()
+
+
+def _ats_location(job: dict[str, Any]) -> str:
+    for key in ("location", "locationName", "location_name"):
+        location = _ats_field_text(job.get(key))
+        if location:
+            return location
+    categories = job.get("categories")
+    if isinstance(categories, dict):
+        return _ats_field_text(categories.get("location"))
+    return ""
+
+
+def _ats_timezone(job: dict[str, Any]) -> str:
+    for key in ("timezone", "timeZone", "timezoneName"):
+        timezone = _ats_field_text(job.get(key))
+        if timezone:
+            return timezone
+    categories = job.get("categories")
+    if isinstance(categories, dict):
+        return _ats_field_text(categories.get("timezone") or categories.get("timeZone"))
+    return ""
+
 def _ats_records(
     jobs: Sequence[dict[str, Any]],
     *,
@@ -1787,6 +1816,8 @@ def _ats_records(
     get_job_id: Callable[[dict[str, Any]], str],
     org: str,
     max_jobs: int | None = None,
+    get_location: Callable[[dict[str, Any]], str] | None = None,
+    get_timezone: Callable[[dict[str, Any]], str] | None = None,
 ) -> list[RawRecord]:
     records: list[RawRecord] = []
     for job in jobs if max_jobs is None else list(jobs)[:max_jobs]:
@@ -1796,12 +1827,21 @@ def _ats_records(
             continue
         if not text or not text.strip():
             continue
+        metadata = {"ats": source, "org": org}
+        if get_location:
+            location = get_location(job)
+            if location:
+                metadata["location"] = location
+        if get_timezone:
+            timezone = get_timezone(job)
+            if timezone:
+                metadata["timezone"] = timezone
         records.append(RawRecord(
             text=text.strip(),
             source_uri=get_url(job),
             title=get_title(job),
             item_id=slugify_id(f"{org}-{get_job_id(job)}"),
-            metadata={"ats": source, "org": org},
+            metadata=metadata,
         ))
     return records
 
@@ -1833,6 +1873,8 @@ def fetch_greenhouse_board(
             get_url=lambda j: j.get("absolute_url") or "",
             get_title=lambda j: str(j.get("title") or ""),
             get_job_id=lambda j: str(j.get("id") or ""),
+            get_location=_ats_location,
+            get_timezone=_ats_timezone,
         )
     finally:
         if close:
@@ -1866,6 +1908,8 @@ def fetch_ashby_org(
             get_url=lambda j: j.get("jobUrl") or "",
             get_title=lambda j: str(j.get("title") or ""),
             get_job_id=lambda j: str(j.get("id") or "")[:8],
+            get_location=_ats_location,
+            get_timezone=_ats_timezone,
         )
     finally:
         if close:
@@ -1901,6 +1945,8 @@ def fetch_lever_org(
             get_url=lambda j: j.get("hostedUrl") or j.get("applyUrl") or "",
             get_title=lambda j: str(j.get("text") or j.get("title") or "")[:200],
             get_job_id=lambda j: str(j.get("id") or "")[:8],
+            get_location=_ats_location,
+            get_timezone=_ats_timezone,
         )
     finally:
         if close:

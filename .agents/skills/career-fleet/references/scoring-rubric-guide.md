@@ -18,4 +18,4 @@ Every assessment must be grounded in exact verbatim quotes extracted from captur
 - Unknowns around office mandate or headcount trajectory.
 
 ### Tier 4: Disqualified (Score 0.00)
-- Violates any hard dealbreaker (mandatory in-office, headcount > limit, shallow wrapper).
+- Violates any hard dealbreaker (mandatory in-office, headcount > limit, shallow wrapper, or pure quota role).

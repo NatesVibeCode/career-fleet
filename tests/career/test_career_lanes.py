@@ -12,7 +12,13 @@ class TestLanes(unittest.TestCase):
         self.tmpdir = tempfile.TemporaryDirectory()
         self.db_path = Path(self.tmpdir.name) / "test_lanes.db"
         self.store = CareerStore(self.db_path)
-        self.profile = IdealEmployerProfile()
+        self.profile = IdealEmployerProfile(
+            dealbreakers={
+                "max_headcount": 80,
+                "policy": "remote_only",
+                "reject_thin_wrappers": True,
+            }
+        )
 
     def tearDown(self):
         self.tmpdir.cleanup()

@@ -1,30 +1,31 @@
-# Contributing to free-fleet
+# Contributing to career-fleet
 
-Thank you for your interest in contributing to `free-fleet`!
+Thank you for your interest in contributing to `career-fleet`!
 
 ## Philosophy
-`free-fleet` keeps its trust boundaries explicit:
-1. SQLite owns task revisions, queue leases, attempt budgets, route observations, and receipts.
-2. OpenCode is invoked through the normally installed CLI with model tools and MCP disabled.
-3. Only observed-zero routes enter the zero-price ladder.
-4. Closed input and output schemas reject undeclared fields.
-5. Evidence must match one source slice at exact offsets.
+`career-fleet` keeps its trust boundaries explicit:
+1. SQLite owns captured companies, postings, evaluations, and the current funnel status.
+2. Discovery keeps source text verbatim so evaluation quotes remain checkable.
+3. Deterministic dealbreakers run before technical and culture scoring.
+4. A company is exported as qualified only after both recon lanes pass.
+5. Source adapters must be covered by end-to-end tests, not only isolated parser tests.
 
 ## Development Setup
 
 ```bash
-git clone https://github.com/NatesVibeCode/free-fleet.git
-cd free-fleet
+git clone https://github.com/NatesVibeCode/career-fleet.git
+cd career-fleet
 
-# Install dependencies in editable mode
-pip install -e ".[dev]"
+# Install dependencies in editable mode, including discovery adapters
+python3 -m pip install -e ".[dev,discover]"
+
+# Install the assistant skill into a workspace when needed
+career-fleet setup --workspace-root .
 
 # Run test suite
-pytest -v
+python3 -m pytest -v
 ```
 
-Do not include credentials, customer data, provider responses containing private data, or local machine paths in issues, fixtures, commits, or receipts.
+Do not include credentials, private candidate data, provider responses containing private data, or local machine paths in issues, fixtures, or commits.
 
-## Adding a New Provider
-Providers implement `BaseProvider` in `free_fleet/providers/base.py` and implement `run_prompt(route_id, prompt, system_prompt, timeout_sec, session_id)`.
-All new providers must include token usage, duration, and reported cost telemetry in their receipt dict.
+When changing a lane, add a test that exercises the store-backed path as well as any pure scoring helper.

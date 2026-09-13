@@ -249,12 +249,16 @@ def test_web_search_dedupes_across_backends(monkeypatch):
 def test_greenhouse_board_parses_content(fake_http):
     FakeClient.routes["https://boards-api.greenhouse.io/v1/boards/stripe/jobs?content=true"] = FakeResponse(
         json_data={"jobs": [{"id": 8172487, "title": "Eng", "absolute_url": "https://stripe.com/jobs/x",
-                             "content": "<p>migrating legacy billing to Kafka</p>"}]}
+                             "content": "<p>migrating legacy billing to Kafka</p>",
+                             "location": {"name": "New York, NY"},
+                             "timezone": "America/New_York"}]}
     )
     recs = fetch_greenhouse_board("stripe")
     assert len(recs) == 1
     assert "migrating legacy billing to Kafka" in recs[0].text
     assert recs[0].metadata["ats"] == "greenhouse"
+    assert recs[0].metadata["location"] == "New York, NY"
+    assert recs[0].metadata["timezone"] == "America/New_York"
 
 
 def test_greenhouse_unknown_board(fake_http):

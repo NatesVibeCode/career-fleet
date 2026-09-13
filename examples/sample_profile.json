@@ -26,7 +26,8 @@
     ],
     "reject_thin_wrappers": true,
     "reject_pure_quota": true,
-    "min_timezone_overlap_hours": 4.0
+    "min_timezone_overlap_hours": 4.0,
+    "candidate_timezone": null
   },
   "hiring_catalysts": [
     "Scaling beyond founder-led sales",

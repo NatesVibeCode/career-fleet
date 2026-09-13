@@ -47,8 +47,11 @@ def main():
             run_prof = subprocess.run([str(cli), "profile"], cwd=workspace, env=env, capture_output=True, text=True)
             assert run_prof.returncode == 0, run_prof.stderr
             assert "IDEAL EMPLOYER PROFILE" in run_prof.stdout
+            run_setup = subprocess.run([str(cli), "setup", "--workspace-root", str(workspace)], cwd=workspace, env=env, capture_output=True, text=True)
+            assert run_setup.returncode == 0, run_setup.stderr
+            assert (workspace / ".agents/skills/career-fleet/SKILL.md").is_file()
             mode = "reused system dependencies" if args.offline_system_deps else "fresh dependencies"
-            print(f"career-fleet: installed wheel setup, profile init, and CLI passed ({mode})")
+            print(f"career-fleet: installed wheel setup, profile init, skill install, and CLI passed ({mode})")
             return
 
         def run(*command):

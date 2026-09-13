@@ -1,18 +1,20 @@
 ---
 name: career-fleet
-description: Autonomous career & employer intelligence skill. Discovers, triages, and scores companies against an Ideal Employer Profile (IEP) with exact character-offset quote verification across 4 compounding lanes.
+description: "Operate Career Fleet for generic users: install it, create a profile, run discovery and screening lanes, export qualified dossiers, and troubleshoot common failures."
 ---
 
-# Career Fleet: Autonomous Career & Employer Intelligence Skill
+# Career Fleet: Onboarding and Operations
 
-Turn an engineer, operator, or founder's background and career criteria into a rigorously evaluated pipeline of target companies and high-leverage opportunities, backed by verbatim quotes from job postings and engineering architecture documents.
+Use this skill when someone needs to install, configure, run, or explain the Career Fleet command-line workflow. The goal is a reproducible workspace containing a profile, local SQLite database, captured source text, lane evaluations, and exportable dossiers.
+
+Keep the user's profile authoritative. Do not invent personal constraints or silently substitute a default profile. The generated profile is neutral until the user edits it.
 
 ---
 
 ## The 4-Lane Funnel Architecture
 
 ```
-0. Context Inference & IEP Calibration ──> Lane 1: Sourcing (YC, VC, ATS)
+0. Context Inference & IEP Calibration ──> Lane 1: Sourcing (YC, ATS, site crawl)
                                                         │
                                                         ▼
 Lane 4: Founder & Culture Recon        <── Lane 3: Systems Wedge <── Lane 2: Gatekeeper Triage
@@ -22,6 +24,15 @@ Lane 4: Founder & Culture Recon        <── Lane 3: Systems Wedge <── Lan
 ```
 
 ---
+
+## Operating rules
+
+- Read [references/onboarding.md](references/onboarding.md) for a new installation or a fresh workspace.
+- Read [references/workflow.md](references/workflow.md) before running discovery, triage, recon, or export.
+- Read [references/troubleshooting.md](references/troubleshooting.md) when a command fails, returns no results, or behaves unexpectedly.
+- Keep discovery, triage, and recon pointed at the same `--db` and `--profile` paths.
+- Treat a company as finally qualified only after Lane 3 passes and Lane 4 reaches the healthy threshold; inspect the dossier's source quotes before relying on it.
+- Check command exit codes. A source failure is not a completed discovery run.
 
 ## Phase 0: Autonomous Context Inference & Targeted IEP Calibration
 
@@ -45,7 +56,9 @@ Ask **only** for signals that are genuinely unobserved or ambiguous. See [refere
 
 ## Phase 1: Lane Execution
 
-* **Lane 1: Sourcing (`career-fleet discover`)**: Ingests companies from YC batches, VC seed portfolios, and direct ATS boards (Ashby, Greenhouse, Lever).
-* **Lane 2: Gatekeeper Triage (`career-fleet triage`)**: Drops dealbreakers instantly (headcount limits, in-person office mandates, shallow wrappers) without model cost.
-* **Lane 3: Systems Wedge (`career-fleet recon --lane systems`)**: Evaluates proprietary technical defensibility and infrastructure depth with exact quote citations.
-* **Lane 4: Culture Recon (`career-fleet recon --lane culture`)**: Assesses founder pedigree, technical humility, and team distribution (timezone sync friction).
+* **Lane 1: Sourcing (`career-fleet discover`)**: Ingests companies from YC batches and direct ATS boards (Ashby, Greenhouse, Lever), or crawls a site.
+* **Lane 2: Gatekeeper Triage (`career-fleet triage`)**: Drops dealbreakers instantly (headcount limits, in-person office mandates, shallow wrappers, pure quota roles) without model cost.
+* **Lane 3: Systems Wedge (`career-fleet recon --lane systems`)**: Evaluates proprietary technical defensibility and infrastructure depth with source quotes.
+* **Lane 4: Culture Recon (`career-fleet recon --lane culture`)**: Assesses leadership signals and communication culture from captured source text.
+
+For the detailed signal framework and interview prompts, read [references/6-core-career-signals.md](references/6-core-career-signals.md) and [references/iep-interview.md](references/iep-interview.md). Use [references/scoring-rubric-guide.md](references/scoring-rubric-guide.md) when explaining scores.

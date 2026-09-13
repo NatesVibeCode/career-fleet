@@ -4,7 +4,8 @@ Discovers and onboards target companies and active postings using free_fleet.dis
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List, Optional
+import re
+from typing import Any, Dict
 from career_fleet.store import CareerStore
 
 logger = logging.getLogger("career_fleet.lane1")
@@ -24,6 +25,30 @@ except ImportError:
     HAS_DISCOVER = False
 
 
+REMOTE_NEGATION_PATTERN = re.compile(
+    r"\b(?:no|not|without)\s+(?:fully\s+)?remote\b|"
+    r"\bremote\s+(?:work\s+)?(?:is\s+)?(?:not\s+)?(?:required|allowed|available|permitted|optional)\b",
+    re.I,
+)
+REMOTE_POSITIVE_PATTERN = re.compile(
+    r"\b(?:fully|100%|completely|entirely)?\s*remote\b|"
+    r"\bremote[- ]first\b|\bwork\s+from\s+anywhere\b",
+    re.I,
+)
+
+
+def _is_remote_listing(text: str) -> bool:
+    """Return True only when source text contains positive remote evidence."""
+    value = text or ""
+    return bool(REMOTE_POSITIVE_PATTERN.search(value) and not REMOTE_NEGATION_PATTERN.search(value))
+
+
+def _item_metadata(item: Any, key: str) -> str | None:
+    metadata = getattr(item, "metadata", {}) or {}
+    value = metadata.get(key)
+    return str(value).strip() if value else None
+
+
 def run_lane1_sourcing(
     store: CareerStore,
     source_type: str,
@@ -37,14 +62,23 @@ def run_lane1_sourcing(
     """
     if not HAS_DISCOVER:
         raise RuntimeError("free_fleet.discover is required. Install with pip install 'career-fleet[discover]'.")
+    if max_items < 1:
+        raise ValueError("max_items must be at least 1")
 
     discovered = 0
     jobs_added = 0
+    pages_skipped = 0
 
     try:
         if source_type == "yc":
             # Target could be batch e.g. "W24" or keyword
-            items = fetch_yc_companies(batch=target if target.startswith(("W", "S")) else None, query=target if not target.startswith(("W", "S")) else None, max_items=max_items)
+            normalized_target = target.strip()
+            is_batch = bool(re.fullmatch(r"[WSws]\d+", normalized_target))
+            items = fetch_yc_companies(
+                batch=normalized_target.upper() if is_batch else None,
+                query=None if is_batch else normalized_target,
+                max_companies=max_items,
+            )
             for it in items:
                 cid = it.item_id
                 name = it.title or cid
@@ -53,6 +87,7 @@ def run_lane1_sourcing(
                     company_id=cid,
                     name=name,
                     domain=domain,
+                    timezone=_item_metadata(it, "timezone"),
                     website_url=it.source_uri,
                     status="discovered",
                 )
@@ -62,12 +97,13 @@ def run_lane1_sourcing(
                     title=f"{name} - Overview",
                     raw_text=it.text,
                     job_url=it.source_uri,
-                    is_remote=True,
+                    timezone=_item_metadata(it, "timezone"),
+                    is_remote=_is_remote_listing(it.text),
                 )
                 discovered += 1
 
         elif source_type == "greenhouse":
-            items = fetch_greenhouse_board(board=target, max_postings=max_items)
+            items = fetch_greenhouse_board(board=target, max_jobs=max_items)
             cid = slugify_id(target)
             store.upsert_company(
                 company_id=cid,
@@ -84,13 +120,14 @@ def run_lane1_sourcing(
                     title=it.title or "Unknown Role",
                     raw_text=it.text,
                     job_url=it.source_uri,
-                    location=None,
-                    is_remote="remote" in (it.text or "").lower(),
+                    location=_item_metadata(it, "location"),
+                    timezone=_item_metadata(it, "timezone"),
+                    is_remote=_is_remote_listing(it.text),
                 )
                 jobs_added += 1
 
         elif source_type == "ashby":
-            items = fetch_ashby_org(org=target, max_postings=max_items)
+            items = fetch_ashby_org(org=target, max_jobs=max_items)
             cid = slugify_id(target)
             store.upsert_company(
                 company_id=cid,
@@ -107,13 +144,14 @@ def run_lane1_sourcing(
                     title=it.title or "Unknown Role",
                     raw_text=it.text,
                     job_url=it.source_uri,
-                    location=None,
-                    is_remote="remote" in (it.text or "").lower(),
+                    location=_item_metadata(it, "location"),
+                    timezone=_item_metadata(it, "timezone"),
+                    is_remote=_is_remote_listing(it.text),
                 )
                 jobs_added += 1
 
         elif source_type == "lever":
-            items = fetch_lever_org(org=target, max_postings=max_items)
+            items = fetch_lever_org(org=target, max_jobs=max_items)
             cid = slugify_id(target)
             store.upsert_company(
                 company_id=cid,
@@ -130,13 +168,15 @@ def run_lane1_sourcing(
                     title=it.title or "Unknown Role",
                     raw_text=it.text,
                     job_url=it.source_uri,
-                    location=None,
-                    is_remote="remote" in (it.text or "").lower(),
+                    location=_item_metadata(it, "location"),
+                    timezone=_item_metadata(it, "timezone"),
+                    is_remote=_is_remote_listing(it.text),
                 )
                 jobs_added += 1
 
         elif source_type == "site":
-            items = crawl_site(origin=target, max_pages=max_items)
+            items, skipped = crawl_site(origin=target, max_pages=max_items)
+            pages_skipped = len(skipped)
             cid = slugify_id(domain_of(target))
             store.upsert_company(
                 company_id=cid,
@@ -153,6 +193,9 @@ def run_lane1_sourcing(
                     title=it.title or "Site Page",
                     raw_text=it.text,
                     job_url=it.source_uri,
+                    location=_item_metadata(it, "location"),
+                    timezone=_item_metadata(it, "timezone"),
+                    is_remote=_is_remote_listing(it.text),
                 )
                 jobs_added += 1
 
@@ -165,6 +208,7 @@ def run_lane1_sourcing(
             "target": target,
             "companies_discovered": discovered,
             "postings_added": jobs_added,
+            "pages_skipped": pages_skipped,
         }
     except Exception as exc:
         logger.error(f"Error fetching from {source_type} ({target}): {exc}")
@@ -175,4 +219,5 @@ def run_lane1_sourcing(
             "error": str(exc),
             "companies_discovered": discovered,
             "postings_added": jobs_added,
+            "pages_skipped": pages_skipped,
         }

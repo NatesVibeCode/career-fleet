@@ -11,28 +11,34 @@ class Dealbreakers(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     max_headcount: Optional[int] = Field(
-        default=80,
-        description="Maximum company headcount before bureaucracy and silos take over."
+        default=None,
+        description="Optional maximum company headcount. Leave unset to avoid assuming a size preference."
     )
     policy: Literal["remote_only", "remote_or_hybrid", "any"] = Field(
-        default="remote_only",
+        default="any",
         description="Workplace policy requirement."
     )
     disallowed_locations: List[str] = Field(
-        default_factory=lambda: ["San Francisco in-office mandate", "New York in-office mandate"],
+        default_factory=list,
         description="Mandatory in-office locations that trigger disqualification."
     )
     reject_thin_wrappers: bool = Field(
-        default=True,
+        default=False,
         description="Reject shallow AI wrappers with no proprietary state, wedge, or moat."
     )
     reject_pure_quota: bool = Field(
-        default=True,
+        default=False,
         description="Reject pure cold outbound bag-carrying or narrow execution silos."
     )
     min_timezone_overlap_hours: float = Field(
         default=4.0,
+        ge=0.0,
+        le=8.0,
         description="Minimum domestic/regional timezone overlap required for effective sync."
+    )
+    candidate_timezone: Optional[str] = Field(
+        default=None,
+        description="Optional IANA timezone for the candidate, used with timezone metadata from a posting."
     )
 
 
@@ -40,7 +46,7 @@ class IdealEmployerProfile(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     profile_name: str = Field(
-        default="Operator Fit Profile",
+        default="My Career Fit Profile",
         description="Descriptive name for the candidate or role target."
     )
     version: str = Field(
@@ -48,20 +54,15 @@ class IdealEmployerProfile(BaseModel):
         description="Profile specification version."
     )
     wedge_capabilities: List[str] = Field(
-        default_factory=lambda: [
-            "0-to-1 go-to-market systems & field architecture",
-            "Technical translation & buyer conviction",
-            "Challenger positioning against legacy incumbents",
-            "AI-assisted systems and platform development"
-        ],
+        default_factory=list,
         description="Core high-leverage capabilities the candidate deploys."
     )
     required_stack: List[str] = Field(
-        default_factory=lambda: ["Python", "PostgreSQL", "Kafka", "Modern Cloud / Kubernetes"],
+        default_factory=list,
         description="Core technical stack or infrastructure required in the target company."
     )
     negative_stack: List[str] = Field(
-        default_factory=lambda: ["Legacy Mainframe", "Salesforce Apex Only"],
+        default_factory=list,
         description="Technologies indicating legacy bloat or misaligned engineering culture."
     )
     dealbreakers: Dealbreakers = Field(
@@ -69,23 +70,15 @@ class IdealEmployerProfile(BaseModel):
         description="Hard dealbreakers that disqualify companies immediately."
     )
     hiring_catalysts: List[str] = Field(
-        default_factory=lambda: [
-            "Scaling beyond founder-led sales",
-            "Architectural migration off legacy systems",
-            "Hitting throughput or latency limits on existing platform"
-        ],
+        default_factory=list,
         description="Catalyst events that create urgent leadership budget and mandate."
     )
     target_leadership: List[str] = Field(
-        default_factory=lambda: [
-            "Low-ego technical founders",
-            "Engineering-led founders seeking blunt commercial truth",
-            "Hands-on technical builders"
-        ],
+        default_factory=list,
         description="Leadership traits and counterpart profiles."
     )
     anchor_companies: List[str] = Field(
-        default_factory=lambda: ["Stripe", "Linear", "Tailscale"],
+        default_factory=list,
         description="Exemplar companies that define the ideal engineering and operational culture."
     )
 
@@ -110,10 +103,12 @@ class IdealEmployerProfile(BaseModel):
             "disallowed_locations": self.dealbreakers.disallowed_locations,
             "reject_thin_wrappers": self.dealbreakers.reject_thin_wrappers,
             "reject_pure_quota": self.dealbreakers.reject_pure_quota,
+            "min_timezone_overlap_hours": self.dealbreakers.min_timezone_overlap_hours,
+            "candidate_timezone": self.dealbreakers.candidate_timezone,
         }
 
     def to_evaluation_prompt(self) -> str:
-        """Render evaluation rubric for Lane 3 & 4 LLM analysis."""
+        """Render the rubric for an external evaluator or future model integration."""
         caps = "\n".join(f"- {c}" for c in self.wedge_capabilities)
         catalysts = "\n".join(f"- {c}" for c in self.hiring_catalysts)
         leaders = "\n".join(f"- {c}" for c in self.target_leadership)

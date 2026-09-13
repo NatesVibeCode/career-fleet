@@ -61,6 +61,10 @@ bulk-lanes = "free_fleet.cli:main"
 include = ["free_fleet*", "career_fleet*"]
 
 [tool.setuptools.package-data]
+career_fleet = [
+    "resources/skill/career-fleet/*.md",
+    "resources/skill/career-fleet/references/*.md",
+]
 free_fleet = [
     "migrations/*.sql",
     "data/*.json",

@@ -12,4 +12,4 @@ Include the affected version, operating system, reproduction steps, expected res
 
 ## Data boundary
 
-`test`, `run`, and `resume` transmit selected source slices and task instructions to the configured model provider. SQLite files and exported packets may contain source-derived data and should be protected according to that data's requirements.
+Career Fleet's discovery and scoring commands store captured source text, job metadata, evaluation quotes, and exported dossiers locally. Protect SQLite files, profiles, and exports according to the sensitivity of the candidate and source data they contain. The deterministic career lanes do not require a model provider.

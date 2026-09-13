@@ -3,18 +3,31 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](pyproject.toml)
 
-> **Autonomous career & employer intelligence engine with multi-lane screening, exact quote verification, and zero-cost model execution.**
+> **Autonomous career & employer intelligence engine with multi-lane screening, verbatim source quotes, and zero-cost model execution.**
 
-`career-fleet` turns a builder, engineer, or operator's background and career non-negotiables into a systematically qualified pipeline of target companies and high-leverage opportunities. Every qualification is backed by verbatim source quotes from job postings, engineering blogs, and company architecture documents.
+`career-fleet` turns a builder, engineer, or operator's background and career criteria into a systematically screened pipeline of target companies and high-leverage opportunities. Every qualification is backed by verbatim source quotes from captured job postings and site pages.
 
 *Canonical CLI is `career-fleet` (`career-lanes` remains available as an alias).*
+
+---
+
+## Install
+
+```bash
+python3 -m pip install -e ".[dev,discover]"
+
+# Install the bundled assistant skill into this workspace when needed
+career-fleet setup --workspace-root .
+```
+
+On Windows, use `py -m pip` in place of `python3 -m pip`.
 
 ---
 
 ## The 4-Lane Funnel Architecture
 
 ```
-0. Autonomous IEP Calibration ──> Lane 1: Sourcing (YC, VC, ATS, Sitemaps)
+0. Autonomous IEP Calibration ──> Lane 1: Sourcing (YC, ATS, site crawl)
                                                       │
                                                       ▼
 Lane 4: Founder & Culture Recon      <── Lane 3: Systems Wedge <── Lane 2: Gatekeeper Triage
@@ -23,10 +36,10 @@ Lane 4: Founder & Culture Recon      <── Lane 3: Systems Wedge <── Lane 
    Qualified Targets                                             Dropped Dealbreakers
 ```
 
-1. **Lane 1: Sourcing & Discovery**: Ingests companies from YC batches, VC seed portfolios, and direct ATS boards (Ashby, Greenhouse, Lever) using polite crawling and deterministic IDs.
+1. **Lane 1: Sourcing & Discovery**: Ingests companies from YC batches, direct ATS boards (Ashby, Greenhouse, Lever), or a same-origin site crawl using polite crawling and deterministic IDs.
 2. **Lane 2: Gatekeeper Triage**: Fast deterministic screening against hard dealbreakers (headcount limits, mandatory non-local office mandates, shallow prompt wrappers) without token cost.
 3. **Lane 3: Systems Wedge**: Technical architecture depth and moat evaluation (distributed systems, state machines, compliance rails vs. commodity wrappers).
-4. **Lane 4: Founder & Culture Recon**: Evaluates leadership caliber, technical humility, and team distribution (timezone sync friction).
+4. **Lane 4: Founder & Culture Recon**: Evaluates leadership and communication signals found in captured source text.
 
 ---
 
@@ -41,6 +54,8 @@ career-fleet init
 # Inspect or calibrate your profile criteria
 career-fleet profile
 ```
+
+The generated profile is intentionally neutral. Edit `profile.json` to set your stack, dealbreakers, leadership signals, and (optionally) `dealbreakers.candidate_timezone` before relying on qualification results.
 
 ### 2. Discover target companies & job postings (Lane 1)
 
@@ -91,7 +106,7 @@ career-fleet export --output qualified_targets.json
 
 ### Syncing Upstream Improvements
 
-Because `career_fleet/` lives in an isolated namespace, pulling new scrapers and scoring features from upstream `bulk-lanes` is 100% conflict-free:
+Because `career_fleet/` lives in an isolated namespace, pulling new scrapers and scoring features from upstream `bulk-lanes` is conflict-free at the Python namespace level:
 
 ```bash
 git fetch upstream-engine

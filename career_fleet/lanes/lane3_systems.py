@@ -5,7 +5,7 @@ and mission-critical infrastructure vs. fragile commodity wrappers.
 from __future__ import annotations
 
 import re
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 from career_fleet.profile import IdealEmployerProfile
 from career_fleet.store import CareerStore
 
@@ -16,6 +16,22 @@ SYSTEM_WEDGE_SIGNALS = [
     (re.compile(r"\b(?:workflow engine|state machine|durable execution|event-driven)\b", re.I), "Durable Orchestration"),
     (re.compile(r"\b(?:fintech|banking rails|hipaa|pci-dss|soc2|compliance engine)\b", re.I), "Regulated Core Rails"),
 ]
+
+
+def _phrase_pattern(phrase: str) -> re.Pattern[str] | None:
+    terms = re.findall(r"[A-Za-z0-9]+", phrase or "")
+    if not terms:
+        return None
+    return re.compile(r"\b" + r"[\W_]+".join(re.escape(term) for term in terms) + r"\b", re.I)
+
+
+def _configured_matches(text: str, phrases: List[str]) -> List[str]:
+    matches = []
+    for phrase in phrases:
+        pattern = _phrase_pattern(phrase)
+        if pattern and pattern.search(text):
+            matches.append(phrase)
+    return matches
 
 
 def score_technical_wedge(
@@ -29,6 +45,9 @@ def score_technical_wedge(
             "verdict": "UNKNOWN",
             "matched_wedges": [],
             "matched_stack": [],
+            "matched_capabilities": [],
+            "matched_catalysts": [],
+            "matched_negative_stack": [],
             "quotes": [],
             "rationale": "No captured source text available to evaluate technical wedge.",
         }
@@ -52,16 +71,44 @@ def score_technical_wedge(
             if re.search(r"\b" + re.escape(part) + r"\b", text, re.I) and part not in matched_stack:
                 matched_stack.append(part)
 
-    score = min(1.0, (len(matched_wedges) * 0.3) + (len(matched_stack) * 0.15))
-    verdict = "HIGH FIT" if score >= 0.7 else ("STRONG FIT" if score >= 0.4 else "MARGINAL")
+    matched_capabilities = _configured_matches(text, profile.wedge_capabilities)
+    matched_catalysts = _configured_matches(text, profile.hiring_catalysts)
+    matched_negative_stack = _configured_matches(text, profile.negative_stack)
+
+    for phrase in matched_capabilities + matched_catalysts + matched_negative_stack:
+        pattern = _phrase_pattern(phrase)
+        match = pattern.search(text) if pattern else None
+        if match:
+            start = max(0, match.start() - 30)
+            end = min(len(text), match.end() + 30)
+            quotes.append(text[start:end].strip())
+
+    score = (
+        (len(matched_wedges) * 0.3)
+        + (len(matched_stack) * 0.15)
+        + (len(matched_capabilities) * 0.1)
+        + (len(matched_catalysts) * 0.1)
+        - (len(matched_negative_stack) * 0.3)
+    )
+    score = max(0.0, min(1.0, score))
+    verdict = "HIGH FIT" if score >= 0.8 else ("STRONG FIT" if score >= 0.6 else "MARGINAL")
 
     return {
         "score": round(score, 2),
         "verdict": verdict,
         "matched_wedges": matched_wedges,
         "matched_stack": matched_stack,
+        "matched_capabilities": matched_capabilities,
+        "matched_catalysts": matched_catalysts,
+        "matched_negative_stack": matched_negative_stack,
         "quotes": quotes[:5],
-        "rationale": f"Identified technical wedges: {', '.join(matched_wedges) or 'None'}. Stack alignment: {', '.join(matched_stack) or 'None'}.",
+        "rationale": (
+            f"Identified technical wedges: {', '.join(matched_wedges) or 'None'}. "
+            f"Stack alignment: {', '.join(matched_stack) or 'None'}. "
+            f"Profile capability matches: {', '.join(matched_capabilities) or 'None'}. "
+            f"Hiring catalyst matches: {', '.join(matched_catalysts) or 'None'}. "
+            f"Negative stack signals: {', '.join(matched_negative_stack) or 'None'}."
+        ),
     }
 
 
@@ -70,7 +117,7 @@ def run_lane3_systems(
     profile: IdealEmployerProfile,
 ) -> Dict[str, Any]:
     """Execute Lane 3 Technical Systems Wedge evaluation on triaged survivors."""
-    survivors = [c for c in store.list_companies() if c["status"] in ("triaged", "discovered")]
+    survivors = [c for c in store.list_companies() if c["status"] == "triaged"]
     evaluated = 0
 
     for comp in survivors:
@@ -80,7 +127,7 @@ def run_lane3_systems(
         combined_text = "\n".join(p.get("raw_text", "") for p in postings)
 
         res = score_technical_wedge(combined_text, profile)
-        status = "qualified" if res["score"] >= 0.4 else "marginal"
+        status = "qualified" if res["score"] >= 0.6 else "marginal"
 
         store.record_evaluation(
             eval_id=f"eval-systems-{cid}",

@@ -24,4 +24,5 @@ If any of the 6 core signals are missing after the autonomous scan, present thes
 ---
 
 ## Profile Synthesis
-Once answers are received, serialize the results into `profile.json` using `career-fleet profile --init`.
+
+Initialize `profile.json` once with `career-fleet profile --init`, then edit the generated JSON with the answers. The command refuses to overwrite an existing profile unless `--force` is supplied.
