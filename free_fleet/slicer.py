@@ -21,7 +21,7 @@ def slice_document(text: str, max_chars: int = 6000) -> List[Dict[str, Any]]:
     
     # 3-window slice (head, mid, tail) - lossless sliding is planned as opt-in via --sliding flag;
     # current deterministic tri-window preserves existing test contracts and audit offsets.
-    width = max_chars // 3
+    width = max(1, max_chars // 3)
     head = {"slice_id": "head", "start": 0, "end": width, "text": text[0:width], "partial": True}
     
     mid_start = (n - width) // 2

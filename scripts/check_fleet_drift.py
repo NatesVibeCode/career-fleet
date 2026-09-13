@@ -2,14 +2,15 @@
 """Check the shared free-fleet contract across local sibling repositories.
 
 This is intentionally check-only. It never copies or overwrites source files.
-career-fleet may extend its first migration and shared models with profile
-metadata, so those career-specific overlays are intentionally not compared
-byte-for-byte.
+career-fleet may extend its first migration, shared models, and operations
+documentation with profile metadata, so those career-specific overlays are
+normalized or intentionally excluded from byte-for-byte comparison.
 """
 from __future__ import annotations
 
 import argparse
 import hashlib
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -20,6 +21,19 @@ EXACT_FILES = (
     "tests/test_route_policy_contract.py",
     "free_fleet/providers/base.py",
     "free_fleet/providers/registry.py",
+    "free_fleet/providers/demo.py",
+    "free_fleet/providers/openai_compatible.py",
+    "free_fleet/providers/openrouter.py",
+    "free_fleet/providers/opencode.py",
+    "free_fleet/catalog.py",
+    "free_fleet/export.py",
+    "free_fleet/grounding.py",
+    "free_fleet/input_data.py",
+    "free_fleet/packer.py",
+    "free_fleet/sessions.py",
+    "free_fleet/setup.py",
+    "free_fleet/slicer.py",
+    "free_fleet/task.py",
     "free_fleet/ui.py",
     "free_fleet/migrations/002_intelligence_and_policy.sql",
     "free_fleet/data/routes.seed.json",
@@ -48,8 +62,15 @@ def _default_repos(cwd: Path) -> list[Path]:
     return repos
 
 
-def _digest(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
+def _normalized_digest(path: Path, relative: str) -> str:
+    text = path.read_text(encoding="utf-8")
+    if relative.endswith("references/operations.md"):
+        text = re.sub(
+            r'Schema version is `?"3"`?\. Account runs can also retain the exact immutable Ideal Company Profile revision used for the campaign\.',
+            'Schema version is `"2"`.',
+            text,
+        )
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
 def _check_exact_files(repos: list[Path]) -> bool:
@@ -61,13 +82,13 @@ def _check_exact_files(repos: list[Path]) -> bool:
             print(f"MISSING {baseline}: {relative}")
             ok = False
             continue
-        expected_digest = _digest(expected)
+        expected_digest = _normalized_digest(expected, relative)
         for repo in repos[1:]:
             candidate = repo / relative
             if not candidate.is_file():
                 print(f"MISSING {repo}: {relative}")
                 ok = False
-            elif _digest(candidate) != expected_digest:
+            elif _normalized_digest(candidate, relative) != expected_digest:
                 print(f"DRIFT  {relative}: {baseline} != {repo}")
                 ok = False
     return ok

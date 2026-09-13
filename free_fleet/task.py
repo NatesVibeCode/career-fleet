@@ -87,5 +87,5 @@ def load_task_spec(task_path: str | Path) -> TaskSpec:
         raise ValueError("task specs must be JSON files")
     if not path.is_file():
         raise FileNotFoundError(f"task file not found: {path}")
-    return TaskSpec.model_validate_json(path.read_text())
+    return TaskSpec.model_validate_json(path.read_text(encoding="utf-8"))
 

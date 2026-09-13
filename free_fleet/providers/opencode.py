@@ -138,6 +138,9 @@ class OpenCodeProvider(BaseProvider):
 
         except Exception as e:
             receipt["error"] = str(e)
-            receipt["error_type"] = "inference_error"
+            if isinstance(e, subprocess.TimeoutExpired):
+                receipt["error_type"] = "timeout"
+            else:
+                receipt["error_type"] = "inference_error"
             receipt["duration_seconds"] = time.time() - started
             return False, None, receipt

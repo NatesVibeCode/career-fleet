@@ -42,6 +42,8 @@ def _value_for_spec(spec: dict) -> Any:
             return [0]
         return []
     if t == "object":
+        if spec.get("properties"):
+            return {k: _value_for_spec(v) for k, v in spec["properties"].items()}
         return {}
     # fallback
     if spec.get("properties"):
@@ -71,10 +73,10 @@ class DemoProvider(BaseProvider):
             try:
                 payload = json.loads(candidate)
             except Exception:
-                # try to find the largest JSON object
-                for i in range(len(candidate), first_brace, -1):
+                # try to find the largest valid JSON object from candidate prefix
+                for i in range(len(candidate) - 1, 0, -1):
                     try:
-                        payload = json.loads(candidate[: i - first_brace + first_brace])
+                        payload = json.loads(candidate[:i])
                         break
                     except Exception:
                         continue
@@ -120,7 +122,11 @@ class DemoProvider(BaseProvider):
                         quote_slice_id = sec.get("slice_id", "full")
                         break
             if not quote_text:
-                quote_text = (sections[0].get("text", "")[:20] or "demo verified value")[:60]
+                candidate_quote = sections[0].get("text", "")
+                if len(candidate_quote.strip()) >= 15:
+                    quote_text = candidate_quote.strip()[:60].strip()
+                else:
+                    quote_text = "demo verified value fallback quote"
             claims = _fabricate_claims(claims_schema)
             items_out.append({
                 "item_id": item_id,

@@ -32,14 +32,14 @@ from .models import (
 SCHEMA_VERSION = "2"
 
 SCHEMA_PATH = Path(__file__).resolve().parent / "migrations" / "001_control_plane.sql"
-SCHEMA_SQL = SCHEMA_PATH.read_text()
+SCHEMA_SQL = SCHEMA_PATH.read_text(encoding="utf-8")
 MIGRATION_002_PATH = Path(__file__).resolve().parent / "migrations" / "002_intelligence_and_policy.sql"
 
 
 def get_database_schema_sql() -> str:
     parts = [SCHEMA_SQL]
     if MIGRATION_002_PATH.is_file():
-        parts.append(MIGRATION_002_PATH.read_text())
+        parts.append(MIGRATION_002_PATH.read_text(encoding="utf-8"))
     return "\n".join(parts)
 
 
@@ -77,7 +77,7 @@ def _decay_weight(ts: float | None, now_ts: float, half_life_hours: float) -> fl
 
 
 def default_db_path() -> Path:
-    configured = os.environ.get("FREE_FLEET_DB", os.environ.get("BULK_LANES_DB"))
+    configured = os.environ.get("ACCOUNT_FLEET_DB", os.environ.get("FREE_FLEET_DB", os.environ.get("BULK_LANES_DB")))
     return Path(configured).expanduser() if configured else Path.cwd() / "free-fleet.db"
 
 
@@ -111,7 +111,7 @@ class FreeFleetStore:
         with self.connect() as connection:
             connection.executescript(SCHEMA_SQL)
             if MIGRATION_002_PATH.is_file():
-                connection.executescript(MIGRATION_002_PATH.read_text())
+                connection.executescript(MIGRATION_002_PATH.read_text(encoding="utf-8"))
             cols = [row["name"] for row in connection.execute("PRAGMA table_info(runs)").fetchall()]
             if "policy_json" not in cols:
                 connection.execute("ALTER TABLE runs ADD COLUMN policy_json TEXT")

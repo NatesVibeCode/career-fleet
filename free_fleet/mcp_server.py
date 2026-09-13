@@ -57,15 +57,19 @@ class Workspace:
 
 def create_mcp_server(workspace_root: str | Path, db_path: str | Path | None = None) -> FastMCP:
     workspace = Workspace(workspace_root)
-    resolved_db = workspace.path(str(db_path)) if db_path else workspace.path("free-fleet.db")
+    configured_db = db_path or os.environ.get("ACCOUNT_FLEET_DB") or os.environ.get("FREE_FLEET_DB")
+    resolved_db = workspace.path(str(configured_db)) if configured_db else workspace.path("free-fleet.db")
     store = FreeFleetStore(resolved_db)
 
     def resolve_task(reference: str) -> TaskSpec:
-        candidate = workspace.path(reference)
-        if candidate.is_file():
-            task = load_task_spec(candidate)
-            store.register_task(task)
-            return task
+        try:
+            candidate = workspace.path(reference)
+            if candidate.is_file():
+                task = load_task_spec(candidate)
+                store.register_task(task)
+                return task
+        except Exception:
+            pass
         return store.get_task(reference)
 
     server = FastMCP(
@@ -123,6 +127,31 @@ def create_mcp_server(workspace_root: str | Path, db_path: str | Path | None = N
         """List the current registered task names and their exact revision IDs."""
         tasks = store.list_tasks()
         return TasksResult(tasks=tasks, count=len(tasks))
+
+    @server.tool(structured_output=True)
+    def free_fleet_save_profile(profile: IdealCompanyProfile) -> ProfileResult:
+        """Persist and activate one immutable Ideal Company Profile revision."""
+        revision = store.save_profile(profile)
+        return ProfileResult(
+            profile_kind="ideal_company",
+            revision=revision,
+            profile=profile.model_dump(mode="json"),
+        )
+
+    @server.tool(structured_output=True)
+    def free_fleet_get_profile() -> ProfileResult:
+        """Return the active Ideal Company Profile stored in SQLite."""
+        profile = store.load_profile("ideal_company")
+        if profile is None:
+            raise ValueError("no active Ideal Company Profile; save one first")
+        revision = store.active_profile_revision_id("ideal_company")
+        if revision is None:
+            raise ValueError("active Ideal Company Profile has no revision")
+        return ProfileResult(
+            profile_kind="ideal_company",
+            revision=revision,
+            profile=profile.model_dump(mode="json"),
+        )
 
     @server.tool(structured_output=True)
     def free_fleet_test(
@@ -207,7 +236,8 @@ def create_mcp_server(workspace_root: str | Path, db_path: str | Path | None = N
         """Resume pending batches from an existing run without rereading source files. Paid routes must be explicitly approved again in each new session; free routes remain the default."""
         task_spec = store.get_run_task(run_id)
         snapshot = store.run_snapshot(run_id)
-        packet_path = workspace.path(output_packet) if output_packet else workspace.path(snapshot["output_path"])
+        raw_out = snapshot.get("output_path")
+        packet_path = workspace.path(output_packet) if output_packet else (workspace.path(raw_out) if raw_out else workspace.path(f"runs/{run_id}/clean_packet.json"))
         packet = Engine(task=task_spec, store=store, policy=policy).resume_campaign(run_id, sessions, packet_path)
         return CleanPacket.model_validate(packet)
 

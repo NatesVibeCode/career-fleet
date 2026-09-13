@@ -62,13 +62,6 @@ def _build_normalized_map(text: str):
             collapsed_map.append(index_map[i])
             in_space = False
     # Strip leading/trailing collapsed space without losing map correctness
-    normalized = "".join(collapsed_chars).strip()
-    # Adjust map after strip
-    if raw_norm and raw_norm[0].isspace() and normalized and collapsed_chars and collapsed_chars[0] == " ":
-        # leading space stripped -> remove first entry
-        # collapsed already stripped via .strip() logic but we handled via building; if first char is space, it was kept; now stripped.
-        if normalized and collapsed_chars[0] == " " and raw_norm.lstrip().startswith(collapsed_chars[0]):
-            pass
     # Rebuild exact trimmed map by re-scanning collapsed with strip positions
     # For simplicity, rebuild by stripping from both ends using the collapsed representation.
     start_trim = 0

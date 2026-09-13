@@ -228,7 +228,12 @@ def load_input_items(
                 elif resolved_text_col not in fieldnames:
                     raise InputDataError(f"Specified text column '{resolved_text_col}' not found in CSV columns: {fieldnames}")
 
+                if title_column and title_column not in fieldnames:
+                    raise InputDataError(f"Specified title column '{title_column}' not found in CSV columns: {fieldnames}")
                 resolved_title_col = title_column if title_column in fieldnames else ("title" if "title" in fieldnames else None)
+
+                if uri_column and uri_column not in fieldnames:
+                    raise InputDataError(f"Specified uri column '{uri_column}' not found in CSV columns: {fieldnames}")
                 resolved_uri_col = uri_column if uri_column in fieldnames else ("source_uri" if "source_uri" in fieldnames else ("url" if "url" in fieldnames else None))
 
                 rows = []

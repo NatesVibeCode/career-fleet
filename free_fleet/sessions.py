@@ -55,6 +55,8 @@ class WorkerSession:
 class SessionPool:
     """Manages a fleet of concurrent worker sessions."""
     def __init__(self, num_sessions: int, routes: List[str]):
+        if not routes:
+            raise ValueError("SessionPool requires at least one route")
         self.num_sessions = num_sessions
         self.routes = routes
         self.sessions: Dict[str, WorkerSession] = {}
@@ -63,7 +65,7 @@ class SessionPool:
     def _init_sessions(self):
         for i in range(self.num_sessions):
             sid = f"sess_{i+1:02d}_{uuid.uuid4().hex[:8]}"
-            route_id = self.routes[i % len(self.routes)] if self.routes else "opencode/big-pickle"
+            route_id = self.routes[i % len(self.routes)]
             provider = route_id.split("/", 1)[0] if "/" in route_id else "unknown"
             self.sessions[sid] = WorkerSession(
                 session_id=sid,

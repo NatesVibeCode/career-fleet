@@ -12,6 +12,8 @@ def pack_items(
     max_slice_chars: int = 6000
 ) -> list[dict[str, Any]]:
     """Transforms raw records into sliced cards and packs them into bounded batches."""
+    if batch_size <= 0:
+        raise ValueError("batch_size must be greater than 0")
     cards = []
     for raw_record in raw_records:
         record = raw_record if isinstance(raw_record, InputItem) else InputItem.model_validate(raw_record)

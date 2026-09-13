@@ -192,7 +192,7 @@ class OpenRouterProvider(BaseProvider):
                 receipt["duration_seconds"] = time.time() - started
                 return False, None, receipt
 
-            text = choices[0].get("message", {}).get("content", "")
+            text = choices[0].get("message", {}).get("content") or ""
             usage = data.get("usage", {})
             receipt["usage"] = usage
             

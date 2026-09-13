@@ -146,7 +146,7 @@ def _emit(value: Any, json_mode: bool, human: str | None = None) -> None:
 def _store(args: argparse.Namespace) -> BulkLanesStore:
     workspace = Path(getattr(args, "workspace_root", ".")).expanduser().resolve()
     explicit = getattr(args, "db", None)
-    configured = os.environ.get("FREE_FLEET_DB", os.environ.get("BULK_LANES_DB"))
+    configured = os.environ.get("ACCOUNT_FLEET_DB", os.environ.get("FREE_FLEET_DB", os.environ.get("BULK_LANES_DB")))
     path = Path(explicit or configured or "free-fleet.db").expanduser()
     return BulkLanesStore(path if path.is_absolute() else workspace / path)
 
@@ -274,14 +274,14 @@ def _infer_schema_from_example(path: Path, label_column: str | None = None) -> t
         import json as _json
         items = []
         if suffix == ".jsonl":
-            for line in path.read_text().splitlines():
+            for line in path.read_text(encoding="utf-8").splitlines():
                 if line.strip():
                     items.append(_json.loads(line))
         else:
-            data = _json.loads(path.read_text())
-            items = data["items"] if isinstance(data, dict) and "items" in data else data
-        if not items:
-            raise ValueError("example file is empty")
+            data = _json.loads(path.read_text(encoding="utf-8"))
+            items = data["items"] if isinstance(data, dict) and "items" in data else (data if isinstance(data, list) else [])
+        if not items or not isinstance(items, list):
+            raise ValueError("example file is empty or does not contain a list of items")
         sample = items[0]
         # Look for expected claims in metadata or top-level
         label_column = label_column or "label"
@@ -367,7 +367,10 @@ def cmd_test(args: argparse.Namespace) -> None:
     task = _resolve_task(args.task, store)
     items = _load_input(args)
     policy = _extract_policy(args)
-    batch = pack_items(items[: task.batch_size], task.batch_size, task.max_slice_chars)[0]
+    batches = pack_items(items[: task.batch_size], task.batch_size, task.max_slice_chars)
+    if not batches:
+        raise ValueError("input contains no packable items to test")
+    batch = batches[0]
     engine = Engine(task=task, store=store, policy=policy)
     ok, results, receipt, error = engine.execute_batch(batch)
     _emit(
@@ -406,7 +409,7 @@ def cmd_resume(args: argparse.Namespace) -> None:
     store = _store(args)
     task = store.get_run_task(args.run_id)
     snapshot = store.run_snapshot(args.run_id)
-    output = Path(args.output or snapshot["output_path"])
+    output = Path(args.output or snapshot.get("output_path") or f"runs/{args.run_id}/clean_packet.json")
     policy = _extract_policy(args)
     packet = Engine(task=task, store=store, policy=policy).resume_campaign(
         args.run_id,
@@ -727,7 +730,8 @@ def cmd_mcp_install(args: argparse.Namespace) -> None:
     workspace_root = Path(getattr(args, "workspace_root", ".")).expanduser().resolve()
     if not workspace_root.is_dir():
         raise ValueError(f"workspace root not found: {workspace_root}")
-    db_path = Path(getattr(args, "db", None)).expanduser() if getattr(args, "db", None) else workspace_root / "free-fleet.db"
+    configured_db = getattr(args, "db", None) or os.environ.get("ACCOUNT_FLEET_DB") or os.environ.get("FREE_FLEET_DB")
+    db_path = Path(configured_db).expanduser() if configured_db else workspace_root / "free-fleet.db"
     db_path = (db_path if db_path.is_absolute() else workspace_root / db_path).resolve()
 
     cli_cmd = installed_cli_path()

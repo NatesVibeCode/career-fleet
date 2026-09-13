@@ -19,7 +19,7 @@ def read_packet(packet_path: str) -> dict:
     p = Path(packet_path).resolve()
     if not p.exists():
         raise FileNotFoundError(f"Packet file not found: {packet_path}")
-    return CleanPacket.model_validate_json(p.read_text()).model_dump(mode="json", by_alias=True)
+    return CleanPacket.model_validate_json(p.read_text(encoding="utf-8")).model_dump(mode="json", by_alias=True)
 
 def process(
     task: str | TaskSpec | Path,

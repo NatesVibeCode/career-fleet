@@ -323,6 +323,8 @@ class Engine:
         policy: Optional[RoutePolicy] = None,
     ) -> dict:
         """Register a campaign in SQLite, then execute its leased batches."""
+        if not raw_items:
+            raise ValueError("input contains no items")
         if policy:
             self.policy = policy
         batches = pack_items(raw_items, batch_size=self.task.batch_size, max_slice_chars=self.task.max_slice_chars)
@@ -451,7 +453,8 @@ class Engine:
         self.store.save_sessions(run_id, session_pool.to_dict())
         self.store.finalize_run(run_id)
         snapshot = self.store.run_snapshot(run_id)
-        export_path = output_packet_path or Path(snapshot["output_path"])
+        raw_out = snapshot.get("output_path")
+        export_path = output_packet_path or (Path(raw_out) if raw_out else Path("runs") / run_id / "clean_packet.json")
         packet = export_clean_packet(snapshot, export_path)
         
         return packet

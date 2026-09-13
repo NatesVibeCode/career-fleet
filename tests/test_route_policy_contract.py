@@ -1,7 +1,10 @@
 from free_fleet.catalog import RouteCatalog
 from free_fleet.engine import Engine
+from free_fleet.export import _evaluate_filter
 from free_fleet.models import RoutePolicy, TaskSpec
 from free_fleet.packer import pack_items
+from free_fleet.sessions import SessionPool
+from free_fleet.slicer import slice_document
 from free_fleet.store import FreeFleetStore
 
 
@@ -111,3 +114,29 @@ def test_new_resume_session_does_not_reuse_paid_approval(tmp_path):
         assert "explicit --route approval" in str(exc)
     else:
         raise AssertionError("a stored paid approval was reused by a new session")
+
+
+def test_shared_input_guards_remain_enabled():
+    try:
+        pack_items([], batch_size=0)
+    except ValueError as exc:
+        assert "batch_size" in str(exc)
+    else:
+        raise AssertionError("non-positive batch sizes must be rejected")
+
+    try:
+        SessionPool(num_sessions=1, routes=[])
+    except ValueError as exc:
+        assert "at least one route" in str(exc)
+    else:
+        raise AssertionError("empty route pools must be rejected")
+
+
+def test_shared_export_and_slicing_edges_remain_stable():
+    assert _evaluate_filter({"status": None}, "status==null") is True
+    assert _evaluate_filter({"status": "ready"}, "status!=null") is True
+    assert _evaluate_filter({"score": 80}, "score==80") is True
+
+    sections = slice_document("abcdef", max_chars=2)
+    assert all(section["end"] > section["start"] for section in sections)
+    assert all(len(section["text"]) == section["end"] - section["start"] for section in sections)

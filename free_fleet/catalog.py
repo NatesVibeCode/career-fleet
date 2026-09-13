@@ -76,8 +76,8 @@ def is_free_in_schema(model_data: dict) -> bool:
     return classify_price_state(model_data) is PriceState.PRICE_OBSERVED_ZERO
 
 class RouteCatalog:
-    def __init__(self, config_path: Optional[Path] = None, db_path: Optional[Path] = None):
-        self.config_path = config_path or DEFAULT_CONFIG_PATH
+    def __init__(self, config_path: Optional[Path | str] = None, db_path: Optional[Path | str] = None):
+        self.config_path = Path(config_path) if config_path else DEFAULT_CONFIG_PATH
         self._lock = threading.RLock()
         resolved_db = db_path or (self.config_path.with_suffix(".db") if config_path else None)
         self.store = BulkLanesStore(resolved_db)
@@ -89,7 +89,7 @@ class RouteCatalog:
         """Import packaged route hints without treating bundled history as local evidence."""
         if not self.config_path.exists():
             return
-        data = json.loads(self.config_path.read_text())
+        data = json.loads(self.config_path.read_text(encoding="utf-8"))
         for raw_route in data.get("routes", []):
             route = dict(raw_route)
             hinted_zero = (
