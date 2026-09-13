@@ -1,11 +1,12 @@
 """Lane 1: Sourcing & Ingestion.
-Discovers and onboards target companies and active postings using free_fleet.discover primitives.
+Discovers and onboards target companies and source records using free_fleet.discover primitives.
 """
 from __future__ import annotations
 
 import logging
 import re
 from typing import Any, Dict
+from urllib.parse import urlparse
 from career_fleet.store import CareerStore
 
 logger = logging.getLogger("career_fleet.lane1")
@@ -32,21 +33,55 @@ REMOTE_NEGATION_PATTERN = re.compile(
 )
 REMOTE_POSITIVE_PATTERN = re.compile(
     r"\b(?:fully|100%|completely|entirely)?\s*remote\b|"
-    r"\bremote[- ]first\b|\bwork\s+from\s+anywhere\b",
+    r"\bremote[- ]first\b|\bwork[- ]from[- ]anywhere\b",
     re.I,
 )
+REMOTE_ROLE_POSITIVE_PATTERN = re.compile(
+    r"\bremote[- ]?(?:role|position|job)\b|"
+    r"\b(?:this|the|a|your)\s+(?:role|position|job)\s+(?:is\s+)?(?:fully\s+)?remote\b|"
+    r"\b(?:can|may|will)\s+work\s+(?:fully\s+)?remotely\b|"
+    r"\bwork\s+from\s+anywhere\b",
+    re.I,
+)
+REMOTE_LOCATION_PATTERN = re.compile(r"\b(?:remote|anywhere)\b", re.I)
 
 
-def _is_remote_listing(text: str) -> bool:
+def _is_remote_listing(text: str, location: str | None = None) -> bool:
     """Return True only when source text contains positive remote evidence."""
     value = text or ""
-    return bool(REMOTE_POSITIVE_PATTERN.search(value) and not REMOTE_NEGATION_PATTERN.search(value))
+    if REMOTE_NEGATION_PATTERN.search(value):
+        return False
+    if location and not REMOTE_LOCATION_PATTERN.search(location):
+        return bool(REMOTE_ROLE_POSITIVE_PATTERN.search(value))
+    return bool(REMOTE_POSITIVE_PATTERN.search(value))
 
 
 def _item_metadata(item: Any, key: str) -> str | None:
     metadata = getattr(item, "metadata", {}) or {}
     value = metadata.get(key)
-    return str(value).strip() if value else None
+    return str(value).strip() if value is not None else None
+
+
+def _item_int_metadata(item: Any, key: str) -> int | None:
+    value = _item_metadata(item, key)
+    if not value:
+        return None
+    try:
+        return int(value.replace(",", ""))
+    except (TypeError, ValueError):
+        return None
+
+
+def _item_domain(item: Any) -> str | None:
+    # YC's source URI is often the shared directory page. It is not a
+    # company domain and must not be used as a unique-domain fallback.
+    website = _item_metadata(item, "website")
+    if not website:
+        return None
+    candidate = str(website).strip()
+    if "://" not in candidate:
+        candidate = f"https://{candidate}"
+    return domain_of(candidate) or None
 
 
 def run_lane1_sourcing(
@@ -68,6 +103,13 @@ def run_lane1_sourcing(
     discovered = 0
     jobs_added = 0
     pages_skipped = 0
+    refreshed_companies: set[tuple[str, str]] = set()
+
+    def refresh_company(company_id: str) -> None:
+        key = (company_id, source_type)
+        if key not in refreshed_companies:
+            store.reset_company_pipeline(company_id, clear_postings=True, source_type=source_type)
+            refreshed_companies.add(key)
 
     try:
         if source_type == "yc":
@@ -80,38 +122,44 @@ def run_lane1_sourcing(
                 max_companies=max_items,
             )
             for it in items:
-                cid = it.item_id
+                source_record_id = it.item_id
+                cid = source_record_id
                 name = it.title or cid
-                domain = domain_of(it.source_uri) if it.source_uri else None
-                store.upsert_company(
+                website = _item_metadata(it, "website") or it.source_uri
+                cid = store.upsert_company(
                     company_id=cid,
                     name=name,
-                    domain=domain,
+                    domain=_item_domain(it),
+                    headcount=_item_int_metadata(it, "team_size"),
+                    hq_location=_item_metadata(it, "hq_location") or _item_metadata(it, "location"),
                     timezone=_item_metadata(it, "timezone"),
-                    website_url=it.source_uri,
+                    website_url=website,
                     status="discovered",
                 )
+                refresh_company(cid)
                 store.add_job_posting(
-                    job_id=f"job-{cid}-profile",
+                    job_id=f"job-{source_record_id}-profile",
                     company_id=cid,
                     title=f"{name} - Overview",
                     raw_text=it.text,
                     job_url=it.source_uri,
                     timezone=_item_metadata(it, "timezone"),
                     is_remote=_is_remote_listing(it.text),
+                    source_type=source_type,
                 )
                 discovered += 1
 
         elif source_type == "greenhouse":
             items = fetch_greenhouse_board(board=target, max_jobs=max_items)
             cid = slugify_id(target)
-            store.upsert_company(
+            cid = store.upsert_company(
                 company_id=cid,
                 name=target.capitalize(),
                 ats_provider="greenhouse",
                 ats_token=target,
                 status="discovered",
             )
+            refresh_company(cid)
             discovered += 1
             for it in items:
                 store.add_job_posting(
@@ -122,20 +170,22 @@ def run_lane1_sourcing(
                     job_url=it.source_uri,
                     location=_item_metadata(it, "location"),
                     timezone=_item_metadata(it, "timezone"),
-                    is_remote=_is_remote_listing(it.text),
+                    is_remote=_is_remote_listing(it.text, _item_metadata(it, "location")),
+                    source_type=source_type,
                 )
                 jobs_added += 1
 
         elif source_type == "ashby":
             items = fetch_ashby_org(org=target, max_jobs=max_items)
             cid = slugify_id(target)
-            store.upsert_company(
+            cid = store.upsert_company(
                 company_id=cid,
                 name=target.capitalize(),
                 ats_provider="ashby",
                 ats_token=target,
                 status="discovered",
             )
+            refresh_company(cid)
             discovered += 1
             for it in items:
                 store.add_job_posting(
@@ -146,20 +196,22 @@ def run_lane1_sourcing(
                     job_url=it.source_uri,
                     location=_item_metadata(it, "location"),
                     timezone=_item_metadata(it, "timezone"),
-                    is_remote=_is_remote_listing(it.text),
+                    is_remote=_is_remote_listing(it.text, _item_metadata(it, "location")),
+                    source_type=source_type,
                 )
                 jobs_added += 1
 
         elif source_type == "lever":
             items = fetch_lever_org(org=target, max_jobs=max_items)
             cid = slugify_id(target)
-            store.upsert_company(
+            cid = store.upsert_company(
                 company_id=cid,
                 name=target.capitalize(),
                 ats_provider="lever",
                 ats_token=target,
                 status="discovered",
             )
+            refresh_company(cid)
             discovered += 1
             for it in items:
                 store.add_job_posting(
@@ -170,21 +222,28 @@ def run_lane1_sourcing(
                     job_url=it.source_uri,
                     location=_item_metadata(it, "location"),
                     timezone=_item_metadata(it, "timezone"),
-                    is_remote=_is_remote_listing(it.text),
+                    is_remote=_is_remote_listing(it.text, _item_metadata(it, "location")),
+                    source_type=source_type,
                 )
                 jobs_added += 1
 
         elif source_type == "site":
-            items, skipped = crawl_site(origin=target, max_pages=max_items)
+            parsed_target = urlparse(target)
+            site_domain = domain_of(target)
+            if parsed_target.scheme not in ("http", "https") or not site_domain:
+                raise ValueError("site target must be an absolute http:// or https:// URL with a host")
+            items, skipped = crawl_site(start_url=target, max_pages=max_items)
             pages_skipped = len(skipped)
-            cid = slugify_id(domain_of(target))
-            store.upsert_company(
+            existing = store.get_company_by_domain(site_domain)
+            cid = existing["id"] if existing else slugify_id(site_domain)
+            cid = store.upsert_company(
                 company_id=cid,
-                name=domain_of(target),
-                domain=domain_of(target),
+                name=existing["name"] if existing else site_domain,
+                domain=site_domain,
                 website_url=target,
                 status="discovered",
             )
+            refresh_company(cid)
             discovered += 1
             for it in items:
                 store.add_job_posting(
@@ -195,7 +254,8 @@ def run_lane1_sourcing(
                     job_url=it.source_uri,
                     location=_item_metadata(it, "location"),
                     timezone=_item_metadata(it, "timezone"),
-                    is_remote=_is_remote_listing(it.text),
+                    is_remote=_is_remote_listing(it.text, _item_metadata(it, "location")),
+                    source_type=source_type,
                 )
                 jobs_added += 1
 
@@ -211,12 +271,15 @@ def run_lane1_sourcing(
             "pages_skipped": pages_skipped,
         }
     except Exception as exc:
-        logger.error(f"Error fetching from {source_type} ({target}): {exc}")
+        error = str(exc)
+        if "career-fleet" not in error:
+            error = error.replace("account-fleet", "career-fleet")
+        logger.error(f"Error fetching from {source_type} ({target}): {error}")
         return {
             "status": "error",
             "source_type": source_type,
             "target": target,
-            "error": str(exc),
+            "error": error,
             "companies_discovered": discovered,
             "postings_added": jobs_added,
             "pages_skipped": pages_skipped,

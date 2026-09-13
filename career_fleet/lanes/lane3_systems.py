@@ -19,10 +19,17 @@ SYSTEM_WEDGE_SIGNALS = [
 
 
 def _phrase_pattern(phrase: str) -> re.Pattern[str] | None:
-    terms = re.findall(r"[A-Za-z0-9]+", phrase or "")
+    terms = [term for term in re.split(r"[\s/_-]+", str(phrase or "").strip()) if term]
     if not terms:
         return None
-    return re.compile(r"\b" + r"[\W_]+".join(re.escape(term) for term in terms) + r"\b", re.I)
+    return re.compile(
+        r"(?<!\w)" + r"[\W_]+".join(re.escape(term) for term in terms) + r"(?!\w)",
+        re.I,
+    )
+
+
+def _stack_options(requirement: str) -> List[str]:
+    return [option.strip() for option in str(requirement or "").split("/") if option.strip()]
 
 
 def _configured_matches(text: str, phrases: List[str]) -> List[str]:
@@ -45,6 +52,8 @@ def score_technical_wedge(
             "verdict": "UNKNOWN",
             "matched_wedges": [],
             "matched_stack": [],
+            "missing_required_stack": list(profile.required_stack),
+            "required_stack_satisfied": not profile.required_stack,
             "matched_capabilities": [],
             "matched_catalysts": [],
             "matched_negative_stack": [],
@@ -53,7 +62,8 @@ def score_technical_wedge(
         }
 
     matched_wedges = []
-    quotes = []
+    required_quotes = []
+    signal_quotes = []
 
     for pattern, label in SYSTEM_WEDGE_SIGNALS:
         match = pattern.search(text)
@@ -61,15 +71,29 @@ def score_technical_wedge(
             matched_wedges.append(label)
             start = max(0, match.start() - 30)
             end = min(len(text), match.end() + 30)
-            quotes.append(text[start:end].strip())
+            signal_quotes.append(text[start:end].strip())
 
     # Stack alignment check (handles slash-separated technologies like 'Modern Cloud / Kubernetes')
     matched_stack = []
-    for s in profile.required_stack:
-        parts = [p.strip() for p in s.split("/") if p.strip()]
-        for part in parts:
-            if re.search(r"\b" + re.escape(part) + r"\b", text, re.I) and part not in matched_stack:
-                matched_stack.append(part)
+    missing_required_stack = []
+    for requirement in profile.required_stack:
+        matched_option = None
+        for option in _stack_options(requirement):
+            pattern = _phrase_pattern(option)
+            if pattern and pattern.search(text):
+                matched_option = option
+                break
+        if matched_option:
+            if matched_option not in matched_stack:
+                matched_stack.append(matched_option)
+            pattern = _phrase_pattern(matched_option)
+            match = pattern.search(text) if pattern else None
+            if match:
+                start = max(0, match.start() - 30)
+                end = min(len(text), match.end() + 30)
+                required_quotes.append(text[start:end].strip())
+        else:
+            missing_required_stack.append(requirement)
 
     matched_capabilities = _configured_matches(text, profile.wedge_capabilities)
     matched_catalysts = _configured_matches(text, profile.hiring_catalysts)
@@ -81,7 +105,7 @@ def score_technical_wedge(
         if match:
             start = max(0, match.start() - 30)
             end = min(len(text), match.end() + 30)
-            quotes.append(text[start:end].strip())
+            signal_quotes.append(text[start:end].strip())
 
     score = (
         (len(matched_wedges) * 0.3)
@@ -90,14 +114,20 @@ def score_technical_wedge(
         + (len(matched_catalysts) * 0.1)
         - (len(matched_negative_stack) * 0.3)
     )
+    if missing_required_stack:
+        # A configured required stack is a real gate, not merely a bonus.
+        score = min(score, 0.59)
     score = max(0.0, min(1.0, score))
     verdict = "HIGH FIT" if score >= 0.8 else ("STRONG FIT" if score >= 0.6 else "MARGINAL")
+    quotes = (required_quotes + signal_quotes)[: max(5, len(required_quotes))]
 
     return {
         "score": round(score, 2),
         "verdict": verdict,
         "matched_wedges": matched_wedges,
         "matched_stack": matched_stack,
+        "missing_required_stack": missing_required_stack,
+        "required_stack_satisfied": not missing_required_stack,
         "matched_capabilities": matched_capabilities,
         "matched_catalysts": matched_catalysts,
         "matched_negative_stack": matched_negative_stack,
@@ -105,6 +135,7 @@ def score_technical_wedge(
         "rationale": (
             f"Identified technical wedges: {', '.join(matched_wedges) or 'None'}. "
             f"Stack alignment: {', '.join(matched_stack) or 'None'}. "
+            f"Missing required stack: {', '.join(missing_required_stack) or 'None'}. "
             f"Profile capability matches: {', '.join(matched_capabilities) or 'None'}. "
             f"Hiring catalyst matches: {', '.join(matched_catalysts) or 'None'}. "
             f"Negative stack signals: {', '.join(matched_negative_stack) or 'None'}."
@@ -116,8 +147,23 @@ def run_lane3_systems(
     store: CareerStore,
     profile: IdealEmployerProfile,
 ) -> Dict[str, Any]:
-    """Execute Lane 3 Technical Systems Wedge evaluation on triaged survivors."""
-    survivors = [c for c in store.list_companies() if c["status"] == "triaged"]
+    """Evaluate every current Lane 2 survivor, including prior results.
+
+    A profile change must be able to invalidate a previously qualified
+    company, so the company status alone is not used as a skip signal.
+    """
+    survivors = []
+    for company in store.list_companies():
+        if company["status"] not in ("triaged", "qualified"):
+            continue
+        dossier = store.get_company_dossier(company["id"])
+        evaluations = dossier.get("evaluations", []) if dossier else []
+        lane2_results = [e for e in evaluations if e["lane"] == "lane2_triage"]
+        if lane2_results and lane2_results[-1]["status"] != "triaged":
+            continue
+        if company["status"] == "qualified" and not lane2_results:
+            continue
+        survivors.append(company)
     evaluated = 0
 
     for comp in survivors:
@@ -127,7 +173,7 @@ def run_lane3_systems(
         combined_text = "\n".join(p.get("raw_text", "") for p in postings)
 
         res = score_technical_wedge(combined_text, profile)
-        status = "qualified" if res["score"] >= 0.6 else "marginal"
+        status = "qualified" if res["score"] >= 0.6 and res["required_stack_satisfied"] else "marginal"
 
         store.record_evaluation(
             eval_id=f"eval-systems-{cid}",

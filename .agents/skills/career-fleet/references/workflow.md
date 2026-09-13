@@ -16,6 +16,10 @@ career-fleet triage --db "$DB" --profile "$PROFILE"
 career-fleet recon --lane all --db "$DB" --profile "$PROFILE"
 career-fleet list --status qualified --db "$DB"
 career-fleet export --db "$DB" --output qualified_targets.json
+
+Discovery is refresh-safe: rerunning a source replaces that source's stale
+records and lane results while preserving records captured from other sources
+for the same company.
 ```
 
 Source targets are:
@@ -28,18 +32,18 @@ Source targets are:
 
 ## Understand statuses
 
-- `discovered`: source data is stored but Lane 2 has not run.
+- `discovered`: source data is stored but Lane 2 has not run on the current snapshot.
 - `triaged`: the company passed configured hard filters and may enter Lane 3.
 - `qualified`: Lane 3 passed and Lane 4 reached the healthy threshold.
 - `disqualified`: a hard filter rejected the company.
 
-Lane 3 is a gate, not the final decision. Lane 4 only evaluates companies with a passing Lane 3 evaluation. A company with an unknown remote-only policy or missing required evidence is not treated as a safe match.
+Lane 3 is a gate, not the final decision. Lane 4 only evaluates companies with a passing Lane 3 evaluation and requires a healthy culture score of at least 0.80. A company with an unknown remote-only policy or missing required evidence is not treated as a safe match.
 
 ## Rerun safely
 
-Evaluation writes are idempotent: rerunning triage or recon updates the existing lane result instead of creating duplicate rows. Re-run `discover` when source postings need refreshing, then run the funnel again.
+Evaluation writes are idempotent: rerunning triage or recon updates the existing lane result instead of creating duplicate rows. Triage rechecks every tracked company, so profile edits take effect; it also clears downstream results that must be recalculated. Re-run `discover` when source postings need refreshing; discovery replaces that company's old postings and lane results before the funnel runs again.
 
-Use `dossier --company <id>` to inspect the recorded source text, source URL, lane verdicts, rationale, and quotes before acting on an exported result.
+Use `dossier --company <id>` to inspect source URLs, lane verdicts, rationale, and quotes. Add `--show-source` to print the complete captured text before acting on an exported result.
 
 ## Tune the profile
 
@@ -63,3 +67,5 @@ Start with a neutral profile, then add only constraints the user actually wants:
 ```
 
 `candidate_timezone` checks business-hour overlap only when the captured company or posting record also has IANA timezone metadata.
+
+When `max_headcount` is set, an unknown headcount is rejected rather than treated as a match. Each `required_stack` entry must be evidenced for a systems pass; use `/` inside one entry for alternatives such as `Modern Cloud / Kubernetes`.

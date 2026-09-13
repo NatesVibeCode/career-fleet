@@ -47,14 +47,48 @@ REMOTE_NEGATION_PATTERNS = [
 
 REMOTE_POSITIVE_PATTERN = re.compile(
     r"\b(?:fully|100%|completely|entirely)?\s*remote\b|"
-    r"\bremote[- ]first\b|\bwork\s+from\s+anywhere\b",
+    r"\bremote[- ]first\b|\bwork[- ]from[- ]anywhere\b",
     re.I,
 )
+REMOTE_ROLE_POSITIVE_PATTERN = re.compile(
+    r"\bremote[- ]?(?:role|position|job)\b|"
+    r"\b(?:this|the|a|your)\s+(?:role|position|job)\s+(?:is\s+)?(?:fully\s+)?remote\b|"
+    r"\b(?:can|may|will)\s+work\s+(?:fully\s+)?remotely\b|"
+    r"\bwork[- ]from[- ]anywhere\b",
+    re.I,
+)
+HYBRID_WORKPLACE_PATTERN = re.compile(
+    r"\bhybrid[- ]?(?:first|role|position|schedule|work|working|team|model|office)\b|"
+    r"\b(?:work|working)\s+(?:in\s+)?a\s+hybrid\b",
+    re.I,
+)
+HYBRID_NEGATION_PATTERN = re.compile(r"\b(?:no|not|without)\s+hybrid\b", re.I)
+REMOTE_LOCATION_PATTERN = re.compile(r"\b(?:remote|anywhere)\b", re.I)
 
 LOCATION_STOPWORDS = {
     "a", "an", "and", "at", "day", "days", "each", "in", "mandate", "mandatory",
     "of", "office", "on", "onsite", "on-site", "per", "presence", "required", "site",
     "the", "week", "with",
+}
+
+LOCATION_ALIASES = {
+    "ca": "california",
+    "california": "ca",
+    "co": "colorado",
+    "colorado": "co",
+    "il": "illinois",
+    "illinois": "il",
+    "ma": "massachusetts",
+    "massachusetts": "ma",
+    "ny": "new york",
+    "new york": "ny",
+    "tx": "texas",
+    "texas": "tx",
+    "wa": "washington",
+    "washington": "wa",
+    "sf": "san francisco",
+    "san francisco": "sf",
+    "nyc": "new york",
 }
 
 
@@ -78,35 +112,86 @@ def _location_matches(text: str, configured_location: str) -> bool:
         for token in re.findall(r"[A-Za-z0-9]+", configured_location.casefold())
         if token not in LOCATION_STOPWORDS
     ]
-    return bool(terms) and all(re.search(r"\b" + re.escape(term) + r"\b", text, re.I) for term in terms)
+    if not terms:
+        return False
+    for term in terms:
+        alternatives = {term}
+        alias = LOCATION_ALIASES.get(term)
+        if alias:
+            alternatives.add(alias)
+        if not any(re.search(r"(?<!\w)" + re.escape(option) + r"(?!\w)", text, re.I) for option in alternatives):
+            return False
+    return True
 
 
 def _has_remote_evidence(posting: Dict[str, Any]) -> bool:
-    text = " ".join(str(posting.get(key) or "") for key in ("raw_text", "location"))
+    raw_text = str(posting.get("raw_text") or "")
+    location = str(posting.get("location") or "").strip()
+    text = " ".join(part for part in (raw_text, location) if part)
     if any(pattern.search(text) for pattern in REMOTE_NEGATION_PATTERNS):
         return False
-    return bool(posting.get("is_remote")) or bool(REMOTE_POSITIVE_PATTERN.search(text))
+    if bool(posting.get("is_remote")):
+        return True
+    if location and not REMOTE_LOCATION_PATTERN.search(location):
+        # A company-level "remote-first" statement must not override a
+        # concrete city in an ATS location field unless the role itself is
+        # explicitly remote.
+        return bool(REMOTE_ROLE_POSITIVE_PATTERN.search(raw_text))
+    return bool(REMOTE_POSITIVE_PATTERN.search(text))
+
+
+def _has_remote_or_hybrid_evidence(posting: Dict[str, Any]) -> bool:
+    raw_text = str(posting.get("raw_text") or "")
+    location = str(posting.get("location") or "").strip()
+    text = " ".join(part for part in (raw_text, location) if part)
+    if HYBRID_NEGATION_PATTERN.search(text):
+        return _has_remote_evidence(posting)
+    hybrid_location = bool(re.search(r"\bhybrid\b", location, re.I))
+    return hybrid_location or bool(HYBRID_WORKPLACE_PATTERN.search(raw_text)) or _has_remote_evidence(posting)
+
+
+def _configured_location_mandate(text: str, configured_location: str) -> Optional[str]:
+    """Find a non-negated mandate in the same sentence as a configured location."""
+    for sentence in re.split(r"(?<=[.!?\n])\s*", text):
+        if not _location_matches(sentence, configured_location):
+            continue
+        office_match = next((pattern.search(sentence) for pattern in OFFICE_MANDATE_PATTERNS if pattern.search(sentence)), None)
+        if office_match:
+            return sentence.strip()
+        for mandate in re.finditer(r"\b(?:required|mandatory|must)\b", sentence, re.I):
+            before = sentence[max(0, mandate.start() - 30) : mandate.start()]
+            if not re.search(r"\b(?:not|no|without|optional|voluntary)\b", before, re.I):
+                return sentence.strip()
+    return None
 
 
 def _business_day_overlap_hours(candidate_timezone: str, employer_timezone: str) -> float:
-    """Calculate overlap for a standard 09:00–17:00 local workday."""
+    """Calculate conservative overlap for a standard 09:00–17:00 workday.
+
+    Checking both winter and summer avoids a false pass when daylight-saving
+    changes the offset difference between the candidate and employer zones.
+    """
     try:
         candidate_zone = ZoneInfo(candidate_timezone)
         employer_zone = ZoneInfo(employer_timezone)
     except ZoneInfoNotFoundError as exc:
         raise ValueError(f"unknown IANA timezone: {exc}") from exc
 
-    reference = datetime(2026, 1, 15, 12, tzinfo=dt_timezone.utc)
-    candidate_offset = reference.astimezone(candidate_zone).utcoffset()
-    employer_offset = reference.astimezone(employer_zone).utcoffset()
-    if candidate_offset is None or employer_offset is None:
-        return 0.0
+    overlaps = []
+    for month in (1, 7):
+        reference = datetime(2026, month, 15, 12, tzinfo=dt_timezone.utc)
+        candidate_offset = reference.astimezone(candidate_zone).utcoffset()
+        employer_offset = reference.astimezone(employer_zone).utcoffset()
+        if candidate_offset is None or employer_offset is None:
+            overlaps.append(0.0)
+            continue
 
-    candidate_start = 9.0 - candidate_offset.total_seconds() / 3600
-    candidate_end = 17.0 - candidate_offset.total_seconds() / 3600
-    employer_start = 9.0 - employer_offset.total_seconds() / 3600
-    employer_end = 17.0 - employer_offset.total_seconds() / 3600
-    return max(0.0, min(candidate_end, employer_end) - max(candidate_start, employer_start))
+        candidate_start = 9.0 - candidate_offset.total_seconds() / 3600
+        candidate_end = 17.0 - candidate_offset.total_seconds() / 3600
+        employer_start = 9.0 - employer_offset.total_seconds() / 3600
+        employer_end = 17.0 - employer_offset.total_seconds() / 3600
+        overlaps.append(max(0.0, min(candidate_end, employer_end) - max(candidate_start, employer_start)))
+    return min(overlaps)
 
 
 def _check_timezone_overlap(
@@ -115,8 +200,8 @@ def _check_timezone_overlap(
     profile: IdealEmployerProfile,
 ) -> Optional[Dict[str, Any]]:
     dealbreakers = profile.dealbreakers
-    candidate_timezone = dealbreakers.candidate_timezone
-    if not candidate_timezone:
+    candidate_timezone = (dealbreakers.candidate_timezone or "").strip()
+    if not candidate_timezone or dealbreakers.min_timezone_overlap_hours <= 0:
         return None
 
     employer_timezones = [str(company.get("timezone") or "").strip()]
@@ -164,7 +249,13 @@ def check_dealbreakers(
 
     # 1. Headcount check
     headcount = company.get("headcount")
-    if headcount is not None and dealbreakers.max_headcount is not None:
+    if dealbreakers.max_headcount is not None:
+        if headcount is None:
+            return {
+                "disqualified": True,
+                "reason": "Headcount could not be verified while a maximum headcount is configured.",
+                "rule": "headcount_unknown",
+            }
         try:
             hc_int = int(headcount)
             if hc_int > dealbreakers.max_headcount:
@@ -174,7 +265,11 @@ def check_dealbreakers(
                     "rule": "headcount_limit",
                 }
         except (ValueError, TypeError):
-            pass
+            return {
+                "disqualified": True,
+                "reason": f"Headcount value {headcount!r} could not be verified while a maximum headcount is configured.",
+                "rule": "headcount_unknown",
+            }
 
     # 2. In-person mandate check across job postings and structured metadata.
     combined_text = _screening_text(company, postings)
@@ -205,21 +300,33 @@ def check_dealbreakers(
                         "rule": "non_remote_location",
                         "quote": location,
                     }
+        elif not postings or not any(_has_remote_or_hybrid_evidence(posting) for posting in postings):
+            return {
+                "disqualified": True,
+                "reason": "Remote-or-hybrid policy could not be verified from the captured source.",
+                "rule": "workplace_policy_unknown",
+            }
 
     # Configured location exclusions are hard exclusions even when the user
     # allows other kinds of work arrangements.
     for configured_location in dealbreakers.disallowed_locations:
-        if _location_matches(combined_text, configured_location):
-            match = next((pat.search(combined_text) for pat in OFFICE_MANDATE_PATTERNS if pat.search(combined_text)), None)
-            mandate_language = re.search(r"\b(?:required|mandatory|must)\b", combined_text, re.I)
-            if match or mandate_language:
-                quote = match.group(0) if match else mandate_language.group(0)
+        for posting in postings:
+            location = str(posting.get("location") or "").strip()
+            if location and _location_matches(location, configured_location) and not _has_remote_evidence(posting):
                 return {
                     "disqualified": True,
-                    "reason": f"Mandatory work location matches configured exclusion '{configured_location}': '{quote}'",
+                    "reason": f"Posting location matches configured exclusion '{configured_location}': '{location}'",
                     "rule": "configured_location",
-                    "quote": quote,
+                    "quote": location,
                 }
+        mandate = _configured_location_mandate(combined_text, configured_location)
+        if mandate:
+            return {
+                "disqualified": True,
+                "reason": f"Mandatory work location matches configured exclusion '{configured_location}': '{mandate}'",
+                "rule": "configured_location",
+                "quote": mandate,
+            }
 
     if dealbreakers.policy == "remote_only" and (
         not postings or not any(_has_remote_evidence(posting) for posting in postings)
@@ -265,8 +372,12 @@ def run_lane2_triage(
     store: CareerStore,
     profile: IdealEmployerProfile,
 ) -> Dict[str, Any]:
-    """Execute Gatekeeper Triage across all discovered companies."""
-    discovered = store.list_companies(status="discovered")
+    """Execute Gatekeeper Triage across all tracked companies.
+
+    Rechecking processed companies lets profile edits take effect. A new
+    Lane 2 result invalidates downstream lane results in the store.
+    """
+    discovered = store.list_companies()
     triaged = 0
     passed = 0
     dropped = 0

@@ -8,10 +8,11 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 class Dealbreakers(BaseModel):
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="forbid")
 
     max_headcount: Optional[int] = Field(
         default=None,
+        ge=1,
         description="Optional maximum company headcount. Leave unset to avoid assuming a size preference."
     )
     policy: Literal["remote_only", "remote_or_hybrid", "any"] = Field(
@@ -43,7 +44,7 @@ class Dealbreakers(BaseModel):
 
 
 class IdealEmployerProfile(BaseModel):
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="forbid")
 
     profile_name: str = Field(
         default="My Career Fit Profile",
@@ -79,19 +80,19 @@ class IdealEmployerProfile(BaseModel):
     )
     anchor_companies: List[str] = Field(
         default_factory=list,
-        description="Exemplar companies that define the ideal engineering and operational culture."
+        description="Exemplar companies retained as context for calibration and external evaluation; not a direct deterministic score."
     )
 
     @classmethod
     def load(cls, path: Path | str) -> IdealEmployerProfile:
-        p = Path(path)
+        p = Path(path).expanduser()
         if not p.exists():
             raise FileNotFoundError(f"Profile file not found at: {p}")
         data = json.loads(p.read_text(encoding="utf-8"))
         return cls.model_validate(data)
 
     def save(self, path: Path | str) -> None:
-        p = Path(path)
+        p = Path(path).expanduser()
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text(self.model_dump_json(indent=2), encoding="utf-8")
 
@@ -110,13 +111,21 @@ class IdealEmployerProfile(BaseModel):
     def to_evaluation_prompt(self) -> str:
         """Render the rubric for an external evaluator or future model integration."""
         caps = "\n".join(f"- {c}" for c in self.wedge_capabilities)
+        stack = "\n".join(f"- {s}" for s in self.required_stack)
+        negative_stack = "\n".join(f"- {s}" for s in self.negative_stack)
         catalysts = "\n".join(f"- {c}" for c in self.hiring_catalysts)
         leaders = "\n".join(f"- {c}" for c in self.target_leadership)
+        anchors = "\n".join(f"- {c}" for c in self.anchor_companies)
+        dealbreakers = json.dumps(self.to_triage_criteria(), indent=2)
         return (
             f"EVALUATION CRITERIA: {self.profile_name} (v{self.version})\n\n"
             f"1. CORE WEDGE CAPABILITIES:\n{caps}\n\n"
-            f"2. HIRING CATALYSTS (URGENT PAIN):\n{catalysts}\n\n"
-            f"3. LEADERSHIP & CULTURE REQUIREMENTS:\n{leaders}\n\n"
+            f"2. REQUIRED STACK (every listed requirement must be evidenced):\n{stack}\n\n"
+            f"3. NEGATIVE STACK SIGNALS:\n{negative_stack}\n\n"
+            f"4. HIRING CATALYSTS (URGENT PAIN):\n{catalysts}\n\n"
+            f"5. LEADERSHIP & CULTURE REQUIREMENTS:\n{leaders}\n\n"
+            f"6. ANCHOR EXEMPLARS:\n{anchors}\n\n"
+            f"7. HARD DEALBREAKERS:\n{dealbreakers}\n\n"
             f"EVIDENCE REQUIREMENT: Every positive claim MUST reference exact verbatim quotes "
             f"from captured source text. Never invent budget, traction, or role suitability."
         )

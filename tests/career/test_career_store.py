@@ -1,5 +1,6 @@
 import tempfile
 import unittest
+import sqlite3
 from pathlib import Path
 from career_fleet.store import CareerStore
 
@@ -58,3 +59,34 @@ class TestStore(unittest.TestCase):
             self.assertEqual(store.list_companies()[0]["id"], "memory")
         finally:
             store.close()
+
+    def test_existing_database_gets_new_source_metadata_columns(self):
+        legacy_path = Path(self.tmpdir.name) / "legacy.db"
+        legacy = sqlite3.connect(legacy_path)
+        legacy.executescript(
+            """
+            CREATE TABLE companies (
+                id TEXT PRIMARY KEY, name TEXT NOT NULL, domain TEXT, stage TEXT,
+                headcount INT, hq_location TEXT, ats_provider TEXT, ats_token TEXT,
+                website_url TEXT, status TEXT DEFAULT 'discovered',
+                disqualification_reason TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE TABLE job_postings (
+                id TEXT PRIMARY KEY, company_id TEXT NOT NULL, title TEXT NOT NULL,
+                location TEXT, is_remote BOOLEAN DEFAULT 0, job_url TEXT,
+                raw_text TEXT NOT NULL, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+            """
+        )
+        legacy.close()
+
+        CareerStore(legacy_path)
+        with sqlite3.connect(legacy_path) as migrated:
+            company_columns = {row[1] for row in migrated.execute("PRAGMA table_info(companies)")}
+            posting_columns = {row[1] for row in migrated.execute("PRAGMA table_info(job_postings)")}
+
+        self.assertIn("timezone", company_columns)
+        self.assertIn("timezone", posting_columns)
+        self.assertIn("source_type", posting_columns)

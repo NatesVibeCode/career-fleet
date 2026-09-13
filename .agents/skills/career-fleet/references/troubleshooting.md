@@ -24,15 +24,17 @@ The command now exits nonzero and prints the source error. Check:
 - `--max` is at least 1.
 - The optional discovery dependencies are installed when site extraction needs them.
 
-An error result must not be treated as a completed discovery run. Recheck `career-fleet list --db career_fleet.db` for any partial records before retrying.
+An error result must not be treated as a completed discovery run. Recheck `career-fleet list --db career_fleet.db` for any partial records before retrying. A successful refresh replaces that source's previous postings and lane results while preserving other source types; it does not append stale jobs forever.
 
 ## Triage removes more or fewer companies than expected
 
 Inspect the active profile with `career-fleet profile --path profile.json`. The generated profile is neutral; it does not assume remote work, a headcount limit, or AI-wrapper/quota exclusions.
 
-Under `remote_only`, the captured source must show remote evidence. A missing or contradictory location is rejected as unverified. Add source timezone metadata before enabling `candidate_timezone` checks.
+Under `remote_only`, the captured source must show role-level remote evidence. A missing or contradictory location is rejected as unverified. `remote_or_hybrid` also requires positive remote or hybrid evidence. Add source timezone metadata before enabling `candidate_timezone` checks.
 
-Use `dossier --company <id>` to see the posting text and the exact rule quote that caused a rejection.
+If `max_headcount` is configured, the company must have a numeric captured headcount. Unknown headcount is rejected so the hard limit cannot be bypassed by missing metadata.
+
+Use `dossier --company <id>` to see posting URLs and the exact rule quote that caused a rejection. Add `--show-source` to print the complete captured posting text.
 
 ## Recon evaluates zero companies
 
@@ -43,11 +45,11 @@ The lanes are ordered:
 3. systems recon evaluates triaged survivors;
 4. culture recon evaluates only systems-passing survivors.
 
-Run `recon --lane all` after triage. Running culture alone before a systems pass is expected to evaluate zero companies.
+Run `recon --lane all` after triage. Running culture alone before a systems pass is expected to evaluate zero companies. If you edit the profile, run triage again first; it will invalidate downstream results so recon can recalculate them.
 
 ## A profile was overwritten or will not load
 
-`profile --init` refuses to overwrite an existing profile. Use `profile --init --force` only to reset it. If a custom `--profile` path is missing or invalid, the command exits with a clear error instead of silently using defaults.
+`profile --init` refuses to overwrite an existing profile. Use `profile --init --force` only to reset it. If a custom or implicit `--profile` path is missing or invalid, the command exits with a clear error instead of silently using defaults. Unknown JSON fields are rejected to catch spelling mistakes.
 
 ## The assistant skill is missing
 

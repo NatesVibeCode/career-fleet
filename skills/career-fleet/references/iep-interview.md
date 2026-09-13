@@ -1,10 +1,10 @@
-# Autonomous Ideal Employer Profile (IEP) Inference & Calibration
+# Authorized Ideal Employer Profile (IEP) Inference & Calibration
 
 When an operator, engineer, or builder wants to discover and evaluate target companies, **never interrogate them with generic questionnaires**, and **never jump blindly into job boards with vague titles** like "software engineer" or "business development".
 
-The agent harness must first inspect all available context—past project artifacts, resumes, and codebases—to infer the candidate's core architectural wedge, preferred company topology, and non-negotiables.
+The agent harness may inspect only context the user explicitly provides or authorizes—past project artifacts, resumes, repositories, or external profiles—to infer the candidate's core architectural wedge, preferred company topology, and non-negotiables. It must not scan unrelated files or accounts by assumption.
 
-Only after this autonomous scan should the agent conduct a focused, 3-question interview for anything missing.
+Only after this authorized scan should the agent conduct a focused, 3-question interview for anything missing.
 
 ---
 
@@ -25,4 +25,4 @@ If any of the 6 core signals are missing after the autonomous scan, present thes
 
 ## Profile Synthesis
 
-Initialize `profile.json` once with `career-fleet profile --init`, then edit the generated JSON with the answers. The command refuses to overwrite an existing profile unless `--force` is supplied.
+Initialize `profile.json` once with `career-fleet profile --init`, confirm the inferred values with the user, then edit the generated JSON with the answers. The command refuses to overwrite an existing profile unless `--force` is supplied.

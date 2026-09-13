@@ -14,11 +14,11 @@ Hard dependencies: stdlib + ``httpx`` (already required). Broad web search
 Apache-2.0, then ``readability-lxml``, Apache-2.0) light up when the optional
 ``discover`` extra is installed::
 
-    pip install account-fleet[discover]
+    pip install career-fleet[discover]
 
 JS-heavy pages render via the optional ``js`` extra (Playwright, experimental)::
 
-    pip install account-fleet[js] && playwright install chromium
+    pip install career-fleet[js] && playwright install chromium
 
 Every entry point degrades to a clear install hint when an optional backend is
 missing. Keyless structured sources (Greenhouse/Ashby JSON APIs, HN Algolia,
@@ -45,8 +45,8 @@ import httpx
 from .models import InputItem
 
 
-USER_AGENT = "account-fleet-discover (+https://github.com/NatesVibeCode/account-fleet)"
-DISCOVER_EXTRA = "pip install account-fleet[discover]"
+USER_AGENT = "fleet-discover (+https://github.com/NatesVibeCode/career-fleet)"
+DISCOVER_EXTRA = "pip install career-fleet[discover] (or account-fleet[discover] for the legacy package)"
 
 HN_API = "https://hn.algolia.com/api/v1/search"
 YC_API = "https://api.ycombinator.com/v0.1/companies"
@@ -309,6 +309,17 @@ def _yc_profile_text(company: dict[str, Any]) -> str:
     return "\n".join(line for line in lines if line.strip())
 
 
+def _yc_location(company: dict[str, Any]) -> str:
+    """Return the most useful human-readable YC headquarters location."""
+    for key in ("location", "hqLocation", "hq_location"):
+        value = _ats_field_text(company.get(key))
+        if value:
+            return value
+    city = _ats_field_text(company.get("city"))
+    country = _ats_field_text(company.get("country"))
+    return ", ".join(part for part in (city, country) if part)
+
+
 def search_yc(
     query: str,
     max_results: int = 10,
@@ -395,6 +406,9 @@ def fetch_yc_companies(
                         "website": company.get("website") or "",
                         "batch": company.get("batch") or "",
                         "tags": list(company.get("tags") or []),
+                        "team_size": company.get("teamSize"),
+                        "hq_location": _yc_location(company),
+                        "timezone": company.get("timezone") or company.get("timeZone") or "",
                     },
                 ))
                 if max_companies is not None and len(records) >= max_companies:
@@ -516,7 +530,7 @@ def _parse_robots(txt: str) -> tuple[list[str], list[str]]:
         if key == "user-agent":
             if saw_rule:
                 applicable, saw_rule = False, False
-            applicable = applicable or value in ("*", "account-fleet-discover")
+            applicable = applicable or value in ("*", "account-fleet-discover", "fleet-discover")
         elif key in ("allow", "disallow"):
             saw_rule = True
             if applicable and value:
@@ -662,8 +676,8 @@ def require_playwright() -> None:
         import playwright  # type: ignore  # noqa: F401
     except ImportError as exc:
         raise DiscoverError(
-            "playwright is not installed (pip install account-fleet[js] "
-            "&& playwright install chromium)"
+            "playwright is not installed (pip install career-fleet[js] "
+            "&& playwright install chromium; account-fleet[js] also works)"
         ) from exc
 
 
@@ -673,8 +687,8 @@ def _render_js(url: str, timeout: float = 30.0) -> str:
         from playwright.sync_api import sync_playwright  # type: ignore
     except ImportError as exc:
         raise DiscoverError(
-            "playwright is not installed (pip install account-fleet[js] "
-            "&& playwright install chromium)"
+            "playwright is not installed (pip install career-fleet[js] "
+            "&& playwright install chromium; account-fleet[js] also works)"
         ) from exc
     try:
         with sync_playwright() as playwright:
@@ -827,7 +841,7 @@ ARCTIC_COMMENTS = "https://arctic-shift.photon-reddit.com/api/comments/search"
 HN_ITEM_API = "https://hacker-news.firebaseio.com/v0/item/{item_id}.json"
 
 REDDIT_EMPTY = {"", "[removed]", "[deleted]"}
-REDDIT_UA = "account-fleet-discover (+https://github.com/NatesVibeCode/account-fleet; community research)"
+REDDIT_UA = "fleet-discover (+https://github.com/NatesVibeCode/career-fleet; community research)"
 
 
 def _get_with_backoff(
@@ -1820,27 +1834,44 @@ def _ats_records(
     get_timezone: Callable[[dict[str, Any]], str] | None = None,
 ) -> list[RawRecord]:
     records: list[RawRecord] = []
-    for job in jobs if max_jobs is None else list(jobs)[:max_jobs]:
+    seen_ids: set[str] = set()
+    for index, job in enumerate(jobs if max_jobs is None else list(jobs)[:max_jobs]):
         try:
             text = get_text(job)
+            source_uri = str(get_url(job) or "").strip()
+            title = str(get_title(job) or "").strip()
+            raw_job_id = str(get_job_id(job) or "").strip()
         except Exception:
             continue
         if not text or not text.strip():
             continue
         metadata = {"ats": source, "org": org}
         if get_location:
-            location = get_location(job)
+            try:
+                location = get_location(job)
+            except Exception:
+                location = ""
             if location:
                 metadata["location"] = location
         if get_timezone:
-            timezone = get_timezone(job)
+            try:
+                timezone = get_timezone(job)
+            except Exception:
+                timezone = ""
             if timezone:
                 metadata["timezone"] = timezone
+        identity = raw_job_id or (f"url-{source_uri}" if source_uri else "") or (f"title-{title}" if title else f"row-{index}")
+        item_id = slugify_id(f"{org}-{identity}")
+        if item_id in seen_ids:
+            item_id = slugify_id(f"{item_id}-{_stable_suffix(source_uri or text or str(index))}")
+            if item_id in seen_ids:
+                item_id = slugify_id(f"{item_id}-{index}")
+        seen_ids.add(item_id)
         records.append(RawRecord(
             text=text.strip(),
-            source_uri=get_url(job),
-            title=get_title(job),
-            item_id=slugify_id(f"{org}-{get_job_id(job)}"),
+            source_uri=source_uri,
+            title=title,
+            item_id=item_id,
             metadata=metadata,
         ))
     return records
@@ -1907,7 +1938,7 @@ def fetch_ashby_org(
             get_text=lambda j: (j.get("descriptionPlain") or "") or extract_text(j.get("descriptionHtml") or ""),
             get_url=lambda j: j.get("jobUrl") or "",
             get_title=lambda j: str(j.get("title") or ""),
-            get_job_id=lambda j: str(j.get("id") or "")[:8],
+            get_job_id=lambda j: str(j.get("id") or ""),
             get_location=_ats_location,
             get_timezone=_ats_timezone,
         )
@@ -1941,10 +1972,15 @@ def fetch_lever_org(
             jobs = jobs.get("postings") or jobs.get("data") or []
         return _ats_records(
             jobs, source="lever", org=org, max_jobs=max_jobs,
-            get_text=lambda j: extract_text(j.get("text") or j.get("description") or ""),
+            get_text=lambda j: extract_text(
+                j.get("descriptionPlain")
+                or j.get("description")
+                or j.get("descriptionHtml")
+                or ""
+            ),
             get_url=lambda j: j.get("hostedUrl") or j.get("applyUrl") or "",
             get_title=lambda j: str(j.get("text") or j.get("title") or "")[:200],
-            get_job_id=lambda j: str(j.get("id") or "")[:8],
+            get_job_id=lambda j: str(j.get("id") or ""),
             get_location=_ats_location,
             get_timezone=_ats_timezone,
         )

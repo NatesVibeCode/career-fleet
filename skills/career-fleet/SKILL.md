@@ -34,13 +34,13 @@ Lane 4: Founder & Culture Recon        <── Lane 3: Systems Wedge <── Lan
 - Treat a company as finally qualified only after Lane 3 passes and Lane 4 reaches the healthy threshold; inspect the dossier's source quotes before relying on it.
 - Check command exit codes. A source failure is not a completed discovery run.
 
-## Phase 0: Autonomous Context Inference & Targeted IEP Calibration
+## Phase 0: Authorized Context Inference & Targeted IEP Calibration
 
 Never interrogate the user with 20 generic questions. Execute a two-step context protocol:
 
-### Step 1: Autonomous Discovery (Resume, Projects & Codebase First)
+### Step 1: Authorized Context Discovery (Resume, Projects & Codebase When Supplied)
 Before prompting the user:
-1. Inspect the candidate's provided documents (resumes, project portfolios, GitHub activity, commit history).
+1. Inspect only documents, repositories, GitHub activity, or commit history that the user explicitly provides or authorizes. Never scan unrelated workspace files or external accounts by assumption.
 2. Infer the 6 Core Signals:
    - *Architectural Wedge*: What high-impact problem does the candidate solve? (e.g. 0-to-1 GTM systems, distributed runtimes, ML data pipelines).
    - *Required Tech Stack*: What must the company run? (e.g. Python, Go, PostgreSQL, Kafka, Kubernetes).
@@ -50,7 +50,7 @@ Before prompting the user:
    - *Anchor Exemplars*: 2–3 dream companies defining the standard.
 
 ### Step 2: Gap Analysis & 3-Question Interview
-Ask **only** for signals that are genuinely unobserved or ambiguous. See [references/iep-interview.md](references/iep-interview.md).
+Ask **only** for signals that are genuinely unobserved or ambiguous. Confirm the inferred profile with the user before writing it to `profile.json`. See [references/iep-interview.md](references/iep-interview.md).
 
 ---
 

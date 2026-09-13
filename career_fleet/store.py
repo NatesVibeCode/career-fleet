@@ -38,6 +38,7 @@ CREATE TABLE IF NOT EXISTS job_postings (
     is_remote BOOLEAN DEFAULT 0,
     job_url TEXT,
     raw_text TEXT NOT NULL,
+    source_type TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -65,10 +66,11 @@ class CareerStore:
     """Manages SQLite database for career intelligence."""
 
     def __init__(self, db_path: Path | str = "career_fleet.db"):
-        self.db_path = Path(db_path)
+        db_value = str(db_path)
+        self.db_path = Path(db_path).expanduser()
         self._memory_uri: Optional[str] = None
         self._keepalive: Optional[sqlite3.Connection] = None
-        if str(db_path) == ":memory:":
+        if db_value == ":memory:":
             # Each sqlite3.connect(":memory:") call creates a different
             # database. A shared in-memory URI plus one keepalive connection
             # makes the store API behave as callers expect.
@@ -105,6 +107,8 @@ class CareerStore:
                     columns = {row["name"] for row in con.execute(f"PRAGMA table_info({table})").fetchall()}
                     if "timezone" not in columns:
                         con.execute(f"ALTER TABLE {table} ADD COLUMN timezone TEXT")
+                    if table == "job_postings" and "source_type" not in columns:
+                        con.execute("ALTER TABLE job_postings ADD COLUMN source_type TEXT")
 
     def upsert_company(
         self,
@@ -119,9 +123,20 @@ class CareerStore:
         website_url: Optional[str] = None,
         status: str = "discovered",
         timezone: Optional[str] = None,
-    ) -> None:
+    ) -> str:
         with self.connect() as con:
             with con:
+                canonical_id = company_id
+                if domain:
+                    existing = con.execute(
+                        "SELECT id FROM companies WHERE domain = ? AND id != ? LIMIT 1",
+                        (domain, company_id),
+                    ).fetchone()
+                    if existing:
+                        # A source can identify the same company by a YC ID,
+                        # ATS token, or domain. Reuse the existing canonical
+                        # row instead of failing on the unique-domain index.
+                        canonical_id = existing["id"]
                 con.execute(
                     """
                     INSERT INTO companies (
@@ -141,7 +156,36 @@ class CareerStore:
                         status = excluded.status,
                         updated_at = CURRENT_TIMESTAMP
                     """,
-                    (company_id, name, domain, stage, headcount, hq_location, timezone, ats_provider, ats_token, website_url, status),
+                    (canonical_id, name, domain, stage, headcount, hq_location, timezone, ats_provider, ats_token, website_url, status),
+                )
+                return canonical_id
+
+    def reset_company_pipeline(
+        self,
+        company_id: str,
+        *,
+        clear_postings: bool = False,
+        source_type: Optional[str] = None,
+    ) -> None:
+        """Reset derived funnel state before replacing a company's source data.
+
+        Discovery is a refresh operation. Old postings and lane results must
+        not continue to influence the new snapshot.
+        """
+        with self.connect() as con:
+            with con:
+                if clear_postings:
+                    if source_type:
+                        con.execute(
+                            "DELETE FROM job_postings WHERE company_id = ? AND (source_type = ? OR source_type IS NULL)",
+                            (company_id, source_type),
+                        )
+                    else:
+                        con.execute("DELETE FROM job_postings WHERE company_id = ?", (company_id,))
+                con.execute("DELETE FROM evaluations WHERE company_id = ?", (company_id,))
+                con.execute(
+                    "UPDATE companies SET status = 'discovered', disqualification_reason = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                    (company_id,),
                 )
 
     def list_companies(self, status: Optional[str] = None) -> List[Dict[str, Any]]:
@@ -151,6 +195,14 @@ class CareerStore:
             else:
                 rows = con.execute("SELECT * FROM companies ORDER BY name ASC").fetchall()
             return [dict(r) for r in rows]
+
+    def get_company_by_domain(self, domain: str) -> Optional[Dict[str, Any]]:
+        """Return the canonical company row for a normalized domain."""
+        if not domain:
+            return None
+        with self.connect() as con:
+            row = con.execute("SELECT * FROM companies WHERE domain = ?", (domain,)).fetchone()
+            return dict(row) if row else None
 
     def add_job_posting(
         self,
@@ -162,16 +214,26 @@ class CareerStore:
         is_remote: bool = False,
         job_url: Optional[str] = None,
         timezone: Optional[str] = None,
+        source_type: Optional[str] = None,
     ) -> None:
         with self.connect() as con:
             with con:
                 con.execute(
                     """
-                    INSERT OR REPLACE INTO job_postings (
-                        id, company_id, title, location, timezone, is_remote, job_url, raw_text, created_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                    INSERT INTO job_postings (
+                        id, company_id, title, location, timezone, is_remote, job_url, raw_text, source_type, created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                    ON CONFLICT(id) DO UPDATE SET
+                        company_id = excluded.company_id,
+                        title = excluded.title,
+                        location = excluded.location,
+                        timezone = excluded.timezone,
+                        is_remote = excluded.is_remote,
+                        job_url = excluded.job_url,
+                        raw_text = excluded.raw_text,
+                        source_type = excluded.source_type
                     """,
-                    (job_id, company_id, title, location, timezone, 1 if is_remote else 0, job_url, raw_text),
+                    (job_id, company_id, title, location, timezone, 1 if is_remote else 0, job_url, raw_text, source_type),
                 )
 
     def record_evaluation(
@@ -189,6 +251,19 @@ class CareerStore:
         quotes_json = json.dumps(quotes or [])
         with self.connect() as con:
             with con:
+                if lane == "lane2_triage":
+                    # A changed hard-filter profile invalidates every later
+                    # lane. Keep one current result per lane, not stale gates.
+                    con.execute(
+                        "DELETE FROM evaluations WHERE company_id = ? AND lane IN ('lane3_systems', 'lane4_culture')",
+                        (company_id,),
+                    )
+                elif lane == "lane3_systems":
+                    # Culture depends on the current systems result.
+                    con.execute(
+                        "DELETE FROM evaluations WHERE company_id = ? AND lane = 'lane4_culture'",
+                        (company_id,),
+                    )
                 con.execute(
                     """
                     INSERT INTO evaluations (
@@ -209,10 +284,10 @@ class CareerStore:
                 # Advance the company through the funnel without allowing a
                 # later lane to hide a disqualification.
                 if status == "disqualified":
-                    con.execute("UPDATE companies SET status = 'disqualified', disqualification_reason = ? WHERE id = ?", (verdict, company_id))
+                    con.execute("UPDATE companies SET status = 'disqualified', disqualification_reason = ? WHERE id = ?", (rationale, company_id))
                 elif status == "triaged" and lane == "lane2_triage":
                     con.execute(
-                        "UPDATE companies SET status = 'triaged', disqualification_reason = NULL WHERE id = ? AND status != 'disqualified'",
+                        "UPDATE companies SET status = 'triaged', disqualification_reason = NULL WHERE id = ?",
                         (company_id,),
                     )
                 elif lane == "lane3_systems":
@@ -236,7 +311,7 @@ class CareerStore:
             if not comp:
                 return None
             jobs = con.execute(
-                "SELECT id, title, location, timezone, is_remote, job_url, raw_text FROM job_postings WHERE company_id = ?",
+                "SELECT id, title, location, timezone, is_remote, job_url, raw_text, source_type FROM job_postings WHERE company_id = ?",
                 (company_id,),
             ).fetchall()
             evals = con.execute("SELECT * FROM evaluations WHERE company_id = ? ORDER BY created_at ASC", (company_id,)).fetchall()

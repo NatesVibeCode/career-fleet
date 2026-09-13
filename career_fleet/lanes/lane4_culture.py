@@ -20,13 +20,17 @@ CULTURE_CONCERNS = [
     (re.compile(r"\b(?:fast-paced family|wear many hats without equity|rockstar)\b", re.I), "Vague Burnout Culture"),
     (re.compile(r"\b(?:strict 8am sync|monitoring software|time-tracking)\b", re.I), "Micromanagement"),
 ]
+CULTURE_HEALTHY_THRESHOLD = 0.8
 
 
 def _phrase_pattern(phrase: str) -> re.Pattern[str] | None:
-    terms = re.findall(r"[A-Za-z0-9]+", phrase or "")
+    terms = [term for term in re.split(r"[\s/_-]+", str(phrase or "").strip()) if term]
     if not terms:
         return None
-    return re.compile(r"\b" + r"[\W_]+".join(re.escape(term) for term in terms) + r"\b", re.I)
+    return re.compile(
+        r"(?<!\w)" + r"[\W_]+".join(re.escape(term) for term in terms) + r"(?!\w)",
+        re.I,
+    )
 
 
 def score_culture_and_team(
@@ -77,7 +81,7 @@ def score_culture_and_team(
 
     base_score = 0.5 + (len(positives) * 0.2) - (len(concerns) * 0.3)
     score = max(0.0, min(1.0, base_score))
-    verdict = "HEALTHY" if score >= 0.7 else ("ACCEPTABLE" if score >= 0.4 else "CONCERN")
+    verdict = "HEALTHY" if score >= CULTURE_HEALTHY_THRESHOLD else ("ACCEPTABLE" if score >= 0.4 else "CONCERN")
 
     return {
         "score": round(score, 2),
@@ -116,7 +120,7 @@ def run_lane4_culture(
             eval_id=f"eval-culture-{cid}",
             company_id=cid,
             lane="lane4_culture",
-            status="qualified" if res["score"] >= 0.7 else "marginal",
+            status="qualified" if res["score"] >= CULTURE_HEALTHY_THRESHOLD else "marginal",
             score=res["score"],
             verdict=res["verdict"],
             rationale=res["rationale"],

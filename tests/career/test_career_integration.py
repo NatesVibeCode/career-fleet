@@ -1,8 +1,9 @@
+import json
 from types import SimpleNamespace
 
 import pytest
 
-from career_fleet.cli import cmd_discover
+from career_fleet.cli import cmd_discover, cmd_dossier, cmd_export, cmd_triage
 import career_fleet.lanes.lane1_sourcing as lane1
 from career_fleet.lanes.lane2_triage import check_dealbreakers, run_lane2_triage
 from career_fleet.lanes.lane3_systems import run_lane3_systems
@@ -11,8 +12,14 @@ from career_fleet.profile import IdealEmployerProfile
 from career_fleet.store import CareerStore
 
 
-def item(item_id: str, text: str):
-    return SimpleNamespace(item_id=item_id, title="Engineer", text=text, source_uri=f"https://example.com/{item_id}")
+def item(item_id: str, text: str, *, source_uri: str | None = None, metadata: dict | None = None):
+    return SimpleNamespace(
+        item_id=item_id,
+        title="Engineer",
+        text=text,
+        source_uri=source_uri or f"https://example.com/{item_id}",
+        metadata=metadata or {},
+    )
 
 
 def test_database_source_text_flows_through_all_lanes(tmp_path):
@@ -63,6 +70,7 @@ def test_lane2_uses_source_text_and_metadata_for_hard_filters(tmp_path):
 
     assert result["disqualified"] == 1
     assert store.list_companies()[0]["status"] == "disqualified"
+    assert "Austin" in store.get_company_dossier("office")["disqualification_reason"]
 
 
 def test_lane2_honors_configured_location_and_quota_rules():
@@ -83,6 +91,58 @@ def test_lane2_honors_configured_location_and_quota_rules():
         [{"raw_text": "Pure quota cold outbound role"}],
         profile,
     )["rule"] == "pure_quota"
+
+
+def test_lane2_fails_closed_for_unknown_headcount():
+    profile = IdealEmployerProfile(dealbreakers={"max_headcount": 50})
+    result = check_dealbreakers({"id": "x", "headcount": None}, [{"raw_text": "Platform engineer"}], profile)
+    assert result["rule"] == "headcount_unknown"
+
+
+def test_lane2_requires_role_level_remote_or_hybrid_evidence():
+    remote_only = IdealEmployerProfile(dealbreakers={"policy": "remote_only"})
+    company_remote = {
+        "raw_text": "We are a remote-first company; this role is based in San Francisco.",
+        "location": "San Francisco, CA",
+        "is_remote": False,
+    }
+    assert check_dealbreakers({"id": "x"}, [company_remote], remote_only)["rule"] == "non_remote_location"
+
+    remote_or_hybrid = IdealEmployerProfile(dealbreakers={"policy": "remote_or_hybrid"})
+    unknown = [{"raw_text": "Platform engineer", "location": "Austin, TX", "is_remote": False}]
+    assert check_dealbreakers({"id": "x"}, unknown, remote_or_hybrid)["rule"] == "workplace_policy_unknown"
+    hybrid_cloud = [{"raw_text": "We build hybrid cloud infrastructure.", "location": "Austin, TX", "is_remote": False}]
+    assert check_dealbreakers({"id": "x"}, hybrid_cloud, remote_or_hybrid)["rule"] == "workplace_policy_unknown"
+    hybrid_role = [{"raw_text": "This is a hybrid role.", "location": "Austin, TX", "is_remote": False}]
+    assert check_dealbreakers({"id": "x"}, hybrid_role, remote_or_hybrid) is None
+
+
+def test_lane2_matches_full_state_names_in_configured_locations():
+    profile = IdealEmployerProfile(dealbreakers={"policy": "any", "disallowed_locations": ["Austin, TX"]})
+    result = check_dealbreakers(
+        {"id": "x"},
+        [{"raw_text": "Platform engineer", "location": "Austin, Texas", "is_remote": False}],
+        profile,
+    )
+    assert result["rule"] == "configured_location"
+
+
+def test_lane2_rechecks_existing_companies_after_profile_changes(tmp_path):
+    store = CareerStore(tmp_path / "profile-change.db")
+    store.upsert_company("x", "X", headcount=100)
+    store.add_job_posting("job-x", "x", "Engineer", "Platform engineer")
+
+    assert run_lane2_triage(store, IdealEmployerProfile())["survivors"] == 1
+    stricter = IdealEmployerProfile(dealbreakers={"max_headcount": 10})
+    result = run_lane2_triage(store, stricter)
+
+    assert result["total_triaged"] == 1
+    assert result["disqualified"] == 1
+    assert store.list_companies()[0]["status"] == "disqualified"
+
+    recovered = run_lane2_triage(store, IdealEmployerProfile())
+    assert recovered["survivors"] == 1
+    assert store.list_companies()[0]["status"] == "triaged"
 
 
 def test_lane2_enforces_timezone_overlap_when_configured():
@@ -130,8 +190,8 @@ def test_recon_only_advances_after_systems_and_is_rerunnable(tmp_path):
     )
     assert run_lane3_systems(store, profile)["evaluated"] == 1
     assert run_lane4_culture(store, profile)["evaluated"] == 1
-    assert run_lane2_triage(store, profile)["total_triaged"] == 0
-    assert run_lane3_systems(store, profile)["evaluated"] == 0
+    assert run_lane2_triage(store, profile)["total_triaged"] == 1
+    assert run_lane3_systems(store, profile)["evaluated"] == 1
     assert run_lane4_culture(store, profile)["evaluated"] == 1
 
 
@@ -159,10 +219,16 @@ def test_lane1_uses_current_discovery_signatures(tmp_path, monkeypatch, source, 
 
 
 def test_lane1_unpacks_site_crawl_result(tmp_path, monkeypatch):
+    calls = {}
+
+    def fake_crawl(**kwargs):
+        calls.update(kwargs)
+        return ([item("page-1", "Fully remote team")], [{"url": "https://example.com/blocked", "reason": "robots"}])
+
     monkeypatch.setattr(
         lane1,
         "crawl_site",
-        lambda **kwargs: ([item("page-1", "Fully remote team")], [{"url": "https://example.com/blocked", "reason": "robots"}]),
+        fake_crawl,
     )
 
     result = lane1.run_lane1_sourcing(CareerStore(tmp_path / "site.db"), "site", "https://example.com", max_items=2)
@@ -175,6 +241,143 @@ def test_lane1_unpacks_site_crawl_result(tmp_path, monkeypatch):
         "postings_added": 1,
         "pages_skipped": 1,
     }
+    assert calls["start_url"] == "https://example.com"
+
+
+def test_lane1_yc_uses_website_domain_and_team_size(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        lane1,
+        "fetch_yc_companies",
+        lambda **kwargs: [
+            item(
+                "yc-one",
+                "Team size: 5\nFully remote database",
+                source_uri="https://www.ycombinator.com/companies/one",
+                metadata={"website": "https://one.example", "team_size": 5},
+            ),
+            item(
+                "yc-two",
+                "Team size: 7\nFully remote database",
+                source_uri="https://www.ycombinator.com/companies/two",
+                metadata={"website": "https://two.example", "team_size": 7},
+            ),
+        ],
+    )
+
+    store = CareerStore(tmp_path / "yc.db")
+    result = lane1.run_lane1_sourcing(store, "yc", "W24", max_items=2)
+
+    assert result["status"] == "success"
+    companies = {company["id"]: company for company in store.list_companies()}
+    assert companies["yc-one"]["domain"] == "one.example"
+    assert companies["yc-one"]["headcount"] == 5
+    assert companies["yc-two"]["domain"] == "two.example"
+    assert companies["yc-two"]["headcount"] == 7
+
+
+def test_lane1_yc_profile_only_records_do_not_share_directory_domain(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        lane1,
+        "fetch_yc_companies",
+        lambda **kwargs: [
+            item("yc-one", "Team size: 5", source_uri="https://www.ycombinator.com/companies/one", metadata={"team_size": 5}),
+            item("yc-two", "Team size: 7", source_uri="https://www.ycombinator.com/companies/two", metadata={"team_size": 7}),
+        ],
+    )
+    store = CareerStore(tmp_path / "yc-profile-only.db")
+
+    result = lane1.run_lane1_sourcing(store, "yc", "W24", max_items=2)
+
+    assert result["status"] == "success"
+    assert all(company["domain"] is None for company in store.list_companies())
+
+
+def test_lane1_keeps_multiple_records_for_one_source_company(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        lane1,
+        "fetch_yc_companies",
+        lambda **kwargs: [
+            item("yc-one-a", "First profile", source_uri="https://www.ycombinator.com/companies/one-a", metadata={"website": "https://one.example"}),
+            item("yc-one-b", "Second profile", source_uri="https://www.ycombinator.com/companies/one-b", metadata={"website": "https://one.example"}),
+        ],
+    )
+    store = CareerStore(tmp_path / "yc-duplicate-domain.db")
+
+    result = lane1.run_lane1_sourcing(store, "yc", "W24", max_items=2)
+
+    assert result["status"] == "success"
+    assert len(store.list_companies()) == 1
+    assert len(store.get_company_dossier(store.list_companies()[0]["id"])["jobs"]) == 2
+
+
+def test_lane1_refresh_replaces_stale_postings_and_evaluations(tmp_path, monkeypatch):
+    store = CareerStore(tmp_path / "refresh.db")
+    store.upsert_company("acme", "Acme", ats_provider="greenhouse", ats_token="acme")
+    store.add_job_posting("old", "acme", "Old role", "Old source text")
+    store.record_evaluation("old-eval", "acme", "lane2_triage", "triaged", 1.0, "SURVIVOR", "old")
+    monkeypatch.setattr(lane1, "fetch_greenhouse_board", lambda **kwargs: [item("new", "New source text")])
+
+    result = lane1.run_lane1_sourcing(store, "greenhouse", "acme", max_items=1)
+    dossier = store.get_company_dossier("acme")
+
+    assert result["status"] == "success"
+    assert [job["id"] for job in dossier["jobs"]] == ["new"]
+    assert dossier["evaluations"] == []
+    assert dossier["status"] == "discovered"
+
+
+def test_lane1_merges_a_site_refresh_with_existing_domain_record(tmp_path, monkeypatch):
+    store = CareerStore(tmp_path / "merge.db")
+    store.upsert_company("yc-one", "One", domain="one.example")
+    monkeypatch.setattr(lane1, "crawl_site", lambda **kwargs: ([item("page", "Company page")], []))
+
+    result = lane1.run_lane1_sourcing(store, "site", "https://one.example", max_items=1)
+    companies = store.list_companies()
+    dossier = store.get_company_dossier("yc-one")
+
+    assert result["status"] == "success"
+    assert len(companies) == 1
+    assert companies[0]["name"] == "One"
+    assert dossier["jobs"][0]["id"] == "page"
+
+
+def test_lane1_source_refresh_preserves_other_source_records(tmp_path, monkeypatch):
+    store = CareerStore(tmp_path / "source-lineage.db")
+    store.upsert_company("yc-one", "One", domain="one.example")
+    store.add_job_posting(
+        "yc-profile",
+        "yc-one",
+        "Company profile",
+        "YC source text",
+        source_type="yc",
+    )
+    monkeypatch.setattr(lane1, "crawl_site", lambda **kwargs: ([item("page", "Company page")], []))
+
+    result = lane1.run_lane1_sourcing(store, "site", "https://one.example", max_items=1)
+    jobs = store.get_company_dossier("yc-one")["jobs"]
+
+    assert result["status"] == "success"
+    assert {job["id"] for job in jobs} == {"yc-profile", "page"}
+    assert {job["source_type"] for job in jobs} == {"yc", "site"}
+
+
+def test_lane1_does_not_promote_company_remote_text_over_city_location(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        lane1,
+        "fetch_greenhouse_board",
+        lambda **kwargs: [
+            item(
+                "job-1",
+                "We are a remote-first company; this role is based in San Francisco.",
+                metadata={"location": "San Francisco, CA"},
+            )
+        ],
+    )
+    store = CareerStore(tmp_path / "remote.db")
+
+    lane1.run_lane1_sourcing(store, "greenhouse", "acme", max_items=1)
+
+    assert store.get_company_dossier("acme")["jobs"][0]["is_remote"] == 0
 
 
 def test_cli_reports_discovery_errors_as_failures(monkeypatch, capsys, tmp_path):
@@ -189,3 +392,44 @@ def test_cli_reports_discovery_errors_as_failures(monkeypatch, capsys, tmp_path)
 
     assert result == 1
     assert "bad source" in capsys.readouterr().err
+
+
+def test_cli_rejects_missing_implicit_profile(monkeypatch, capsys, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    result = cmd_triage(SimpleNamespace(profile=None, db=str(tmp_path / "career.db")))
+    assert result == 1
+    assert "profile --init" in capsys.readouterr().err
+
+
+def test_dossier_can_show_source_urls_and_full_text(capsys, tmp_path):
+    store = CareerStore(tmp_path / "dossier.db")
+    store.upsert_company("acme", "Acme")
+    store.add_job_posting("job-1", "acme", "Engineer", "Exact source text", job_url="https://jobs.example/1")
+
+    result = cmd_dossier(SimpleNamespace(company="acme", db=str(tmp_path / "dossier.db"), show_source=True))
+    output = capsys.readouterr().out
+    assert result == 0
+    assert "https://jobs.example/1" in output
+    assert "Exact source text" in output
+
+
+def test_export_includes_structured_quotes(tmp_path, capsys):
+    db_path = tmp_path / "export.db"
+    store = CareerStore(db_path)
+    store.upsert_company("acme", "Acme")
+    store.record_evaluation("ev", "acme", "lane4_culture", "qualified", 0.8, "HEALTHY", "good", quotes=["Exact quote"])
+
+    result = cmd_export(SimpleNamespace(db=str(db_path), output=str(tmp_path / "qualified.json")))
+    payload = json.loads((tmp_path / "qualified.json").read_text())
+
+    capsys.readouterr()
+    assert result == 0
+    assert payload[0]["evaluations"][0]["quotes"] == ["Exact quote"]
+
+
+def test_single_culture_keyword_is_not_a_final_qualification():
+    from career_fleet.lanes.lane4_culture import score_culture_and_team
+
+    result = score_culture_and_team("We are engineer-led.", IdealEmployerProfile())
+    assert result["score"] == 0.7
+    assert result["verdict"] == "ACCEPTABLE"

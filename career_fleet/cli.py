@@ -1,9 +1,11 @@
-"""Unified CLI for career-fleet: Autonomous career & employer intelligence engine."""
+"""Unified CLI for career-fleet: deterministic career and employer screening."""
 from __future__ import annotations
 
 import argparse
 import json
+import sqlite3
 import sys
+import textwrap
 from pathlib import Path
 
 from career_fleet import __version__
@@ -60,34 +62,51 @@ def _positive_int(value: str) -> int:
 
 
 def get_profile(path: Optional[str] = None) -> IdealEmployerProfile:
-    p = Path(path) if path is not None else Path("profile.json")
+    p = Path(path).expanduser() if path is not None else Path("profile.json")
     if p.exists():
         return IdealEmployerProfile.load(p)
-    if path is not None:
-        raise FileNotFoundError(f"Profile file not found at: {p}")
-    return IdealEmployerProfile()
+    raise FileNotFoundError(
+        f"Profile file not found at: {p}. Run 'career-fleet profile --init' or pass --profile PATH."
+    )
+
+
+def _open_store(db_path: str) -> CareerStore | None:
+    try:
+        return CareerStore(db_path)
+    except (OSError, sqlite3.Error) as exc:
+        print(f"Error: Could not open database {db_path}: {exc}", file=sys.stderr)
+        return None
 
 
 def cmd_init(args):
     db_path = getattr(args, "db", "career_fleet.db")
-    store = CareerStore(db_path)
+    if _open_store(db_path) is None:
+        return 1
     profile_path = Path("profile.json")
     if not profile_path.exists():
         prof = IdealEmployerProfile()
-        prof.save(profile_path)
+        try:
+            prof.save(profile_path)
+        except OSError as exc:
+            print(f"Error: Could not write profile {profile_path}: {exc}", file=sys.stderr)
+            return 1
         print(_ok(f"Initialized default Ideal Employer Profile at {profile_path}"))
     print(_ok(f"Initialized CareerStore database at {db_path}"))
 
 
 def cmd_profile(args):
-    prof_path = getattr(args, "path", "profile.json")
+    prof_path = Path(getattr(args, "path", "profile.json")).expanduser()
     profile_exists = Path(prof_path).exists()
     if getattr(args, "init", False) and profile_exists and not getattr(args, "force", False):
         print(f"Error: Profile already exists at {prof_path}; use --force to replace it.", file=sys.stderr)
         return 1
     if getattr(args, "init", False) or not profile_exists:
         prof = IdealEmployerProfile()
-        prof.save(prof_path)
+        try:
+            prof.save(prof_path)
+        except OSError as exc:
+            print(f"Error: Could not write profile {prof_path}: {exc}", file=sys.stderr)
+            return 1
         print(_ok(f"Wrote initial Ideal Employer Profile to {prof_path}"))
         return 0
 
@@ -105,6 +124,9 @@ def cmd_profile(args):
     print(f"\nRequired Stack:")
     for s in prof.required_stack:
         print(f"  {_bullet()} {s}")
+    print(f"\nNegative Stack:")
+    for s in prof.negative_stack:
+        print(f"  {_bullet()} {s}")
     print(f"\nHard Dealbreakers:")
     print(f"  {_bullet()} Max Headcount: {prof.dealbreakers.max_headcount}")
     print(f"  {_bullet()} Policy:        {prof.dealbreakers.policy}")
@@ -113,13 +135,21 @@ def cmd_profile(args):
     print(f"  {_bullet()} Reject Quota:  {prof.dealbreakers.reject_pure_quota}")
     print(f"  {_bullet()} Candidate TZ:  {prof.dealbreakers.candidate_timezone or '-'}")
     print(f"  {_bullet()} TZ Overlap:    {prof.dealbreakers.min_timezone_overlap_hours}h")
+    print(f"\nHiring Catalysts:")
+    for c in prof.hiring_catalysts:
+        print(f"  {_bullet()} {c}")
+    print(f"\nTarget Leadership:")
+    for leader in prof.target_leadership:
+        print(f"  {_bullet()} {leader}")
     print(f"\nAnchor Exemplars:  {', '.join(prof.anchor_companies)}")
     print("==========================================================================================")
     return 0
 
 
 def cmd_discover(args):
-    store = CareerStore(getattr(args, "db", "career_fleet.db"))
+    store = _open_store(getattr(args, "db", "career_fleet.db"))
+    if store is None:
+        return 1
     try:
         res = run_lane1_sourcing(
             store=store,
@@ -133,14 +163,16 @@ def cmd_discover(args):
     if res.get("status") != "success":
         print(f"Error: Lane 1 discovery failed: {res.get('error', 'unknown error')}", file=sys.stderr)
         return 1
-    print(_ok(f"Lane 1 Discovery completed: {res['companies_discovered']} companies discovered, {res['postings_added']} postings ingested."))
+    print(_ok(f"Lane 1 Discovery completed: {res['companies_discovered']} companies discovered, {res['postings_added']} source records ingested."))
     if res.get("pages_skipped"):
         print(f"Skipped pages: {res['pages_skipped']}")
     return 0
 
 
 def cmd_triage(args):
-    store = CareerStore(getattr(args, "db", "career_fleet.db"))
+    store = _open_store(getattr(args, "db", "career_fleet.db"))
+    if store is None:
+        return 1
     try:
         prof = get_profile(getattr(args, "profile", None))
     except (OSError, ValueError) as exc:
@@ -158,7 +190,9 @@ def cmd_triage(args):
 
 
 def cmd_recon(args):
-    store = CareerStore(getattr(args, "db", "career_fleet.db"))
+    store = _open_store(getattr(args, "db", "career_fleet.db"))
+    if store is None:
+        return 1
     try:
         prof = get_profile(getattr(args, "profile", None))
     except (OSError, ValueError) as exc:
@@ -177,7 +211,9 @@ def cmd_recon(args):
 
 
 def cmd_list(args):
-    store = CareerStore(getattr(args, "db", "career_fleet.db"))
+    store = _open_store(getattr(args, "db", "career_fleet.db"))
+    if store is None:
+        return 1
     status_filter = getattr(args, "status", None)
     companies = store.list_companies(status=status_filter)
 
@@ -195,23 +231,41 @@ def cmd_list(args):
 
 
 def cmd_dossier(args):
-    store = CareerStore(getattr(args, "db", "career_fleet.db"))
+    store = _open_store(getattr(args, "db", "career_fleet.db"))
+    if store is None:
+        return 1
     dossier = store.get_company_dossier(args.company)
     if not dossier:
-        print(f"Error: Company '{args.company}' not found.")
+        print(f"Error: Company '{args.company}' not found.", file=sys.stderr)
         return 1
 
     print("==========================================================================================")
     print(f"                         COMPANY DOSSIER: {dossier['name']} ({dossier['id']})")
     print("==========================================================================================")
     print(f"Domain:      {dossier.get('domain') or '-'}")
+    print(f"Headcount:   {dossier.get('headcount') if dossier.get('headcount') is not None else '-'}")
+    print(f"HQ:          {dossier.get('hq_location') or '-'}")
+    print(f"Timezone:    {dossier.get('timezone') or '-'}")
     print(f"Status:      {dossier.get('status')}")
     if dossier.get("disqualification_reason"):
         print(f"Reason:      {dossier['disqualification_reason']}")
-    print(f"Postings:    {len(dossier.get('jobs', []))} active postings captured")
+    print(f"Sources:     {len(dossier.get('jobs', []))} source records captured")
+    if dossier.get("jobs"):
+        print("\nSources:")
+        for job in dossier["jobs"]:
+            print(f"  [{job['id']}] {job.get('title') or 'Untitled'}")
+            print(f"    Source:   {job.get('source_type') or 'manual/legacy'}")
+            print(f"    Location: {job.get('location') or '-'}")
+            print(f"    URL:      {job.get('job_url') or '-'}")
+            if getattr(args, "show_source", False):
+                print("    Source text:")
+                print(textwrap.indent(job.get("raw_text") or "", "      "))
     print("\nEvaluations:")
     for ev in dossier.get("evaluations", []):
-        quotes = json.loads(ev.get("quotes_json", "[]"))
+        try:
+            quotes = json.loads(ev.get("quotes_json") or "[]")
+        except (TypeError, ValueError):
+            quotes = []
         print(f"  [{ev['lane']}] Verdict: {ev['verdict']} (Score: {ev['score']}) via {ev.get('model_used') or 'heuristic'}")
         print(f"    Rationale: {ev['rationale']}")
         if quotes:
@@ -223,12 +277,26 @@ def cmd_dossier(args):
 
 
 def cmd_export(args):
-    store = CareerStore(getattr(args, "db", "career_fleet.db"))
+    store = _open_store(getattr(args, "db", "career_fleet.db"))
+    if store is None:
+        return 1
     qualified = [c for c in store.list_companies() if c["status"] == "qualified"]
     dossiers = [store.get_company_dossier(c["id"]) for c in qualified]
-    out_path = Path(getattr(args, "output", "qualified_targets.json"))
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    out_path.write_text(json.dumps(dossiers, indent=2), encoding="utf-8")
+    for dossier in dossiers:
+        if not dossier:
+            continue
+        for evaluation in dossier.get("evaluations", []):
+            try:
+                evaluation["quotes"] = json.loads(evaluation.get("quotes_json") or "[]")
+            except (TypeError, ValueError):
+                evaluation["quotes"] = []
+    out_path = Path(getattr(args, "output", "qualified_targets.json")).expanduser()
+    try:
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_text(json.dumps(dossiers, indent=2), encoding="utf-8")
+    except OSError as exc:
+        print(f"Error: Could not write export {out_path}: {exc}", file=sys.stderr)
+        return 1
     print(_ok(f"Exported {len(dossiers)} qualified company dossiers to {out_path}"))
     return 0
 
@@ -249,7 +317,7 @@ def cmd_setup(args):
 def main():
     parser = argparse.ArgumentParser(
         prog="career-fleet",
-        description="Autonomous Career & Employer Intelligence Engine with Multi-Lane Screening.",
+        description="Deterministic Career & Employer Screening with Multi-Lane Checks.",
     )
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     subparsers = parser.add_subparsers(dest="subcommand", required=True)
@@ -272,13 +340,13 @@ def main():
     p_disc.set_defaults(func=cmd_discover)
 
     p_trig = subparsers.add_parser("triage", help="Lane 2: Gatekeeper triage (dealbreakers)")
-    p_trig.add_argument("--profile", default=None, help="Path to profile.json (default: ./profile.json when present)")
+    p_trig.add_argument("--profile", default=None, help="Path to profile.json (default: ./profile.json; required)")
     p_trig.add_argument("--db", default="career_fleet.db", help="SQLite database path")
     p_trig.set_defaults(func=cmd_triage)
 
     p_rec = subparsers.add_parser("recon", help="Lanes 3 & 4: Systems wedge & culture recon")
     p_rec.add_argument("--lane", choices=["systems", "culture", "all"], default="all", help="Which lane to run")
-    p_rec.add_argument("--profile", default=None, help="Path to profile.json (default: ./profile.json when present)")
+    p_rec.add_argument("--profile", default=None, help="Path to profile.json (default: ./profile.json; required)")
     p_rec.add_argument("--db", default="career_fleet.db", help="SQLite database path")
     p_rec.set_defaults(func=cmd_recon)
 
@@ -289,6 +357,7 @@ def main():
 
     p_dos = subparsers.add_parser("dossier", help="Inspect company dossier")
     p_dos.add_argument("--company", required=True, help="Company ID")
+    p_dos.add_argument("--show-source", action="store_true", help="Print complete captured source text")
     p_dos.add_argument("--db", default="career_fleet.db", help="SQLite database path")
     p_dos.set_defaults(func=cmd_dossier)
 

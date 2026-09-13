@@ -22,6 +22,8 @@ evidence/
 *.sqlite3-shm
 *.sqlite3-wal
 *.tmp
+profile.json
+qualified_targets*.json
 .DS_Store
 
 # Carousel and promotional assets

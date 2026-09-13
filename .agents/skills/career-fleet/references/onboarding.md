@@ -31,7 +31,7 @@ This creates `profile.json`, `career_fleet.db`, and `.agents/skills/career-fleet
 
 Useful profile fields include:
 
-- `required_stack`, `negative_stack`, and `wedge_capabilities` for fit signals.
+- `required_stack`, `negative_stack`, and `wedge_capabilities` for fit signals. Every `required_stack` entry must be evidenced for a systems pass; `/` separates alternatives within one entry.
 - `dealbreakers.max_headcount`, `policy`, and `disallowed_locations` for hard filters.
 - `dealbreakers.reject_thin_wrappers` and `reject_pure_quota` for domain-specific exclusions.
 - `dealbreakers.candidate_timezone` plus posting timezone metadata when overlap matters.
@@ -47,5 +47,7 @@ test -f career_fleet.db
 test -f profile.json
 test -f .agents/skills/career-fleet/SKILL.md
 ```
+
+In PowerShell, use `Test-Path` in place of `test -f`.
 
 Keep the database and profile local. They may contain source-derived or private career data and are ignored by the repository defaults.

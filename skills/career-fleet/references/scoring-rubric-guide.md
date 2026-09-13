@@ -9,12 +9,12 @@ Every assessment must be grounded in exact verbatim quotes extracted from captur
 - Fully remote or local regional hub.
 
 ### Tier 2: Strong Fit (Score 0.60 - 0.79)
-- Strong stack and problem wedge alignment.
+- All configured required-stack entries are evidenced, with strong problem-wedge alignment.
 - Healthy leadership signals and remote-friendly policy.
 - Minor unknowns in operational distribution or team topology.
 
 ### Tier 3: Marginal / Hold (Score 0.40 - 0.59)
-- Acceptable technology but unclear product defensibility or commoditized niche.
+- Acceptable technology but unclear product defensibility or commoditized niche, or a configured required-stack entry is missing.
 - Unknowns around office mandate or headcount trajectory.
 
 ### Tier 4: Disqualified (Score 0.00)

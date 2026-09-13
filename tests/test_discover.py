@@ -279,9 +279,41 @@ def test_ashby_prefers_plain_description(fake_http):
     assert recs[0].text == "plain verbatim"
 
 
+def test_ats_ids_keep_full_provider_ids_and_dedupe_duplicate_rows(fake_http):
+    FakeClient.routes["https://api.ashbyhq.com/posting-api/job-board/linear"] = FakeResponse(
+        json_data={"jobs": [
+            {"id": "abcdefgh-one", "title": "One", "jobUrl": "https://jobs.ashbyhq.com/linear/one",
+             "isListed": True, "descriptionPlain": "first"},
+            {"id": "abcdefgh-two", "title": "Two", "jobUrl": "https://jobs.ashbyhq.com/linear/two",
+             "isListed": True, "descriptionPlain": "second"},
+            {"id": "abcdefgh-one", "title": "One duplicate", "jobUrl": "https://jobs.ashbyhq.com/linear/duplicate",
+             "isListed": True, "descriptionPlain": "third"},
+        ]}
+    )
+
+    recs = fetch_ashby_org("linear")
+
+    assert len(recs) == 3
+    assert len({record.item_id for record in recs}) == 3
+    assert "abcdefgh-one" in recs[0].item_id
+    assert "abcdefgh-two" in recs[1].item_id
+
+
 def test_lever_404_names_migration(fake_http):
     with pytest.raises(DiscoverError, match="migrated"):
         fetch_lever_org("ghost-org")
+
+
+def test_lever_uses_description_instead_of_title_as_source_text(fake_http):
+    FakeClient.routes["https://api.lever.co/v0/postings/acme?mode=json"] = FakeResponse(
+        json_data=[{"id": "job-1", "text": "Senior Platform Engineer",
+                    "description": "Build Kafka pipelines and distributed systems.",
+                    "hostedUrl": "https://jobs.lever.co/acme/job-1",
+                    "categories": {"location": "Remote"}}]
+    )
+    recs = fetch_lever_org("acme")
+    assert recs[0].title == "Senior Platform Engineer"
+    assert recs[0].text == "Build Kafka pipelines and distributed systems."
 
 
 # --- Orchestration ----------------------------------------------------------
@@ -596,6 +628,7 @@ def test_fetch_yc_filters_and_grades_profiles(monkeypatch):
     recs = discover.fetch_yc_companies(batch="W24")
     assert len(recs) == 1 and recs[0].item_id == "yc-kafkaops"
     assert recs[0].metadata["evidence"] == "profile"
+    assert recs[0].metadata["team_size"] == 8
     assert "Managed Kafka" in recs[0].text and "Team size: 8" in recs[0].text
     tagged = discover.fetch_yc_companies(tags=["consumer"])
     assert [r.item_id for r in tagged] == ["yc-photofun"]

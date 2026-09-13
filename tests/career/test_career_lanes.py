@@ -50,3 +50,17 @@ class TestLanes(unittest.TestCase):
         self.assertGreaterEqual(res["score"], 0.6)
         self.assertIn(res["verdict"], ("STRONG FIT", "HIGH FIT"))
         self.assertTrue(len(res["quotes"]) > 0)
+
+    def test_required_stack_is_a_gate_and_special_names_match(self):
+        profile = IdealEmployerProfile(required_stack=["Python", "C++"])
+        missing = score_technical_wedge("A database and workflow engine.", profile)
+        self.assertEqual(missing["missing_required_stack"], ["Python", "C++"])
+        self.assertFalse(missing["required_stack_satisfied"])
+        self.assertLess(missing["score"], 0.6)
+
+        matched = score_technical_wedge("A Python service with a C++ database.", profile)
+        self.assertEqual(matched["missing_required_stack"], [])
+        self.assertTrue(matched["required_stack_satisfied"])
+        self.assertIn("C++", matched["matched_stack"])
+        self.assertTrue(any("Python" in quote for quote in matched["quotes"]))
+        self.assertTrue(any("C++" in quote for quote in matched["quotes"]))

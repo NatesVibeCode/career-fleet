@@ -3,9 +3,9 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](pyproject.toml)
 
-> **Autonomous career & employer intelligence engine with multi-lane screening, verbatim source quotes, and zero-cost model execution.**
+> **Deterministic career & employer screening engine with multi-lane checks and verbatim source quotes.**
 
-`career-fleet` turns a builder, engineer, or operator's background and career criteria into a systematically screened pipeline of target companies and high-leverage opportunities. Every qualification is backed by verbatim source quotes from captured job postings and site pages.
+`career-fleet` turns a candidate's stated career criteria into a systematically screened pipeline of target companies and opportunities. Its built-in lanes use explicit rules and keyword signals, not nuanced model judgment. Every qualification is backed by verbatim source quotes from captured source records.
 
 *Canonical CLI is `career-fleet` (`career-lanes` remains available as an alias).*
 
@@ -27,7 +27,7 @@ On Windows, use `py -m pip` in place of `python3 -m pip`.
 ## The 4-Lane Funnel Architecture
 
 ```
-0. Autonomous IEP Calibration ──> Lane 1: Sourcing (YC, ATS, site crawl)
+0. Authorized IEP Calibration ──> Lane 1: Sourcing (YC, ATS, site crawl)
                                                       │
                                                       ▼
 Lane 4: Founder & Culture Recon      <── Lane 3: Systems Wedge <── Lane 2: Gatekeeper Triage
@@ -40,6 +40,8 @@ Lane 4: Founder & Culture Recon      <── Lane 3: Systems Wedge <── Lane 
 2. **Lane 2: Gatekeeper Triage**: Fast deterministic screening against hard dealbreakers (headcount limits, mandatory non-local office mandates, shallow prompt wrappers) without token cost.
 3. **Lane 3: Systems Wedge**: Technical architecture depth and moat evaluation (distributed systems, state machines, compliance rails vs. commodity wrappers).
 4. **Lane 4: Founder & Culture Recon**: Evaluates leadership and communication signals found in captured source text.
+
+The result is a shortlist for human review, not a hiring decision. Inspect the source quotes and current posting URLs before acting on a result.
 
 ---
 
@@ -55,7 +57,7 @@ career-fleet init
 career-fleet profile
 ```
 
-The generated profile is intentionally neutral. Edit `profile.json` to set your stack, dealbreakers, leadership signals, and (optionally) `dealbreakers.candidate_timezone` before relying on qualification results.
+The generated profile is intentionally neutral. Edit `profile.json` to set your stack, dealbreakers, leadership signals, and (optionally) `dealbreakers.candidate_timezone` before relying on qualification results. If a profile is missing, triage and recon stop with an error instead of silently using neutral criteria.
 
 ### 2. Discover target companies & job postings (Lane 1)
 
@@ -88,8 +90,11 @@ career-fleet recon --lane all
 # List qualified survivor companies
 career-fleet list --status qualified
 
-# Inspect full dossier with exact supporting quotes
+# Inspect a dossier with source URLs and exact supporting quotes
 career-fleet dossier --company stripe
+
+# Include the complete captured source text when needed
+career-fleet dossier --company stripe --show-source
 
 # Export qualified dossiers to JSON
 career-fleet export --output qualified_targets.json
@@ -100,7 +105,7 @@ career-fleet export --output qualified_targets.json
 ## Clean Architecture: The Twin-Sister Fork
 
 `career-fleet` is architected as a **namespace-isolated fork** of `bulk-lanes` (`free-fleet`):
-* `free_fleet/`: Untouched shared engine layer (Bayesian route scoring, 429 adaptive backoff, mechanical discovery).
+* `free_fleet/`: Shared engine layer (Bayesian route scoring, 429 adaptive backoff, mechanical discovery).
 * `career_fleet/`: Career-specific domain logic, profile models, and 4-lane pipeline.
 * `.agents/skills/career-fleet/`: Assistant skill for Claude, Antigravity, and Cursor.
 
