@@ -63,23 +63,25 @@ class DemoProvider(BaseProvider):
         session_id: Optional[str] = None,
         policy: Optional[Any] = None,
     ) -> Tuple[bool, Optional[str], dict]:
-        # Extract JSON payload from the rendered prompt (TaskSpec.render_prompt appends JSON)
+        # Extract the task payload from the rendered prompt. Profile context
+        # and other instructions may contain valid JSON objects before the
+        # final task payload, so looking only at the first brace is ambiguous.
         payload = None
-        # Prompt format: "<instructions>\nReturn JSON only....\n<J JSON>"
-        # Find first '{' that starts a JSON object
-        first_brace = prompt.find("{")
-        if first_brace != -1:
-            candidate = prompt[first_brace:]
+        decoder = json.JSONDecoder()
+        cursor = 0
+        while True:
+            first_brace = prompt.find("{", cursor)
+            if first_brace == -1:
+                break
             try:
-                payload = json.loads(candidate)
-            except Exception:
-                # try to find the largest valid JSON object from candidate prefix
-                for i in range(len(candidate) - 1, 0, -1):
-                    try:
-                        payload = json.loads(candidate[:i])
-                        break
-                    except Exception:
-                        continue
+                candidate, _ = decoder.raw_decode(prompt[first_brace:])
+            except json.JSONDecodeError:
+                cursor = first_brace + 1
+                continue
+            if isinstance(candidate, dict) and {"input_items", "output_schema"}.issubset(candidate):
+                payload = candidate
+                break
+            cursor = first_brace + 1
         if not payload or "input_items" not in payload or "output_schema" not in payload:
             receipt = {
                 "id": f"demo-{uuid.uuid4().hex[:8]}",

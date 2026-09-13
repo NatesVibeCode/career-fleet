@@ -4,6 +4,7 @@ import free_fleet
 from free_fleet import cli
 from free_fleet.models import InputItem, TaskSpec
 from free_fleet.profile import IdealCompanyProfile
+from free_fleet.providers.demo import DemoProvider
 from free_fleet.store import FreeFleetStore
 
 
@@ -63,3 +64,16 @@ def test_sdk_accepts_one_shot_iterables_without_materializing(tmp_path, monkeypa
     source = (item for item in [{"item_id": "one", "text": "source text"}])
     free_fleet.process(_task(), source, run_id="generator-input", db=tmp_path / "generator.db")
     assert captured["raw_items"] is source
+
+
+def test_demo_provider_ignores_profile_json_before_task_payload():
+    profile = IdealCompanyProfile(
+        profile_name="Profile with nested JSON",
+        calibrated_scoring_rubric={"tier_1": "high fit"},
+    )
+    task = _task()
+    prompt = f"{profile.to_prompt_context()}\n\n{task.render_prompt([{'item_id': 'one', 'sections': [{'slice_id': 'full', 'text': 'A sufficiently long source quote.'}]}])}"
+    ok, response, receipt = DemoProvider().run_prompt("demo/fake", prompt)
+    assert ok is True
+    assert receipt["status"] == "complete"
+    assert response is not None and '"items"' in response

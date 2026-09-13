@@ -1,5 +1,5 @@
 """Free Fleet: Coordinated free & local LLM worker fleet with closed fields and exact source evidence."""
-__version__ = "0.2.6"
+__version__ = "0.2.7"
 import json
 import uuid
 from collections.abc import Iterable, Mapping
