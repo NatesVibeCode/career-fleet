@@ -29,4 +29,4 @@ jobs:
       - name: Run tests
         run: python -m pytest -q
       - name: Verify clean installed wheel
-        run: python scripts/check_wheel.py --distribution account-fleet
+        run: python scripts/check_wheel.py --distribution career-fleet

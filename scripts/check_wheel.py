@@ -12,7 +12,7 @@ import venv
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--distribution", choices=("account-fleet", "free-fleet"), required=True)
+    parser.add_argument("--distribution", choices=("account-fleet", "free-fleet", "career-fleet"), required=True)
     parser.add_argument("--offline-system-deps", action="store_true", help="Reuse installed dependencies when offline; does not verify dependency installation")
     args = parser.parse_args()
     repository = Path(__file__).resolve().parents[1]
@@ -35,6 +35,21 @@ def main():
         ))}
         cli = bindir / (args.distribution + (".exe" if os.name == "nt" else ""))
         subprocess.run([str(python), "-c", "import free_fleet, sys; from pathlib import Path; assert Path(free_fleet.__file__).is_relative_to(Path(sys.prefix)), free_fleet.__file__"], cwd=workspace, env=env, check=True)
+
+        if args.distribution == "career-fleet":
+            subprocess.run([str(python), "-c", "import career_fleet, sys; from pathlib import Path; assert Path(career_fleet.__file__).is_relative_to(Path(sys.prefix)), career_fleet.__file__"], cwd=workspace, env=env, check=True)
+            run_help = subprocess.run([str(cli), "--help"], cwd=workspace, env=env, capture_output=True, text=True)
+            assert run_help.returncode == 0, run_help.stderr
+            run_init = subprocess.run([str(cli), "init"], cwd=workspace, env=env, capture_output=True, text=True)
+            assert run_init.returncode == 0, run_init.stderr
+            assert (workspace / "career_fleet.db").is_file()
+            assert (workspace / "profile.json").is_file()
+            run_prof = subprocess.run([str(cli), "profile"], cwd=workspace, env=env, capture_output=True, text=True)
+            assert run_prof.returncode == 0, run_prof.stderr
+            assert "IDEAL EMPLOYER PROFILE" in run_prof.stdout
+            mode = "reused system dependencies" if args.offline_system_deps else "fresh dependencies"
+            print(f"career-fleet: installed wheel setup, profile init, and CLI passed ({mode})")
+            return
 
         def run(*command):
             completed = subprocess.run([str(cli), *command, "--json"], cwd=workspace, env=env, capture_output=True, text=True, encoding="utf-8")
