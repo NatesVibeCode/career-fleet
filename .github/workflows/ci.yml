@@ -28,5 +28,7 @@ jobs:
         run: python -m pip install -e ".[dev,discover]"
       - name: Run tests
         run: python -m pytest -q
+      - name: Check shared route-policy contract
+        run: python scripts/check_fleet_drift.py --self
       - name: Verify clean installed wheel
         run: python scripts/check_wheel.py --distribution career-fleet
