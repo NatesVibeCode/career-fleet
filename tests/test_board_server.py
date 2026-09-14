@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import os
 import tempfile
 import threading
 import urllib.error
@@ -16,6 +17,7 @@ from career_fleet.board import (
     load_job_dossiers,
     open_read_only_database,
     resolve_database_path,
+    resolve_research_database_path,
 )
 from career_fleet.profile import IdealEmployerProfile
 from career_fleet.store import CareerStore
@@ -207,3 +209,18 @@ def test_board_module_has_no_hardcoded_personal_paths():
     source = (Path(__file__).resolve().parents[1] / "career_fleet" / "board.py").read_text(encoding="utf-8")
     assert "/Users/" not in source, "board.py must not hardcode a personal absolute path"
     assert "Open Design" not in source
+
+
+def test_database_resolution_is_independent_of_launch_directory():
+    """Database lookup must not depend on cwd: the worker DB is a repo sibling."""
+    original = Path.cwd()
+    with tempfile.TemporaryDirectory() as scratch:
+        try:
+            os.chdir(scratch)
+            jobs_db = resolve_database_path("career-public-research-worker/career_research.db")
+            assert jobs_db.is_file(), f"career_research.db not found at {jobs_db}"
+            assert jobs_db == resolve_database_path(), "arg and no-arg resolution must agree"
+            crm_db = resolve_research_database_path()
+            assert crm_db.is_file(), f"CRM database not found at {crm_db}"
+        finally:
+            os.chdir(original)

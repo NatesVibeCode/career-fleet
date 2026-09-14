@@ -22,6 +22,7 @@ from urllib.parse import parse_qs, quote, urlparse
 
 # Packaged dashboards. Everything served comes from here, so the repo is the
 # single source of truth for what an operator sees.
+REPO_ROOT = Path(__file__).resolve().parent.parent
 BOARD_DIR = Path(__file__).resolve().parent / "resources" / "board"
 BOARD_HTML_PATH = BOARD_DIR / "index.html"
 STATIC_PAGES = {
@@ -49,6 +50,22 @@ def resolve_board_html_path(custom_path: str | Path | None = None) -> Path:
 
 
 
+def _relative_candidates(p: Path, cwd: Path) -> list[Path]:
+    """Relative paths are tried against the cwd, its parent, and the repo root.
+
+    The research worker databases live in a sibling directory of this repository
+    (``<repo>/../career-public-research-worker``), so the repo root's parent is a
+    candidate too. Anchoring on the repository keeps CLI, board, and test
+    behaviour independent of the directory the process was launched from.
+    """
+    return [
+        cwd / p,
+        cwd.parent / p,
+        REPO_ROOT / p,
+        REPO_ROOT.parent / p,
+    ]
+
+
 def resolve_database_path(custom_path: str | Path | None = None) -> Path:
     """Resolve database path from argument, environment variable, or known candidate defaults."""
     cwd = Path.cwd().resolve()
@@ -56,10 +73,9 @@ def resolve_database_path(custom_path: str | Path | None = None) -> Path:
         p = Path(custom_path).expanduser()
         if p.is_absolute() and p.is_file():
             return p
-        if (cwd / p).is_file():
-            return (cwd / p).resolve()
-        if (cwd.parent / p).is_file():
-            return (cwd.parent / p).resolve()
+        for candidate in _relative_candidates(p, cwd):
+            if candidate.is_file():
+                return candidate.resolve()
         return (cwd / p).resolve()
 
     env_val = os.environ.get("CAREER_FLEET_DB") or os.environ.get("CAREER_RESEARCH_DB")
@@ -67,13 +83,12 @@ def resolve_database_path(custom_path: str | Path | None = None) -> Path:
         p = Path(env_val).expanduser()
         if p.is_absolute() and p.is_file():
             return p
-        if (cwd / p).is_file():
-            return (cwd / p).resolve()
-        if (cwd.parent / p).is_file():
-            return (cwd.parent / p).resolve()
+        for candidate in _relative_candidates(p, cwd):
+            if candidate.is_file():
+                return candidate.resolve()
         return (cwd / p).resolve()
 
-    # Look for candidates in current directory or parent directories
+    # Look for candidates in the current directory, its parent, or the repo root.
     candidates = [
         cwd / "career_fleet.db",
         cwd / "career_research.db",
@@ -81,6 +96,11 @@ def resolve_database_path(custom_path: str | Path | None = None) -> Path:
         cwd.parent / "career-public-research-worker" / "career_research.db",
         cwd / "data" / "career_fleet.db",
         cwd.parent / "career-fleet" / "career_fleet.db",
+        REPO_ROOT / "career_fleet.db",
+        REPO_ROOT / "career_research.db",
+        REPO_ROOT / "career-public-research-worker" / "career_research.db",
+        REPO_ROOT / "data" / "career_fleet.db",
+        REPO_ROOT.parent / "career-public-research-worker" / "career_research.db",
     ]
     for c in candidates:
         if c.is_file():
@@ -549,21 +569,25 @@ def resolve_research_database_path(custom_path: str | Path | None = None) -> Pat
     """Resolve the career-research CRM database (holds outreach/touch tables)."""
     cwd = Path.cwd().resolve()
     candidates: list[Path] = []
-    if custom_path:
-        candidates.append(Path(custom_path).expanduser())
-    env_val = os.environ.get("CAREER_RESEARCH_DB")
-    if env_val:
-        candidates.append(Path(env_val).expanduser())
+    for raw in (custom_path, os.environ.get("CAREER_RESEARCH_DB")):
+        if not raw:
+            continue
+        p = Path(raw).expanduser()
+        if p.is_absolute():
+            candidates.append(p)
+        else:
+            candidates.extend(_relative_candidates(p, cwd))
     candidates.extend([
         cwd / "career_research.db",
         cwd / "career-public-research-worker" / "career_research.db",
         cwd.parent / "career-public-research-worker" / "career_research.db",
-        BOARD_DIR.parent.parent / "career-public-research-worker" / "career_research.db",
+        REPO_ROOT / "career_research.db",
+        REPO_ROOT / "career-public-research-worker" / "career_research.db",
+        REPO_ROOT.parent / "career-public-research-worker" / "career_research.db",
     ])
     for candidate in candidates:
-        path = candidate if candidate.is_absolute() else (cwd / candidate)
-        if path.is_file():
-            return path.resolve()
+        if candidate.is_file():
+            return candidate.resolve()
     return (cwd / "career_research.db").resolve()
 
 
