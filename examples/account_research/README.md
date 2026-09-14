@@ -22,15 +22,15 @@ This example demonstrates how to research, qualify, score, and rank target accou
 You can initialize directly from the built-in `account-research` (or `score`) preset:
 
 ```bash
-harness-fleet init account-research --preset account-research
+career-fleet init account-research --preset account-research
 
 # Persist the ICP in the same SQLite database before running
-account-fleet profile --path examples/account_research/ideal_company_profile.json --db harness-fleet.db
+career-fleet profile --path examples/account_research/ideal_company_profile.json --db harness-fleet.db
 ```
 
 Or register the bundled `task.json`:
 ```bash
-harness-fleet run examples/account_research/task.json \
+career-fleet run examples/account_research/task.json \
   --input examples/account_research/sample_accounts.csv \
   --run-id accounts-01
 ```
@@ -40,7 +40,7 @@ harness-fleet run examples/account_research/task.json \
 Generate the exact deliverable shown in Slide 3 (sorted by score descending, top survivors, with a 1-indexed rank column):
 
 ```bash
-harness-fleet export accounts-01 \
+career-fleet export accounts-01 \
   --format csv \
   --sort-by score \
   --desc \
@@ -65,24 +65,24 @@ To filter 1,000 accounts down to 25 without running monolithic prompts:
 
 ```bash
 # Layer 1: Firmographic fit screening (1,000 -> 600)
-harness-fleet init l1-filter --preset filter
-harness-fleet run l1-filter --input homepages.csv --run-id l1-run
-harness-fleet export l1-run --format csv --filter '{"all": [{"field": "passed", "value": true}]}' --output l1_survivors.csv
+career-fleet init l1-filter --preset filter
+career-fleet run l1-filter --input homepages.csv --run-id l1-run
+career-fleet export l1-run --format csv --filter '{"all": [{"field": "passed", "value": true}]}' --output l1_survivors.csv
 
 # Layer 2: Tech stack & architecture screening (600 -> 150)
-harness-fleet init l2-filter --preset filter
-harness-fleet run l2-filter --input tech_docs.csv --only-ids l1_survivors.csv --run-id l2-run
-harness-fleet export l2-run --format csv --filter '{"all": [{"field": "passed", "value": true}]}' --output l2_survivors.csv
+career-fleet init l2-filter --preset filter
+career-fleet run l2-filter --input tech_docs.csv --only-ids l1_survivors.csv --run-id l2-run
+career-fleet export l2-run --format csv --filter '{"all": [{"field": "passed", "value": true}]}' --output l2_survivors.csv
 
 # Layer 3: Hiring & budget signals (150 -> 50)
-harness-fleet init l3-filter --preset filter
-harness-fleet run l3-filter --input job_posts.csv --only-ids l2_survivors.csv --run-id l3-run
-harness-fleet export l3-run --format csv --filter '{"all": [{"field": "passed", "value": true}]}' --output l3_survivors.csv
+career-fleet init l3-filter --preset filter
+career-fleet run l3-filter --input job_posts.csv --only-ids l2_survivors.csv --run-id l3-run
+career-fleet export l3-run --format csv --filter '{"all": [{"field": "passed", "value": true}]}' --output l3_survivors.csv
 
 # Layer 4: ICP scoring & verbatim evidence (50 -> 25)
-harness-fleet init l4-scoring --preset score
-harness-fleet run l4-scoring --input qualified_profiles.csv --only-ids l3_survivors.csv --run-id l4-run
-harness-fleet export l4-run --format csv --sort-by score --desc --top 25 --rank --output ranked_target_accounts.csv
+career-fleet init l4-scoring --preset score
+career-fleet run l4-scoring --input qualified_profiles.csv --only-ids l3_survivors.csv --run-id l4-run
+career-fleet export l4-run --format csv --sort-by score --desc --top 25 --rank --output ranked_target_accounts.csv
 ```
 
 ---
