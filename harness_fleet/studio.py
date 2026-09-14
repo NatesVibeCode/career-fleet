@@ -17,12 +17,14 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
+from pydantic import ValidationError
+
 from .catalog import RouteCatalog
 from .engine import Engine
 from .input_data import InputItem
 from .models import RoutePolicy
 from .store import HarnessStore
-from .task import PRESETS, create_task_from_preset
+from .task import PRESETS, apply_scoring_edit, create_task_from_preset, scoring_view
 
 STUDIO_DIR = Path(__file__).resolve().parent / "resources" / "studio"
 
@@ -63,6 +65,49 @@ def _harness_cards() -> list[dict[str, Any]]:
             "detail": path or f"{spec.binary} not found in PATH",
         })
     return cards
+
+
+def _scoring_payload(store: HarnessStore, name: str) -> dict[str, Any]:
+    """Read model for one task's scoring contract, tagged with its revision."""
+    spec = store.get_task(name)
+    view = scoring_view(spec)
+    view["revision_id"] = store.current_task_revision(name)
+    return view
+
+
+def _scoring_task_name(path: str) -> str | None:
+    """Extract <name> from /api/tasks/<name>/scoring; None when it is not one."""
+    prefix, suffix = "/api/tasks/", "/scoring"
+    if path.startswith(prefix) and path.endswith(suffix):
+        name = path[len(prefix):-len(suffix)]
+        if name and "/" not in name:
+            return name
+    return None
+
+
+def _request_allowed(handler: BaseHTTPRequestHandler) -> bool:
+    """Reject browser requests from other origins (localhost CSRF / DNS rebinding).
+
+    The studio spends model budget and mutates task contracts, so a page the
+    user happens to visit must not be able to drive it. Absent headers are
+    allowed so plain CLI and HTTP clients keep working.
+    """
+    port = int(handler.server.server_port)  # type: ignore[attr-defined]
+    hosts = {f"127.0.0.1:{port}", f"localhost:{port}", f"[::1]:{port}"}
+    host = (handler.headers.get("Host") or "").strip().lower()
+    if host and host not in hosts:
+        return False
+    origin = (handler.headers.get("Origin") or "").strip().rstrip("/").lower()
+    return not origin or origin in {f"http://{name}" for name in hosts}
+
+
+def _validation_message(exc: ValidationError) -> str:
+    """Flatten a pydantic error into one readable line naming the bad fields."""
+    parts = []
+    for error in exc.errors()[:5]:
+        location = ".".join(str(part) for part in error.get("loc", ())) or "task"
+        parts.append(f"{location}: {error.get('msg', 'invalid value')}")
+    return "invalid task spec — " + "; ".join(parts)
 
 
 def _run_step(
@@ -140,12 +185,16 @@ class StudioHandler(BaseHTTPRequestHandler):
 
     def do_GET(self) -> None:  # noqa: N802
         try:
+            if not _request_allowed(self):
+                _send_json(self, 403, {"error": "request rejected: studio is localhost-only"})
+                return
             path = urlparse(self.path).path
             if path in ("/", "/index.html"):
                 page = (STUDIO_DIR / "index.html").read_bytes()
                 self.send_response(200)
                 self.send_header("Content-Type", "text/html; charset=utf-8")
                 self.send_header("Content-Length", str(len(page)))
+                self.send_header("Cache-Control", "no-store")
                 self.end_headers()
                 self.wfile.write(page)
             elif path == "/api/harnesses":
@@ -155,6 +204,10 @@ class StudioHandler(BaseHTTPRequestHandler):
                 _send_json(self, 200, {"routes": catalog.get_routes(free_only=False, include_disabled=True)})
             elif path == "/api/presets":
                 _send_json(self, 200, {"presets": sorted(PRESETS)})
+            elif path == "/api/tasks":
+                _send_json(self, 200, {"tasks": _store(self).list_tasks()})
+            elif (scoring_name := _scoring_task_name(path)) is not None:
+                _send_json(self, 200, {"scoring": _scoring_payload(_store(self), scoring_name)})
             elif path.startswith("/api/runs/"):
                 run_id = path[len("/api/runs/"):]
                 _send_json(self, 200, _store(self).run_snapshot(run_id))
@@ -167,10 +220,36 @@ class StudioHandler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:  # noqa: N802
         try:
+            if not _request_allowed(self):
+                _send_json(self, 403, {"error": "request rejected: studio is localhost-only"})
+                return
             path = urlparse(self.path).path
             if path == "/api/routes/refresh":
                 catalog = RouteCatalog(db_path=_store(self).path)
                 _send_json(self, 200, {"refresh": catalog.refresh_all()})
+            elif path == "/api/tasks":
+                body = _read_json(self)
+                name = str(body.get("name") or "").strip()
+                if not name:
+                    raise ValueError("body needs a task name")
+                preset = str(body.get("preset") or "score").strip()
+                store = _store(self)
+                try:
+                    existing = store.current_task_revision(name)
+                except KeyError:
+                    existing = None
+                if existing is not None:
+                    _send_json(self, 409, {
+                        "error": (
+                            f"task '{name}' already exists (revision {existing[:12]}); "
+                            "load and edit it, or choose a new name"
+                        ),
+                    })
+                    return
+                spec = create_task_from_preset(name, preset_name=preset)
+                view = scoring_view(spec)
+                view["revision_id"] = store.register_task(spec)
+                _send_json(self, 200, {"scoring": view})
             elif path == "/api/runs":
                 body = _read_json(self)
                 steps = body.get("steps") or []
@@ -187,7 +266,50 @@ class StudioHandler(BaseHTTPRequestHandler):
                 _send_json(self, 200, {"steps": results})
             else:
                 _send_json(self, 404, {"error": f"unknown path: {path}"})
+        except ValidationError as exc:
+            _send_json(self, 400, {"error": _validation_message(exc)})
         except (ValueError, KeyError) as exc:
+            _send_json(self, 400, {"error": str(exc)})
+        except Exception as exc:
+            _send_json(self, 500, {"error": str(exc)})
+
+    def do_PUT(self) -> None:  # noqa: N802
+        try:
+            if not _request_allowed(self):
+                _send_json(self, 403, {"error": "request rejected: studio is localhost-only"})
+                return
+            path = urlparse(self.path).path
+            scoring_name = _scoring_task_name(path)
+            if scoring_name is None:
+                _send_json(self, 404, {"error": f"unknown path: {path}"})
+                return
+            body = _read_json(self)
+            store = _store(self)
+            spec = store.get_task(scoring_name)
+            previous = store.current_task_revision(scoring_name)
+            # Optimistic concurrency: a stale tab must not overwrite a newer
+            # revision it never saw. "*" and an absent header keep the plain
+            # CLI/HTTP path working.
+            expected = (self.headers.get("If-Match") or "").strip().strip('"')
+            if expected and expected != "*" and expected != previous:
+                _send_json(self, 412, {
+                    "error": (
+                        f"task '{scoring_name}' changed elsewhere (now {previous[:12]}); "
+                        "reload it before saving"
+                    ),
+                })
+                return
+            revised = apply_scoring_edit(spec, body)
+            revision_id = store.register_task(revised)
+            view = scoring_view(revised)
+            view["revision_id"] = revision_id
+            view["previous_revision_id"] = previous
+            _send_json(self, 200, {"scoring": view})
+        except ValidationError as exc:
+            _send_json(self, 400, {"error": _validation_message(exc)})
+        except KeyError as exc:
+            _send_json(self, 404, {"error": str(exc)})
+        except ValueError as exc:
             _send_json(self, 400, {"error": str(exc)})
         except Exception as exc:
             _send_json(self, 500, {"error": str(exc)})

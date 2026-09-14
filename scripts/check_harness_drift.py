@@ -43,7 +43,10 @@ EXACT_FILES = (
     "harness_fleet/dag.py",
     "harness_fleet/engine.py",
     "harness_fleet/models.py",
-    "harness_fleet/cli.py",
+    # cli.py is intentionally absent: it wires each variant's discover.py,
+    # whose surface is variant-specific (account-fleet exposes stack/evidence
+    # gates and a source_quality report that career-fleet's fork does not).
+    # The shared modules cli.py builds on are still checked individually.
     "harness_fleet/mcp_server.py",
     "harness_fleet/setup.py",
     "harness_fleet/studio.py",
@@ -86,6 +89,10 @@ def _default_repos(cwd: Path) -> list[Path]:
 
 def _normalized_digest(path: Path, relative: str) -> str:
     text = path.read_text(encoding="utf-8")
+    if relative == "harness_fleet/__init__.py":
+        # Each fleet releases independently, so the version literal legitimately
+        # differs. Everything else in the SDK surface must still match.
+        text = re.sub(r'(?m)^__version__ = "[^"]*"$', '__version__ = "shared"', text)
     if relative.endswith("references/operations.md"):
         text = re.sub(
             r'Schema version is `?"(?:2|3|4|5)"`?(?:\. Account runs can also retain the exact immutable Ideal Company Profile revision used for the campaign\.)?\.?',

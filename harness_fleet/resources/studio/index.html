@@ -9,6 +9,10 @@
   body { font-family: system-ui, sans-serif; margin: 0 auto; max-width: 960px; padding: 16px; }
   h1 { font-size: 1.4rem; }
   h2 { font-size: 1.05rem; margin-top: 1.6em; border-bottom: 1px solid #8884; padding-bottom: 4px; }
+  h3 { font-size: 0.95rem; margin: 1.1em 0 0.4em; }
+  table { border-collapse: collapse; }
+  th, td { text-align: left; padding: 2px 8px 2px 0; vertical-align: middle; }
+  .wide { display: block; margin: 8px 0; }
   #cards { display: flex; flex-wrap: wrap; gap: 8px; }
   .card { border: 2px solid #8886; border-radius: 10px; padding: 8px 10px; cursor: pointer; min-width: 110px; text-align: center; }
   .card.off { opacity: 0.45; }
@@ -43,22 +47,36 @@
 <h2>2 · Models</h2>
 <div id="modelsBox"><p><button id="refreshBtn" type="button">Refresh catalog</button> <span id="refreshMsg"></span></p><div class="models" id="models"></div></div>
 
-<h2>3 · Steps</h2>
+<h2>3 · Scoring contract</h2>
+<p>A view over the task's typed spec. The pipeline derives <b>score</b>, <b>fit tier</b>, and <b>pass/fail</b> from the evidence checklist, so this panel edits only the checklist items, their points, source weights, and recency — never a per-record score.</p>
+<div class="row">
+  <label>Task<select id="taskSel"></select></label>
+  <button id="taskLoad" type="button">Load</button>
+  <label>New task name<input type="text" id="newTaskName" placeholder="my-scoring-task"></label>
+  <label>Preset<select id="newTaskPreset"></select></label>
+  <button id="taskCreate" type="button">Create</button>
+</div>
+<p id="scoringMsg" class="note"></p>
+<div id="scoringBox"></div>
+
+<h2>4 · Steps</h2>
 <div id="steps"></div>
+<datalist id="taskNames"></datalist>
 <p><button id="addStep" type="button">+ Add step</button></p>
 
-<h2>4 · Run</h2>
+<h2>5 · Run</h2>
 <p><button id="runBtn" type="button">Run plan</button> <span id="runMsg"></span></p>
 <div id="results"></div>
 
 <script>
-const H = { harnesses: [], routes: [], presets: [], enabled: new Set(), picked: new Set(), steps: [] };
+const H = { harnesses: [], routes: [], presets: [], tasks: [], scoring: null, draft: null, enabled: new Set(), picked: new Set(), steps: [] };
 const initial = { O: "opencode", C: "claude", X: "codex", U: "cursor", G: "grok", M: "muse", A: "antigravity" };
 
-async function api(method, path, body) {
-  const r = await fetch(path, { method, headers: {"Content-Type": "application/json"},
+async function api(method, path, body, headers) {
+  const r = await fetch(path, { method, headers: {"Content-Type": "application/json", ...(headers || {})},
     body: body === undefined ? undefined : JSON.stringify(body) });
-  const j = await r.json();
+  let j = {};
+  try { j = await r.json(); } catch (e) { j = {}; }
   if (!r.ok) throw new Error(j.error || ("HTTP " + r.status));
   return j;
 }
@@ -73,6 +91,11 @@ async function load() {
   H.presets = (await api("GET", "/api/presets")).presets;
   H.harnesses.forEach(h => { if (h.available) H.enabled.add(h.name); });
   renderCards(); renderModels(); addStep();
+  document.getElementById("newTaskPreset").innerHTML = H.presets.map(p => `<option ${p === "score" ? "selected" : ""}>${p}</option>`).join("");
+  await loadTasks();
+  const first = H.tasks[0] ? H.tasks[0].task_name : "";
+  if (first) { document.getElementById("taskSel").value = first; await loadScoring(first); }
+  else await loadScoring("");
 }
 function renderCards() {
   const box = document.getElementById("cards"); box.innerHTML = "";
@@ -119,7 +142,7 @@ function renderSteps() {
       `<label><input type="checkbox" data-s="${i}" data-r="${r.id}" ${s.routes.includes(r.id) ? "checked" : ""}> ${r.id}</label>`).join("");
     d.innerHTML = `<b>Step ${i + 1}</b> <button type="button" data-del="${i}">remove</button>
       <div class="row">
-        <label>Task name (existing)<input type="text" data-f="task" data-s="${i}" value="${s.task}" placeholder="optional if preset"></label>
+        <label>Task name (existing)<input type="text" list="taskNames" data-f="task" data-s="${i}" value="${s.task}" placeholder="optional if preset"></label>
         <label>Preset<select data-f="preset" data-s="${i}">${H.presets.map(p => `<option ${p === s.preset ? "selected" : ""}>${p}</option>`).join("")}</select></label>
         <label>Max attempts<input type="number" data-f="max_attempts" data-s="${i}" value="${s.max_attempts}" min="1"></label>
         <label>Sessions<input type="number" data-f="concurrency" data-s="${i}" value="${s.concurrency}" min="1"></label>
@@ -148,6 +171,153 @@ function renderSteps() {
     el.onclick = () => { H.steps.splice(+el.dataset.del, 1); renderSteps(); };
   });
 }
+/* ---- Scoring contract panel: a view over the typed TaskSpec ---- */
+function esc(s) { return String(s ?? "").replace(/[&<>"]/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[c])); }
+function useScoring(view) {
+  H.scoring = view;
+  H.draft = JSON.parse(JSON.stringify(view));
+  H.draft._weights = Object.entries(view.source_weights).map(([match, weight]) => ({match, weight}));
+}
+async function loadTasks() {
+  H.tasks = (await api("GET", "/api/tasks")).tasks;
+  document.getElementById("taskSel").innerHTML = H.tasks.length
+    ? H.tasks.map(t => `<option value="${esc(t.task_name)}">${esc(t.task_name)}</option>`).join("")
+    : "<option value=''>no tasks yet</option>";
+  document.getElementById("taskNames").innerHTML =
+    H.tasks.map(t => `<option value="${esc(t.task_name)}"></option>`).join("");
+}
+async function loadScoring(name) {
+  const box = document.getElementById("scoringBox");
+  document.getElementById("scoringMsg").textContent = "";
+  if (!name) {
+    H.scoring = H.draft = null;
+    box.innerHTML = "<p class='note'>No task yet. Create one from a preset above, or run a step with a task name.</p>";
+    return;
+  }
+  useScoring((await api("GET", `/api/tasks/${encodeURIComponent(name)}/scoring`)).scoring);
+  renderScoring();
+}
+function updateTotal() {
+  const v = H.draft, total = v.checklist.reduce((a, it) => a + (+it.points || 0), 0);
+  v.total_points = total;
+  const el = document.getElementById("totalPts");
+  if (el) el.innerHTML = `<b>${total}</b>/${v.score_cap}` + (total === v.score_cap ? "" : ` <span class="err">(does not total ${v.score_cap})</span>`);
+}
+function renderScoring() {
+  const box = document.getElementById("scoringBox"), v = H.draft;
+  if (!v) { box.innerHTML = ""; return; }
+  if (!v.scorable) {
+    box.innerHTML = `<p class="note">Task <b>${esc(v.task)}</b> carries no evidence checklist, so there is no scoring contract to edit. Use the <code>score</code> or <code>account-research</code> preset.</p>`;
+    return;
+  }
+  v.total_points = v.checklist.reduce((a, it) => a + (+it.points || 0), 0);
+  const bands = v.tier_bands.map(b => `<tr><td>${esc(b.tier)}</td><td>${b.min_score}–${b.max_score}</td></tr>`).join("");
+  const rows = v.checklist.map((it, i) => `<tr>
+      <td><input type="text" data-c="${i}" data-k="item_id" value="${esc(it.item_id)}"></td>
+      <td><input type="number" min="1" data-c="${i}" data-k="points" value="${it.points}"></td>
+      <td><input type="text" size="42" data-c="${i}" data-k="description" value="${esc(it.description)}"></td>
+      <td><input type="number" min="0" step="any" placeholder="—" data-c="${i}" data-k="half_life_days" value="${it.half_life_days ?? ""}"></td>
+      <td><button type="button" data-rm="${i}">×</button></td></tr>`).join("");
+  const wrows = v._weights.map((w, i) => `<tr>
+      <td><input type="text" data-w="${i}" data-k="match" value="${esc(w.match)}"></td>
+      <td><input type="number" min="0" max="1" step="any" data-w="${i}" data-k="weight" value="${w.weight}"></td>
+      <td><button type="button" data-wrm="${i}">×</button></td></tr>`).join("");
+  box.innerHTML = `
+    <p class="note">Task <b>${esc(v.task)}</b> · revision <code>${esc((v.revision_id || "").slice(0, 12))}</code> · total <span id="totalPts"><b>${v.total_points}</b>/${v.score_cap}</span></p>
+    <p class="note">Score, fit tier, and pass/fail are computed by the pipeline from this checklist. They cannot be edited here.</p>
+    <h3>Fixed score bands</h3>
+    <table><thead><tr><th>Tier</th><th>0–100 range</th></tr></thead><tbody>${bands}</tbody></table>
+    <label class="wide">Instructions<textarea data-f="instructions">${esc(v.instructions)}</textarea></label>
+    <h3>Evidence checklist</h3>
+    <table><thead><tr><th>Item id</th><th>Points</th><th>Description (what counts as true)</th><th>Half-life (days)</th><th></th></tr></thead><tbody>${rows}</tbody></table>
+    <p><button type="button" id="addItem">+ Add item</button></p>
+    <h3>Source weights</h3>
+    <table><thead><tr><th>URI substring</th><th>Weight 0–1</th><th></th></tr></thead><tbody>${wrows}</tbody></table>
+    <p><button type="button" id="addWeight">+ Add weight</button></p>
+    <div class="row">
+      <label>Default source weight<input type="number" min="0" max="1" step="any" data-f="default_source_weight" value="${v.default_source_weight}"></label>
+      <label>Pass score${v.has_pass ? "" : " (inert: no pass/fail claim)"}<input type="number" min="0" max="100" data-f="pass_score" value="${v.pass_score ?? ""}"></label>
+      <label>Min quote chars<input type="number" min="1" data-f="min_quote_chars" value="${v.min_quote_chars}"></label>
+    </div>
+    <p><button type="button" id="saveScoring">Save as new revision</button> <span id="scoringSaveMsg" class="note"></span></p>`;
+  wireScoring();
+}
+function wireScoring() {
+  const v = H.draft, box = document.getElementById("scoringBox");
+  box.querySelectorAll("[data-f]").forEach(el => {
+    el.onchange = () => {
+      const k = el.dataset.f;
+      if (k === "instructions") v.instructions = el.value;
+      else if (k === "pass_score") v.pass_score = el.value === "" ? null : +el.value;
+      else v[k] = +el.value;
+    };
+  });
+  box.querySelectorAll("[data-c]").forEach(el => {
+    el.onchange = () => {
+      const it = v.checklist[+el.dataset.c], k = el.dataset.k;
+      if (k === "points") { it.points = Math.max(1, parseInt(el.value, 10) || 1); el.value = it.points; updateTotal(); }
+      else if (k === "half_life_days") it.half_life_days = el.value === "" ? null : +el.value;
+      else it[k] = el.value;
+    };
+  });
+  box.querySelectorAll("[data-w]").forEach(el => {
+    el.onchange = () => { v._weights[+el.dataset.w][el.dataset.k] = el.dataset.k === "weight" ? +el.value : el.value; };
+  });
+  box.querySelectorAll("[data-rm]").forEach(el => {
+    el.onclick = () => { v.checklist.splice(+el.dataset.rm, 1); renderScoring(); };
+  });
+  box.querySelectorAll("[data-wrm]").forEach(el => {
+    el.onclick = () => { v._weights.splice(+el.dataset.wrm, 1); renderScoring(); };
+  });
+  document.getElementById("addItem").onclick = () => {
+    v.checklist.push({item_id: "item_" + (v.checklist.length + 1), points: 1, description: "", half_life_days: null});
+    renderScoring();
+  };
+  document.getElementById("addWeight").onclick = () => { v._weights.push({match: "", weight: 1}); renderScoring(); };
+  document.getElementById("saveScoring").onclick = saveScoring;
+}
+async function saveScoring() {
+  const v = H.draft, msg = document.getElementById("scoringSaveMsg");
+  msg.textContent = "saving…";
+  const patch = {
+    instructions: v.instructions,
+    checklist: v.checklist.map(it => ({
+      item_id: it.item_id, points: +it.points, description: it.description,
+      half_life_days: it.half_life_days === null || it.half_life_days === "" ? null : +it.half_life_days,
+    })),
+    source_weights: Object.fromEntries(v._weights.filter(w => w.match.trim()).map(w => [w.match.trim().toLowerCase(), +w.weight])),
+    default_source_weight: +v.default_source_weight,
+    pass_score: v.pass_score === null || v.pass_score === "" ? null : +v.pass_score,
+    min_quote_chars: +v.min_quote_chars,
+  };
+  try {
+    const r = await api("PUT", `/api/tasks/${encodeURIComponent(v.task)}/scoring`, patch,
+      {"If-Match": v.revision_id || ""});
+    useScoring(r.scoring);
+    await loadTasks();
+    document.getElementById("taskSel").value = r.scoring.task;
+    renderScoring();
+    document.getElementById("scoringSaveMsg").textContent =
+      r.scoring.revision_id === r.scoring.previous_revision_id
+        ? "no changes to save"
+        : `saved revision ${r.scoring.revision_id.slice(0, 12)} (previous ${r.scoring.previous_revision_id.slice(0, 12)})`;
+  } catch (e) { msg.textContent = "error: " + e.message; }
+}
+document.getElementById("taskLoad").onclick = () => loadScoring(document.getElementById("taskSel").value).catch(e => { document.getElementById("scoringMsg").textContent = "error: " + e.message; });
+document.getElementById("taskSel").onchange = () => loadScoring(document.getElementById("taskSel").value).catch(e => { document.getElementById("scoringMsg").textContent = "error: " + e.message; });
+document.getElementById("taskCreate").onclick = async () => {
+  const name = document.getElementById("newTaskName").value.trim();
+  const preset = document.getElementById("newTaskPreset").value;
+  try {
+    const r = await api("POST", "/api/tasks", {name, preset});
+    useScoring(r.scoring);
+    await loadTasks();
+    document.getElementById("taskSel").value = r.scoring.task;
+    document.getElementById("newTaskName").value = "";
+    document.getElementById("scoringMsg").textContent = "";
+    renderScoring();
+  } catch (e) { document.getElementById("scoringMsg").textContent = "error: " + e.message; }
+};
 document.getElementById("addStep").onclick = addStep;
 document.getElementById("refreshBtn").onclick = async () => {
   const m = document.getElementById("refreshMsg"); m.textContent = "refreshing…";

@@ -1008,6 +1008,12 @@ def cmd_serve(args: argparse.Namespace) -> None:
     run_mcp_server(args.workspace_root, args.db)
 
 
+def cmd_studio(args: argparse.Namespace) -> None:
+    from .studio import run_studio_server
+
+    run_studio_server(args.workspace_root, args.db, int(args.port))
+
+
 def _claude_config_candidates() -> list[Path]:
     home = Path.home()
     candidates: list[Path] = []
@@ -1617,6 +1623,11 @@ def build_parser() -> argparse.ArgumentParser:
     serve.add_argument("--workspace-root", default=".")
     serve.add_argument("--db", help="SQLite path below workspace root")
 
+    studio = commands.add_parser("studio", help="Serve the local harness studio UI (localhost only)")
+    studio.add_argument("--workspace-root", default=".")
+    studio.add_argument("--db", help="SQLite path below workspace root")
+    studio.add_argument("--port", type=int, default=8080, help="Localhost port (default: 8080)")
+
     mcp = commands.add_parser("mcp", help="MCP client integration")
     mcp_sub = mcp.add_subparsers(dest="mcp_command", required=True)
     mcp_install = mcp_sub.add_parser("install", help="Install MCP server entry into Claude/Cursor config (one-command setup)")
@@ -1735,6 +1746,7 @@ def main() -> None:
         "schema": cmd_schema,
         "doctor": cmd_doctor,
         "serve": cmd_serve,
+        "studio": cmd_studio,
         "quickstart": cmd_quickstart,
         "discover": cmd_discover,
         "fetch": cmd_fetch,

@@ -1,9 +1,10 @@
 """Declarative task contract loading and preset templates."""
 import math
+from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
-from .models import TaskSpec
+from .models import TIER_BY_SCORE, TaskSpec
 
 
 def _checklist_property(items: dict[str, int], descriptions: dict[str, str]) -> dict[str, Any]:
@@ -250,6 +251,277 @@ def create_task_from_preset(
             **(recency_half_lives or {}),
         },
     )
+
+
+# Fields a scoring editor may change. Everything else in a TaskSpec —
+# especially score, fit_tier, and passed — is derived by the pipeline from
+# checklist answers, so exposing them would reintroduce free-form grading.
+SCORING_EDITABLE_FIELDS = frozenset({
+    "instructions",
+    "checklist",
+    "source_weights",
+    "default_source_weight",
+    "pass_score",
+    "evidence_terms",
+    "half_lives",
+    "min_quote_chars",
+    "batch_size",
+    "max_slice_chars",
+    "candidate_top_n",
+})
+SCORING_LOCKED_FIELDS = frozenset({"score", "fit_tier", "passed", "tier_bands", "claims_schema"})
+_CHECKLIST_ITEM_FIELDS = frozenset({"item_id", "points", "description", "half_life_days"})
+
+
+def tier_bands() -> list[dict[str, Any]]:
+    """Read-only 0-100 score bands, in descending order of minimum score."""
+    ordered = sorted(TIER_BY_SCORE, key=lambda pair: pair[0], reverse=True)
+    bands: list[dict[str, Any]] = []
+    for index, (threshold, tier) in enumerate(ordered):
+        upper = 100 if index == 0 else ordered[index - 1][0] - 1
+        bands.append({"tier": tier, "min_score": threshold, "max_score": upper})
+    return bands
+
+
+def _checklist_descriptions(spec: TaskSpec) -> dict[str, str]:
+    """Item descriptions carried in the claims schema's checklist property."""
+    properties = spec.claims_schema.get("properties", {}) if isinstance(spec.claims_schema, dict) else {}
+    checklist_prop = properties.get("checklist") if isinstance(properties, dict) else None
+    item_props = checklist_prop.get("properties", {}) if isinstance(checklist_prop, dict) else {}
+    descriptions: dict[str, str] = {}
+    for item_id, described in (item_props or {}).items():
+        if isinstance(described, dict):
+            descriptions[str(item_id)] = str(described.get("description") or "")
+    return descriptions
+
+
+def scoring_view(spec: TaskSpec) -> dict[str, Any]:
+    """Plain-language read model of a task's scoring contract.
+
+    This is a view over the typed TaskSpec, not a second scoring engine:
+    checklist items and points are editable calibration, while score,
+    fit_tier, and passed stay pipeline-derived and are reported as fixed.
+    """
+    properties = spec.claims_schema.get("properties", {}) if isinstance(spec.claims_schema, dict) else {}
+    descriptions = _checklist_descriptions(spec)
+    items = [
+        {
+            "item_id": item_id,
+            "points": int(points),
+            "description": descriptions.get(item_id, ""),
+            "half_life_days": spec.recency_half_lives.get(item_id),
+        }
+        for item_id, points in (spec.checklist or {}).items()
+    ]
+    return {
+        "task": spec.name,
+        "scorable": spec.checklist is not None,
+        "derived": True,
+        "instructions": spec.instructions,
+        "checklist": items,
+        "total_points": sum(int(points) for points in (spec.checklist or {}).values()),
+        "score_cap": 100,
+        "tier_bands": tier_bands(),
+        "has_fit_tier": isinstance(properties, dict) and "fit_tier" in properties,
+        "has_pass": isinstance(properties, dict) and "passed" in properties,
+        "pass_score": spec.pass_score,
+        "source_weights": dict(spec.source_weights),
+        "default_source_weight": float(spec.default_source_weight),
+        "evidence_terms": list(spec.evidence_terms),
+        "min_quote_chars": spec.min_quote_chars,
+        "batch_size": spec.batch_size,
+        "max_slice_chars": spec.max_slice_chars,
+        "candidate_top_n": spec.candidate_top_n,
+    }
+
+
+def _positive_days(item_id: str, value: Any) -> float:
+    if isinstance(value, bool):
+        raise ValueError(f"half-life for '{item_id}' must be a number of days")
+    try:
+        days = float(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"half-life for '{item_id}' must be a number of days") from exc
+    if not math.isfinite(days) or days <= 0:
+        raise ValueError(f"half-life for '{item_id}' must be a positive number of days")
+    return days
+
+
+def _integer_field(name: str, value: Any, low: int, high: int) -> int:
+    """Validate an integer field, rejecting bools, floats, and out-of-range values."""
+    if isinstance(value, bool):
+        raise ValueError(f"{name} must be an integer")
+    try:
+        number = float(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{name} must be an integer") from exc
+    if not math.isfinite(number) or not number.is_integer():
+        raise ValueError(f"{name} must be an integer")
+    result = int(number)
+    if not low <= result <= high:
+        raise ValueError(f"{name} must be between {low} and {high}")
+    return result
+
+
+def _edited_checklist(
+    patch: Any,
+    descriptions: dict[str, str],
+    existing_half_lives: dict[str, float],
+) -> tuple[dict[str, int], dict[str, str], dict[str, float]]:
+    """Validate an edited checklist into items, descriptions, and half-lives.
+
+    A checklist entry is a full replacement for that item. An omitted
+    ``half_life_days`` key preserves the stored value; an explicit null or
+    empty string clears it, so a client that posts partial rows cannot
+    silently drop recency calibration.
+    """
+    if not isinstance(patch, list) or not patch:
+        raise ValueError("checklist must be a non-empty list of items")
+    items: dict[str, int] = {}
+    edited_descriptions: dict[str, str] = {}
+    half_lives: dict[str, float] = {}
+    for entry in patch:
+        if not isinstance(entry, dict):
+            raise ValueError("each checklist item must be an object")
+        unknown = sorted(set(entry) - _CHECKLIST_ITEM_FIELDS)
+        if unknown:
+            raise ValueError(f"unsupported checklist item fields: {unknown}")
+        item_id = str(entry.get("item_id") or "").strip()
+        if not item_id:
+            raise ValueError("checklist item ids must be non-empty strings")
+        if item_id in items:
+            raise ValueError(f"duplicate checklist item id: {item_id}")
+        points = _integer_field(f"checklist points for '{item_id}'", entry.get("points"), 1, 100)
+        items[item_id] = points
+        # Blank descriptions fall through to _checklist_property's generic text.
+        text = str(entry.get("description") or descriptions.get(item_id, "")).strip()
+        if text:
+            edited_descriptions[item_id] = text
+        if "half_life_days" in entry:
+            half_life = entry.get("half_life_days")
+            if half_life not in (None, ""):
+                half_lives[item_id] = _positive_days(item_id, half_life)
+        elif item_id in existing_half_lives:
+            half_lives[item_id] = float(existing_half_lives[item_id])
+    return items, edited_descriptions, half_lives
+
+
+def apply_scoring_edit(spec: TaskSpec, patch: Any) -> TaskSpec:
+    """Return a new TaskSpec with structured scoring edits applied.
+
+    Only evidence-level calibration is accepted: checklist items and points,
+    source weights, recency half-lives, the pass threshold, and the
+    instruction text. Score, fit_tier, and passed are pipeline-derived, and
+    a replacement claims_schema is rejected, so a UI can tune the rubric
+    without ever grading a record by hand.
+    """
+    if not isinstance(patch, dict):
+        raise ValueError("scoring patch must be a JSON object")
+    unknown = sorted(set(patch) - SCORING_EDITABLE_FIELDS)
+    if unknown:
+        locked = sorted(set(unknown) & SCORING_LOCKED_FIELDS)
+        if locked:
+            raise ValueError(
+                f"{', '.join(locked)} is derived by the pipeline and cannot be edited; "
+                "edit the evidence checklist and weights instead"
+            )
+        raise ValueError(f"unsupported scoring fields: {unknown}")
+    if spec.checklist is None:
+        raise ValueError(f"task '{spec.name}' has no scoring checklist to edit")
+
+    payload = spec.model_dump(mode="json", by_alias=True)
+    half_lives = dict(spec.recency_half_lives)
+    effective_items = dict(spec.checklist)
+
+    if "instructions" in patch:
+        text = str(patch["instructions"]).strip()
+        if not text:
+            raise ValueError("instructions must not be empty")
+        payload["instructions"] = text
+
+    if "checklist" in patch:
+        items, descriptions, half_lives = _edited_checklist(
+            patch["checklist"], _checklist_descriptions(spec), spec.recency_half_lives
+        )
+        effective_items = items
+        payload["checklist"] = items
+        schema = deepcopy(spec.claims_schema)
+        schema.setdefault("properties", {})["checklist"] = _checklist_property(items, descriptions)
+        payload["claims_schema"] = schema
+
+    if "half_lives" in patch:
+        raw_halves = patch["half_lives"]
+        if not isinstance(raw_halves, dict):
+            raise ValueError("half_lives must be an object of checklist item id to days")
+        half_lives = {}
+        for item_id, value in raw_halves.items():
+            if item_id not in effective_items:
+                raise ValueError(f"half-life for '{item_id}' names no checklist item")
+            half_lives[item_id] = _positive_days(item_id, value)
+    payload["recency_half_lives"] = half_lives
+
+    if "source_weights" in patch:
+        raw_weights = patch["source_weights"]
+        if not isinstance(raw_weights, dict):
+            raise ValueError("source_weights must be an object of URI substring to weight")
+        weights: dict[str, float] = {}
+        for match, value in raw_weights.items():
+            key = str(match).strip().casefold()
+            if not key:
+                raise ValueError("source weight keys must be non-empty strings")
+            if isinstance(value, bool):
+                raise ValueError(f"source weight for '{key}' must be a number 0-1")
+            try:
+                weight = float(value)
+            except (TypeError, ValueError) as exc:
+                raise ValueError(f"source weight for '{key}' must be a number 0-1") from exc
+            if not math.isfinite(weight) or not 0.0 <= weight <= 1.0:
+                raise ValueError(f"source weight for '{key}' must be between 0 and 1")
+            weights[key] = weight
+        payload["source_weights"] = weights
+
+    if "default_source_weight" in patch:
+        if isinstance(patch["default_source_weight"], bool):
+            raise ValueError("default_source_weight must be a number 0-1")
+        try:
+            default_weight = float(patch["default_source_weight"])
+        except (TypeError, ValueError) as exc:
+            raise ValueError("default_source_weight must be a number 0-1") from exc
+        if not math.isfinite(default_weight) or not 0.0 <= default_weight <= 1.0:
+            raise ValueError("default_source_weight must be between 0 and 1")
+        payload["default_source_weight"] = default_weight
+
+    if "pass_score" in patch:
+        value = patch["pass_score"]
+        if value in (None, ""):
+            payload["pass_score"] = None
+        else:
+            payload["pass_score"] = _integer_field("pass_score", value, 0, 100)
+
+    if "evidence_terms" in patch:
+        raw_terms = patch["evidence_terms"]
+        if not isinstance(raw_terms, list):
+            raise ValueError("evidence_terms must be a list of non-empty strings")
+        terms = []
+        for term in raw_terms:
+            text = str(term).strip()
+            if not text:
+                raise ValueError("evidence_terms must be non-empty strings")
+            terms.append(text)
+        payload["evidence_terms"] = terms
+
+    # Bounds mirror the TaskSpec field constraints, so invalid values fail here
+    # with a readable message instead of a pydantic ValidationError dump.
+    for field, low, high in (
+        ("min_quote_chars", 1, 10_000),
+        ("batch_size", 1, 100),
+        ("max_slice_chars", 300, 100_000),
+        ("candidate_top_n", 1, 32),
+    ):
+        if field in patch:
+            payload[field] = _integer_field(field, patch[field], low, high)
+
+    return TaskSpec.model_validate(payload)
 
 
 def load_task_spec(task_path: str | Path) -> TaskSpec:
