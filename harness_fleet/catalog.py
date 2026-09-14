@@ -86,6 +86,24 @@ def is_free_in_schema(model_data: dict) -> bool:
     return classify_price_state(model_data) is PriceState.PRICE_OBSERVED_ZERO
 
 
+def supports_text_completion(model_data: dict) -> bool:
+    """False only when the model's *output* is known to include a non-text modality.
+
+    OpenRouter genuinely reports zero pricing for two Lyria preview models whose
+    output is audio. They can never satisfy a text-inference task contract, so
+    price evidence alone must not put them in the free-route ladder. Fails open:
+    with no modality metadata (CLI harness model listings carry none) the model
+    is kept, because missing evidence is not evidence of unsuitability.
+    """
+    architecture = model_data.get("architecture")
+    if not isinstance(architecture, dict):
+        return True
+    modalities = architecture.get("output_modalities")
+    if not isinstance(modalities, list) or not modalities:
+        return True
+    return set(modalities) <= {"text"}
+
+
 def _apply_price_evidence(route: dict, price_state: PriceState) -> None:
     """Keep the stored cost fields consistent with the route's price state.
 
@@ -638,6 +656,20 @@ class RouteCatalog:
                 continue
             route_id = f"openrouter/{raw_id}" if not raw_id.startswith("openrouter/") else raw_id
             seen_route_ids.add(route_id)
+            if not supports_text_completion(m):
+                # Free but the wrong shape of model (for example an audio
+                # generator): it must never enter the ladder a text batch is
+                # routed through, however cheap it is.
+                existing = known.get(route_id)
+                if existing is not None:
+                    existing["enabled"] = False
+                    existing["price_state"] = PriceState.UNKNOWN.value
+                    existing["disabled_reason"] = (
+                        "model output modality is not text; unusable for text inference"
+                    )
+                    existing["disabled_at"] = time.time()
+                    _apply_price_evidence(existing, PriceState.UNKNOWN)
+                continue
             price_state = classify_price_state(m)
 
             pricing = m.get("pricing") or m.get("cost") or {}

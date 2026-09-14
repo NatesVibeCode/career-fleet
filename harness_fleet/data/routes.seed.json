@@ -295,28 +295,6 @@
       "verification_source": "packaged route hint; refresh required"
     },
     {
-      "id": "openrouter/google/lyria-3-pro-preview",
-      "provider": "openrouter",
-      "enabled": false,
-      "price_state": "candidate",
-      "auth": "api-key",
-      "cost_per_1k_input": 0.0,
-      "cost_per_1k_output": 0.0,
-      "last_verified": null,
-      "verification_source": "packaged route hint; refresh required"
-    },
-    {
-      "id": "openrouter/google/lyria-3-clip-preview",
-      "provider": "openrouter",
-      "enabled": false,
-      "price_state": "candidate",
-      "auth": "api-key",
-      "cost_per_1k_input": 0.0,
-      "cost_per_1k_output": 0.0,
-      "last_verified": null,
-      "verification_source": "packaged route hint; refresh required"
-    },
-    {
       "id": "openrouter/nvidia/nemotron-3-super-120b-a12b:free",
       "provider": "openrouter",
       "enabled": false,

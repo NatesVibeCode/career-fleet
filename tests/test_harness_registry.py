@@ -299,3 +299,96 @@ def test_unverified_hint_with_zero_costs_is_not_treated_as_free():
     assert is_observed_zero_price_route(
         {"cost_per_1k_input": None, "cost_per_1k_output": None}
     ) is False
+
+
+def test_zero_priced_audio_model_is_never_admitted(tmp_path, monkeypatch):
+    """Genuinely free but non-text output: cheap is not the same as usable.
+
+    OpenRouter reports 0/0 for two Lyria preview models whose output is audio,
+    so price evidence alone would put them in the ladder a text batch routes
+    through.
+    """
+    import harness_fleet.catalog as catalog_module
+    from harness_fleet.catalog import supports_text_completion
+
+    assert supports_text_completion({"architecture": {"output_modalities": ["text"]}}) is True
+    assert supports_text_completion({"architecture": {"output_modalities": ["text", "audio"]}}) is False
+    # Missing modality metadata must fail open, not drop routes.
+    assert supports_text_completion({}) is True
+    assert supports_text_completion({"architecture": {}}) is True
+    assert supports_text_completion({"architecture": {"output_modalities": []}}) is True
+
+    catalog = RouteCatalog(db_path=tmp_path / "fleet.db")
+
+    class _Response:
+        status_code = 200
+        def json(self):
+            return {"data": [
+                {"id": "google/lyria-3-pro-preview",
+                 "architecture": {"output_modalities": ["text", "audio"]},
+                 "pricing": {"prompt": "0", "completion": "0"}},
+                {"id": "vendor/real-text-model:free",
+                 "architecture": {"output_modalities": ["text"]},
+                 "pricing": {"prompt": "0", "completion": "0"}},
+            ]}
+
+    class _Client:
+        def __init__(self, *a, **k): pass
+        def __enter__(self): return self
+        def __exit__(self, *a): return None
+        def get(self, url, **k): return _Response()
+
+    monkeypatch.setattr(catalog_module.httpx, "Client", _Client)
+    catalog.refresh_from_openrouter()
+
+    routes = {r["id"]: r for r in catalog.data["routes"]}
+    assert "openrouter/google/lyria-3-pro-preview" not in routes
+    assert "openrouter/google/lyria-3-pro-preview" not in {r["id"] for r in catalog.get_routes(free_only=True)}
+
+    text_model = routes["openrouter/vendor/real-text-model:free"]
+    assert text_model["price_state"] == "price_observed_zero"
+    assert text_model["enabled"] is True
+
+
+def test_an_admitted_audio_route_is_disabled_by_the_next_refresh(tmp_path, monkeypatch):
+    """A database seeded before the guard existed must be repaired, not left usable."""
+    import harness_fleet.catalog as catalog_module
+
+    catalog = RouteCatalog(db_path=tmp_path / "fleet.db")
+    catalog.data["routes"].append({
+        "id": "openrouter/google/lyria-3-clip-preview",
+        "provider": "openrouter",
+        "enabled": True,
+        "price_state": "price_observed_zero",
+        "cost_per_1k_input": 0.0,
+        "cost_per_1k_output": 0.0,
+    })
+    catalog.save()
+    assert "openrouter/google/lyria-3-clip-preview" in {
+        r["id"] for r in catalog.get_routes(free_only=True)
+    }
+
+    class _Response:
+        status_code = 200
+        def json(self):
+            return {"data": [{
+                "id": "google/lyria-3-clip-preview",
+                "architecture": {"output_modalities": ["text", "audio"]},
+                "pricing": {"prompt": "0", "completion": "0"},
+            }]}
+
+    class _Client:
+        def __init__(self, *a, **k): pass
+        def __enter__(self): return self
+        def __exit__(self, *a): return None
+        def get(self, url, **k): return _Response()
+
+    monkeypatch.setattr(catalog_module.httpx, "Client", _Client)
+    catalog.refresh_from_openrouter()
+
+    route = {r["id"]: r for r in catalog.data["routes"]}["openrouter/google/lyria-3-clip-preview"]
+    assert route["enabled"] is False
+    assert route["price_state"] == "unknown"
+    assert "not text" in route["disabled_reason"]
+    assert route.get("cost_per_1k_input") is None
+    assert route["id"] not in {r["id"] for r in catalog.get_routes(free_only=True)}
