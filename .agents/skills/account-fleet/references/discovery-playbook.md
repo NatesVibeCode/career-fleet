@@ -125,9 +125,11 @@ account-fleet fetch --url https://example.com/blog/scaling-postgres --output acc
 account-fleet fetch --url https://example.com/app --js --output accounts.csv
 ```
 
-Article parsing prefers `trafilatura`, then `readability-lxml`, then a stdlib
+Article parsing prefers `readability-lxml`, then `trafilatura`, then a stdlib
 fallback that skips nav/footer/chat chrome (all three in the `discover`
-extra, which also adds `pypdf` for PDF URLs). Fetching is polite by default:
+extra, which also adds `pypdf` for PDF URLs). Hidden script/style blocks are
+stripped before extraction so code never leaks into citable text, and thin
+pages fall back to JSON-LD article bodies. Fetching is polite by default:
 robots.txt honored (Allow/Disallow longest-match), 1s delay between fetches,
 2MB per-page cap. Fetched `text` is stored verbatim so
 exact-offset quote verification keeps working unchanged.

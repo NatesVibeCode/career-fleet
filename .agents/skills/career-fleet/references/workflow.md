@@ -12,11 +12,26 @@ PROFILE=profile.json
 
 career-fleet discover --source yc --target W24 --max 30 --db "$DB"
 # Or use: greenhouse, ashby, lever, or site with its matching target.
+# Community evidence is career-filtered and attribution-safe:
+career-fleet discover --source reddit --target "hiring platform engineers" --subreddit startups --db "$DB"
+career-fleet discover --source hn --target "who is hiring distributed systems" --db "$DB"
+career-fleet discover --source discourse --target https://discuss.python.org --query hiring --db "$DB"
+career-fleet signals --unlinked --db "$DB"
 career-fleet triage --db "$DB" --profile "$PROFILE"
 career-fleet recon --lane all --db "$DB" --profile "$PROFILE"
 career-fleet list --status qualified --db "$DB"
 career-fleet export --db "$DB" --output qualified_targets.json
 ```
+
+For the standard community pass, use the pre-filled workspace plan instead of
+constructing source arguments manually:
+
+```bash
+career-fleet discover --source community --db "$DB"
+```
+
+The plan lives in `career_sources.json` and records the exact deterministic
+inputs used for each community source.
 
 Discovery is refresh-safe: rerunning a source replaces that source's stale
 records and lane results while preserving records captured from other sources
@@ -29,6 +44,20 @@ Source targets are:
 - `ashby`: the public organization token, such as `linear`.
 - `lever`: the public organization token.
 - `site`: an absolute `http://` or `https://` URL to crawl.
+- `reddit`: a career-focused query; add `--subreddit` to restrict it, or use
+  `--reddit-rss` for fresh posts.
+- `hn`: a career-focused Hacker News query.
+- `stackexchange`: a career-focused question query; use `--se-site` and
+  `--se-tagged` for the site/tag scope.
+- `discourse`: `--target` is the Discourse instance and `--query` is optional.
+- `lobsters`: a tag such as `jobs`, or `newest` with `--query`.
+- `lemmy`: a career-focused query; `--lemmy-instance` selects the instance.
+- `devto`: a Dev.to tag such as `career` or `jobs`.
+
+Community records are retained in SQLite even when they cannot be attributed
+to a company. Only one unambiguous external company domain creates a company
+posting; inspect unlinked leads with `career-fleet signals --unlinked` rather
+than treating a forum host as the employer.
 
 ## Understand statuses
 

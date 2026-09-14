@@ -15,7 +15,9 @@ career-fleet --version
 
 On Windows, create the environment with `py -m venv .venv`, activate `.venv\Scripts\activate`, and use `py -m pip`.
 
-The `discover` extra enables broad web-page extraction and search helpers. YC and the structured ATS APIs work with the base package.
+The `discover` extra enables broad web-page extraction and search helpers.
+YC and the structured ATS APIs work with the base package; community sources
+use the same optional discovery extra and are filtered for career signals.
 
 ## Initialize a workspace
 
@@ -27,7 +29,7 @@ career-fleet setup --workspace-root .
 career-fleet profile
 ```
 
-This creates `profile.json`, `career_fleet.db`, and `.agents/skills/career-fleet/`. The generated profile is neutral. Edit `profile.json` before screening anyone's opportunities.
+This creates `profile.json`, `career_fleet.db`, `career_sources.json`, and `.agents/skills/career-fleet/`. The generated profile is neutral. Edit `profile.json` before screening anyone's opportunities. The source plan is visible and editable; its defaults are generic career sources, not assumptions about the user's location or workplace policy.
 
 `profile.json` is the human-editable authoring file. `career-fleet init`,
 `career-fleet profile`, and the screening lanes persist the active IEP in
@@ -73,3 +75,24 @@ test -f .agents/skills/career-fleet/SKILL.md
 In PowerShell, use `Test-Path` in place of `test -f`.
 
 Keep the database and profile local. They may contain source-derived or private career data and are ignored by the repository defaults.
+
+### Career-focused community leads
+
+After editing the profile, use the pre-filled source plan. This runs every
+enabled community source with deterministic career defaults:
+
+```bash
+career-fleet sources
+career-fleet discover --source community --profile profile.json --db career_fleet.db
+career-fleet signals --unlinked --db career_fleet.db
+```
+
+Edit `career_sources.json` to enable or disable a source, change its public
+community or tag, or add another preset. Use explicit `discover` flags only
+for an advanced one-off run.
+
+Career Fleet keeps these records in SQLite. It creates a company posting only
+when one external employer domain is attributable; otherwise the record stays
+an unlinked lead for review. See [community-sourcing.md](community-sourcing.md)
+for the full Reddit, HN, Stack Exchange, Discourse, Lobsters, Lemmy, and Dev.to
+source matrix.
