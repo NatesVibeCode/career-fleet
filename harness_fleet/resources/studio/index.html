@@ -60,9 +60,6 @@
   .ok { background: #2a2; } .no { background: #a22; }
   .models { font-size: 0.85rem; columns: 2; }
   .models label { display: block; break-inside: avoid; padding: 2px 0; }
-  .route-group { margin: 2px 0; display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: center; }
-  .route-group b { font-size: 0.78rem; opacity: 0.75; }
-  .routes-preview { font-size: 0.82rem; margin: 4px 0; }
   .hm { border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; margin: 8px 0; }
   .hm-head { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
   .hm-head .spacer { flex: 1; }
@@ -82,13 +79,11 @@
   .badge { font-size: 0.72rem; border: 1px solid var(--line); border-radius: 6px; padding: 0 5px; margin-left: 6px; }
   .pill { font-size: 0.72rem; border: 1px solid var(--line); border-radius: 999px; padding: 1px 8px; opacity: 0.9; }
   .pill.dirty { color: var(--warn); border-color: var(--warn); }
-  .step { border: 1px solid var(--line); border-radius: 10px; padding: 10px; margin: 10px 0; }
   .row { display: flex; flex-wrap: wrap; gap: 10px; align-items: end; margin: 6px 0; }
   .row label { display: flex; flex-direction: column; font-size: 0.8rem; gap: 2px; }
   .actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin: 10px 0; }
   input[type=number] { width: 7em; }
   textarea { width: 100%; min-height: 64px; font-family: monospace; font-size: 0.8rem; box-sizing: border-box; }
-  #runBtn { font-size: 1.05rem; }
   .empty { border: 1px dashed var(--line); border-radius: 12px; padding: 18px; text-align: center; opacity: 0.9; }
   .stale { border-left: 4px solid var(--warn); padding: 8px 10px; margin: 8px 0; border-radius: 6px; background: color-mix(in srgb, var(--warn) 12%, transparent); }
   .grid { width: 100%; }
@@ -98,75 +93,68 @@
   .bar { height: 8px; border-radius: 999px; background: var(--line); overflow: hidden; margin: 6px 0 2px; }
   .bar > i { display: block; height: 100%; background: var(--accent); transition: width 0.15s ease; }
   .bar.over > i { background: var(--warn); }
-  .result { border-left: 4px solid var(--accent); padding: 6px 10px; margin: 8px 0; }
-  .result.failed { border-color: var(--bad); }
   @media (max-width: 640px) { .models { columns: 1; } }
 </style>
 </head>
 <body>
 <h1>Harness Studio</h1>
 <p class="meta" id="metaLine"></p>
-<p>Start at <b>3 · Scoring contract</b> to define what counts as a good target — the evidence checklist, points, source weights, and recency. Then pick harnesses and models, build steps, and run. Paid routes never run without an explicit opt-in.</p>
+<p class="hint">Settings companion: choose harnesses and models, tune the scoring contract. Runs happen from the CLI or MCP, which read these settings.</p>
 
-<h2>1 · Harnesses</h2>
-<div id="cards"></div>
+<details open>
+  <summary>Harnesses</summary>
+  <div id="cards"></div>
+</details>
 
-<h2>2 · Models</h2>
-<div id="modelsBox">
-  <div class="row">
-    <label>Model scope
-      <select id="scopeSel">
-        <option value="all-free">All free routes</option>
-        <option value="specific">Specific models…</option>
-      </select>
-    </label>
-    <button id="refreshBtn" type="button">Refresh all</button>
-    <span id="refreshMsg" class="hint"></span>
+<details open>
+  <summary>Models</summary>
+  <div id="modelsBox">
+    <div class="row">
+      <label>Model scope
+        <select id="scopeSel">
+          <option value="all-free">All free routes</option>
+          <option value="specific">Specific models…</option>
+        </select>
+      </label>
+      <button id="refreshBtn" type="button">Refresh all</button>
+      <span id="refreshMsg" class="hint"></span>
+    </div>
+    <p class="hint" id="modelSummary"></p>
+    <div id="refreshBox"></div>
+    <div id="providers"></div>
+    <div id="specificBox" hidden>
+      <input type="search" id="modelSearch" placeholder="Search models by name…" autocomplete="off">
+      <div id="modelResults" class="results"></div>
+      <p class="hint" id="pickedChips"></p>
+    </div>
   </div>
-  <p class="hint" id="modelSummary"></p>
-  <p class="hint">Free means <b>verified</b> zero price (<span class="badge">price_observed_zero</span>); unpriced routes are never picked automatically.</p>
-  <div id="refreshBox"></div>
-  <div id="providers"></div>
-  <div id="specificBox" hidden>
-    <input type="search" id="modelSearch" placeholder="Search models by name…" autocomplete="off">
-    <div id="modelResults" class="results"></div>
-    <p class="hint" id="pickedChips"></p>
-  </div>
-</div>
+</details>
 
-<h2>3 · Scoring contract</h2>
-<div class="panel">
-  <p class="hint">A view over the task's typed spec. The pipeline derives <b>score</b>, <b>fit tier</b>, and <b>pass/fail</b> from the evidence checklist, so you tune the evidence rules here — never a per-record score.</p>
-  <div class="row">
-    <label>Task<select id="taskSel"></select></label>
-    <button id="taskLoad" type="button">Reload</button>
-    <button id="taskDup" type="button">Duplicate…</button>
-    <span id="dirtyPill" class="pill dirty" hidden>● unsaved changes</span>
+<details>
+  <summary>Scoring contract</summary>
+  <div class="panel">
+    <div class="row">
+      <label>Task<select id="taskSel"></select></label>
+      <button id="taskLoad" type="button">Reload</button>
+      <button id="taskDup" type="button">Duplicate…</button>
+      <span id="dirtyPill" class="pill dirty" hidden>● unsaved changes</span>
+    </div>
+    <div class="row">
+      <label>New task name<input type="text" id="newTaskName" placeholder="my-scoring-task" pattern="[A-Za-z0-9_.-]+" title="letters, digits, and _ . - only"></label>
+      <label>Preset<select id="newTaskPreset"></select></label>
+      <button id="taskCreate" type="button">Create</button>
+    </div>
+    <p id="presetHelp" class="hint"></p>
+    <p id="scoringMsg" class="note"></p>
   </div>
-  <div class="row">
-    <label>New task name<input type="text" id="newTaskName" placeholder="my-scoring-task" pattern="[A-Za-z0-9_.-]+" title="letters, digits, and _ . - only"></label>
-    <label>Preset<select id="newTaskPreset"></select></label>
-    <button id="taskCreate" type="button">Create</button>
-    <span class="hint">name allows letters, digits, <code>_ . -</code></span>
-  </div>
-  <p id="presetHelp" class="hint"></p>
-  <p id="scoringMsg" class="note"></p>
-</div>
-<div id="scoringBox"></div>
-
-<h2>4 · Steps</h2>
-<div id="steps"></div>
+  <div id="scoringBox"></div>
+</details>
 <datalist id="taskNames"></datalist>
-<p><button id="addStep" type="button">+ Add step</button></p>
-
-<h2>5 · Run</h2>
-<p><button id="runBtn" type="button">Run plan</button> <span id="runMsg"></span></p>
-<div id="results"></div>
 
 <script>
 const H = { harnesses: [], routes: [], presets: [], tasks: [], scoring: null, draft: null, meta: null,
   refresh: {}, scope: "all-free", providersOff: new Set(), dirty: false, stale: false,
-  enabled: new Set(), picked: new Set(), steps: [] };
+  enabled: new Set(), picked: new Set() };
 
 async function api(method, path, body, headers) {
   const r = await fetch(path, { method, headers: {"Content-Type": "application/json", ...(headers || {})},
@@ -189,7 +177,7 @@ async function load() {
   renderMeta();
   watchBuild();
   H.harnesses.forEach(h => { if (h.available) H.enabled.add(h.name); });
-  renderCards(); renderModels(); addStep();
+  renderCards(); renderModels();
   document.getElementById("newTaskPreset").innerHTML = H.presets.map(p => `<option ${p === "score" ? "selected" : ""}>${esc(p)}</option>`).join("");
   updatePresetHelp();
   await loadTasks();
@@ -282,7 +270,6 @@ function selectedRoutes() {
   }
   return H.routes.filter(r => H.picked.has(r.id));
 }
-function selectedRouteIds() { return selectedRoutes().map(r => r.id); }
 function setScope(scope) {
   H.scope = scope;
   if (scope === "specific" && H.picked.size === 0) {
@@ -349,14 +336,13 @@ function renderModels() {
 
   if (H.scope === "specific") renderModelSearch();
   renderModelSummary();
-  renderSteps();
 }
 function renderModelSearch() {
   const query = (document.getElementById("modelSearch").value || "").trim().toLowerCase();
   const box = document.getElementById("modelResults"); box.innerHTML = "";
   const pool = H.routes.filter(r => providerIncluded(r.provider) && (!query || r.id.toLowerCase().includes(query)));
   const shown = pool.slice(0, 40);
-  shown.forEach(r => box.appendChild(routeCheckbox(r, () => { renderModelSummary(); renderSteps(); })));
+  shown.forEach(r => box.appendChild(routeCheckbox(r, renderModelSummary)));
   if (!pool.length) {
     const none = document.createElement("p"); none.className = "hint";
     none.textContent = "no matching models"; box.appendChild(none);
@@ -432,53 +418,6 @@ function renderRefreshSummary(counts, errors) {
   box.innerHTML = `
     ${line ? `<p class="hint">${line}</p>` : ""}
     ${errors.length ? `<details class="errors-box"><summary>${errors.length} provider error(s) — these CLIs reported an auth or environment problem</summary><ul class="errors">${errorList}</ul></details>` : ""}`;
-}
-function stepDefaults() {
-  return { task: "", preset: "score", itemsText: '[{"item_id": "i1", "text": "paste source text here"}]',
-    max_attempts: 20, concurrency: 2, max_per_batch: 3,
-    max_request_cost: "", allow_paid: false, paid_note: "" };
-}
-function addStep() { H.steps.push(stepDefaults()); renderSteps(); }
-function renderSteps() {
-  const box = document.getElementById("steps"); box.innerHTML = "";
-  const selected = selectedRoutes();
-  const routeGroups = new Map();
-  selected.forEach(r => {
-    if (!routeGroups.has(r.provider)) routeGroups.set(r.provider, []);
-    routeGroups.get(r.provider).push(r);
-  });
-  const routeChips = [...routeGroups.entries()].map(([provider, routes]) => {
-    const shown = routes.slice(0, 4).map(r => `<span class="pill">${esc(r.id)}</span>`).join("");
-    const more = routes.length > 4 ? `<span class="muted">+${routes.length - 4} more</span>` : "";
-    return `<div class="route-group"><b>${esc(provider)}</b>${shown}${more}</div>`;
-  }).join("");
-  const routeCount = `<span class="muted">${selected.length} route(s)</span>`;
-  H.steps.forEach((s, i) => {
-    const d = document.createElement("div"); d.className = "step";
-    d.innerHTML = `<b>Step ${i + 1}</b> <button type="button" data-del="${i}">remove</button>
-      <div class="row">
-        <label>Task name (existing)<input type="text" list="taskNames" data-f="task" data-s="${i}" value="${esc(s.task)}" placeholder="optional if preset"></label>
-        <label>Preset<select data-f="preset" data-s="${i}">${H.presets.map(p => `<option ${p === s.preset ? "selected" : ""}>${esc(p)}</option>`).join("")}</select></label>
-        <label>Max attempts<input type="number" data-f="max_attempts" data-s="${i}" value="${s.max_attempts}" min="1"></label>
-        <label>Sessions<input type="number" data-f="concurrency" data-s="${i}" value="${s.concurrency}" min="1"></label>
-        <label>Max per batch<input type="number" data-f="max_per_batch" data-s="${i}" value="${s.max_per_batch}" min="1"></label>
-        <label>Max $/request<input type="number" data-f="max_request_cost" data-s="${i}" value="${s.max_request_cost}" min="0" step="any" placeholder="none"></label>
-      </div>
-      <div class="routes-preview">Routes (from model scope) ${routeCount}: ${routeChips || "<i>none — set the scope above</i>"}</div>
-      <div class="row"><label><span><input type="checkbox" data-f="allow_paid" data-s="${i}" ${s.allow_paid ? "checked" : ""}> allow paid routes for this step</span></label>
-      <label>Trust note (recorded)<input type="text" data-f="paid_note" data-s="${i}" value="${esc(s.paid_note)}" size="48" placeholder="e.g. claude for career scoring: personal data"></label></div>
-      <label>Items (JSON array)<textarea data-f="itemsText" data-s="${i}">${esc(s.itemsText)}</textarea></label>`;
-    box.appendChild(d);
-  });
-  box.querySelectorAll("[data-f]").forEach(el => {
-    el.onchange = () => {
-      const s = H.steps[+el.dataset.s], f = el.dataset.f;
-      s[f] = el.type === "checkbox" ? el.checked : el.value;
-    };
-  });
-  box.querySelectorAll("[data-del]").forEach(el => {
-    el.onclick = () => { H.steps.splice(+el.dataset.del, 1); renderSteps(); };
-  });
 }
 /* ---- Scoring contract panel: a view over the typed TaskSpec ---- */
 function esc(s) { return String(s ?? "").replace(/[&<>"]/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[c])); }
@@ -707,30 +646,6 @@ document.getElementById("taskDup").onclick = async () => {
   } catch (e) { document.getElementById("scoringMsg").textContent = "error: " + e.message; }
 };
 window.addEventListener("beforeunload", e => { if (H.dirty) { e.preventDefault(); e.returnValue = ""; } });
-document.getElementById("addStep").onclick = addStep;
-document.getElementById("refreshBtn").onclick = refreshAll;
-document.getElementById("scopeSel").onchange = (e) => setScope(e.target.value);
-document.getElementById("modelSearch").oninput = renderModelSearch;
-document.getElementById("runBtn").onclick = async () => {
-  const msg = document.getElementById("runMsg"), out = document.getElementById("results");
-  msg.textContent = "running…"; out.innerHTML = "";
-  try {
-    const steps = H.steps.map(s => ({ task: s.task || undefined, preset: s.task ? undefined : s.preset,
-      items: JSON.parse(s.itemsText), routes: selectedRouteIds(),
-      max_attempts: +s.max_attempts, concurrency: +s.concurrency, max_per_batch: +s.max_per_batch,
-      max_request_cost: s.max_request_cost === "" ? undefined : +s.max_request_cost,
-      allow_paid: s.allow_paid, paid_note: s.paid_note || undefined }));
-    const r = await api("POST", "/api/runs", { steps });
-    msg.textContent = "done";
-    r.steps.forEach(st => {
-      const d = document.createElement("div");
-      d.className = "result" + (st.status === "completed" ? "" : " failed");
-      d.innerHTML = `<b>${esc(st.run_id)}</b> · ${esc(st.task)} · ${esc(st.status)} · verified ${esc(st.verified)} · tokens ${esc(st.tokens)} · cost ${esc(st.cost)} · receipts ${esc(st.receipts)}<br><small>${esc(st.routes.join(", "))}</small>` +
-        (st.paid_note ? `<br><span class="note">trust note: ${esc(st.paid_note)}</span>` : "");
-      out.appendChild(d);
-    });
-  } catch (e) { msg.innerHTML = ""; const p = document.createElement("p"); p.className = "err"; p.textContent = "error: " + e.message; out.appendChild(p); }
-};
 load().catch(e => { document.body.insertAdjacentHTML("beforeend", `<p class="err">failed to load: ${e.message}</p>`); });
 </script>
 </body>
