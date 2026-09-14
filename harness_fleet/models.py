@@ -954,6 +954,9 @@ class ValidationReport(ClosedModel):
     task: str
     input_items: int
     batches: int
+    # Non-fatal findings the caller must understand before trusting grounding
+    # (for example items sliced into partial windows). ``valid`` stays true
+    # because the run can proceed; a non-empty list means "read this first".
     errors: list[str] = Field(default_factory=list)
 
 

@@ -376,7 +376,7 @@ def test_crawl_site_link_extraction_with_render_js(monkeypatch):
     from harness_fleet.discover import crawl_site
 
     rendered_html = '<html><body><h1>Welcome</h1><a href="/subpage">Next</a></body></html>'
-    monkeypatch.setattr("harness_fleet.discover._render_js", lambda url, timeout: rendered_html)
+    monkeypatch.setattr("harness_fleet.discover._render_js_page", lambda url, timeout: (url, rendered_html))
 
     client = httpx.Client()
     records, skipped = crawl_site("https://example.com", client=client, max_pages=2, render_js=True, respect_robots=False)
@@ -948,3 +948,230 @@ def test_session_pool_empty_routes_raises():
     from harness_fleet.sessions import SessionPool
     with pytest.raises(ValueError, match="SessionPool requires at least one route"):
         SessionPool(num_sessions=2, routes=[])
+
+
+def test_web_search_forwards_timeout_to_the_ddgs_backend(monkeypatch):
+    """--timeout must reach ddgs: it builds its own session, unlike the httpx backends."""
+    from harness_fleet import discover
+
+    seen = {}
+
+    def fake_ddgs(query, max_results=10, timeout=20.0):
+        seen["timeout"] = timeout
+        return []
+
+    monkeypatch.setattr(discover, "search_ddgs", fake_ddgs)
+    discover.web_search("q", backends=["ddgs"], timeout=7.5)
+    assert seen["timeout"] == 7.5
+
+
+def test_fetch_sitemap_entries_caps_nested_sitemaps(monkeypatch):
+    """A nested sitemapindex must inherit the url budget, not just the top level."""
+    from harness_fleet import discover
+
+    top = b"""<?xml version="1.0"?><sitemapindex>
+      <sitemap><loc>https://example.com/a.xml</loc></sitemap>
+    </sitemapindex>"""
+    # a.xml is itself an index: only its first child should ever be fetched.
+    nested = b"""<?xml version="1.0"?><sitemapindex>
+      <sitemap><loc>https://example.com/a1.xml</loc></sitemap>
+      <sitemap><loc>https://example.com/a2.xml</loc></sitemap>
+      <sitemap><loc>https://example.com/a3.xml</loc></sitemap>
+    </sitemapindex>"""
+    leaf = b"""<?xml version="1.0"?><urlset>
+      <url><loc>https://example.com/1</loc></url>
+      <url><loc>https://example.com/2</loc></url>
+      <url><loc>https://example.com/3</loc></url>
+      <url><loc>https://example.com/4</loc></url>
+    </urlset>"""
+
+    bodies = {
+        "https://example.com/sitemap.xml": top,
+        "https://example.com/a.xml": nested,
+    }
+    fetched: list[str] = []
+
+    class FakeResponse:
+        status_code = 200
+        content = b""
+
+    class FakeClient:
+        def get(self, url, timeout=None):
+            fetched.append(url)
+            response = FakeResponse()
+            response.content = bodies.get(url, leaf)
+            return response
+
+    urls = discover.fetch_sitemap_urls(
+        "https://example.com/sitemap.xml", client=FakeClient(), max_urls=2
+    )
+    assert urls == ["https://example.com/1", "https://example.com/2"]
+    # The budget runs out inside a1.xml, so a2/a3 are never requested. Before
+    # the fix the nested call dropped max_urls and fetched all three.
+    assert fetched == [
+        "https://example.com/sitemap.xml",
+        "https://example.com/a.xml",
+        "https://example.com/a1.xml",
+    ]
+
+
+def test_crawl_site_resolves_links_against_the_post_redirect_url(monkeypatch):
+    """Relative links belong to the page actually landed on, not the requested URL."""
+    from harness_fleet import discover
+
+    bases: list[str] = []
+    real_extract = discover.extract_links
+
+    def spy(html, base_url):
+        bases.append(base_url)
+        return real_extract(html, base_url)
+
+    html = b'<html><body><a href="deals">Deals</a></body></html>'
+    requested: list[str] = []
+
+    def fake_http_get(url, client, timeout, respect_robots):
+        requested.append(url)
+        if url == "http://example.com":
+            # A scheme + path redirect: same host, different base directory.
+            return "https://example.com/root/", "text/html", html
+        raise discover.DiscoverError("stop after the first hop")
+
+    def fake_record(final_url, raw_header, raw, url):
+        return discover.RawRecord(text="Deals", source_uri=final_url, title="Example",
+                                  item_id="example", metadata={"evidence": "fetched"})
+
+    monkeypatch.setattr(discover, "extract_links", spy)
+    monkeypatch.setattr(discover, "_http_get", fake_http_get)
+    monkeypatch.setattr(discover, "_record_from_response", fake_record)
+
+    records, skipped = discover.crawl_site(
+        "http://example.com", client=object(), max_pages=2,
+        max_depth=1, respect_robots=False, delay=0,
+    )
+
+    assert bases == ["https://example.com/root/"]
+    assert records[0].source_uri == "https://example.com/root/"
+    # The queued hop was resolved against the redirect target, not the input URL.
+    assert skipped and skipped[0]["url"] == "https://example.com/root/deals"
+
+
+def test_crawl_site_uses_the_rendered_final_url_as_the_link_base(monkeypatch):
+    """The JS path must likewise resolve links against where the browser landed."""
+    from harness_fleet import discover
+
+    bases: list[str] = []
+    real_extract = discover.extract_links
+
+    def spy(html, base_url):
+        bases.append(base_url)
+        return real_extract(html, base_url)
+
+    def refuse(url, client, timeout, respect_robots):
+        raise discover.DiscoverError("stop after the first hop")
+
+    monkeypatch.setattr(discover, "extract_links", spy)
+    monkeypatch.setattr(
+        discover, "_render_js_page",
+        lambda url, timeout: ("https://example.com/landed/", '<html><a href="x">X</a></html>'),
+    )
+    monkeypatch.setattr(discover, "_http_get", refuse)
+
+    records, _skipped = discover.crawl_site(
+        "https://example.com/app", client=object(), max_pages=2, max_depth=1,
+        render_js=True, respect_robots=False, delay=0,
+    )
+
+    assert bases == ["https://example.com/landed/"]
+    # The link queued from the rendered page was resolved against the landing
+    # URL, so the second hop requests /landed/x rather than /x.
+    assert [r.source_uri for r in records] == [
+        "https://example.com/app",
+        "https://example.com/landed/x",
+    ]
+
+
+def test_antigravity_response_string_is_read_as_text():
+    """agy --output-format json returns the answer under a string `response`."""
+    from harness_fleet.providers.harness import extract_conservative_text
+
+    payload = {
+        "conversation_id": "7193a279",
+        "status": "SUCCESS",
+        "response": "PING\n",
+        "duration_seconds": 1.0,
+        "usage": {"input_tokens": 6511, "output_tokens": 103},
+    }
+    assert extract_conservative_text(payload) == "PING\n"
+    # A container `response` still resolves through the nested branch.
+    assert extract_conservative_text({"response": {"text": "nested"}}) == "nested"
+    assert extract_conservative_text({"response": "   "}) is None
+
+
+def test_harness_auth_failures_are_classified_as_auth_errors():
+    """An unauthenticated CLI must not look like a generic inference failure."""
+    from harness_fleet.models import ProviderReceipt
+    from harness_fleet.providers.harness import run_error_receipt
+
+    cases = [
+        ("Error: Authentication required. Please run 'agent login' first.", "auth_error"),
+        ("Error: Not signed in. To authenticate without a browser, run:", "auth_error"),
+        ("HTTP 401 Unauthorized", "auth_error"),
+        ("invalid api key provided", "auth_error"),
+        ("429 Too Many Requests", "rate_limit"),
+        ("Unexpected server error. Check server logs for details.", "transient_http"),
+        ("Service Unavailable", "transient_http"),
+        ("[claude-code:unrecognized_model] {\"model\":\"z-ai/glm-5.3-flash\"}", "inference_error"),
+    ]
+    for message, expected in cases:
+        receipt = ProviderReceipt(
+            id="r1", provider="y", requested_route="y/x", status="failed"
+        )
+        ok, text, out = run_error_receipt(1, "", message, receipt=receipt)
+        assert ok is False and text is None
+        assert out.error_type == expected, f"{message!r} -> {out.error_type!r}, expected {expected!r}"
+
+
+def test_auth_error_route_is_parked_without_burning_attempt_budget():
+    """Retrying an unauthenticated harness cannot succeed, so it must not cost budget."""
+    from harness_fleet.engine import AUTH_ERROR_COOLDOWN_SEC
+
+    assert AUTH_ERROR_COOLDOWN_SEC > 0
+    source = (Path(__file__).resolve().parents[1] / "harness_fleet" / "engine.py").read_text()
+    parking_branch = source[source.index('if error_type in ("rate_limit"'):]
+    parking_branch = parking_branch[: parking_branch.index("continue")]
+    assert '"auth_error"' in parking_branch.split("\n")[0]
+    assert '"counts_against_budget": 0' in parking_branch
+
+
+def test_provider_parsers_share_the_failure_classifier():
+    """opencode/codex each re-implemented the rate-limit branch; keep them shared."""
+    from harness_fleet.models import ProviderReceipt
+    from harness_fleet.providers.codex import parse_codex_jsonl
+    from harness_fleet.providers.opencode import parse_opencode_events
+
+    def _receipt(provider):
+        return ProviderReceipt(
+            id="r1", provider=provider, requested_route=f"{provider}/m", status="failed"
+        )
+
+    # The observed opencode failure is a nested dict; the message must survive
+    # and drive classification rather than collapsing to a generic error.
+    nested = json.dumps({
+        "type": "error",
+        "error": {"name": "UnknownError",
+                  "data": {"message": "Unexpected server error. Check server logs for details."}},
+    })
+    ok, text, out = parse_opencode_events(nested, "", 0, receipt=_receipt("opencode"))
+    assert ok is False and text is None
+    assert out.error_type == "transient_http"
+    assert "Unexpected server error" in (out.error or "")
+
+    signed_out = json.dumps({"type": "error", "error": "Error: Not signed in. To authenticate, run 'agent login'."})
+    _ok, _text, out = parse_opencode_events(signed_out, "", 0, receipt=_receipt("opencode"))
+    assert out.error_type == "auth_error"
+
+    _ok, _text, out = parse_codex_jsonl("", "Error: Not signed in.", 0, receipt=_receipt("codex"))
+    assert out.error_type == "auth_error"
+
+    _ok, _text, out = parse_codex_jsonl("", "503 Service Unavailable", 0, receipt=_receipt("codex"))
+    assert out.error_type == "transient_http"

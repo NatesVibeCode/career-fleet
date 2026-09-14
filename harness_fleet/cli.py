@@ -529,7 +529,12 @@ def cmd_validate(args: argparse.Namespace) -> None:
     if truncated:
         partial_msg = f"\nWarning: {truncated}/{total_items} item(s) exceed max_slice_chars={task.max_slice_chars} and were sliding-window sliced (lossless overlapping windows) with partial:true. Quotes must lie within one window; consider raising --max-slice-chars for fewer windows." if truncated else ""
     _emit(
-        ValidationReport(valid=True, task=task.name, input_items=total_items, batches=batch_count),
+        ValidationReport(
+            valid=True, task=task.name, input_items=total_items, batches=batch_count,
+            # Surface the slicing caveat in the typed report too, not just on
+            # stderr: a JSON consumer must see why grounding may be limited.
+            errors=[partial_msg.strip()] if truncated else [],
+        ),
         args.json,
         f"Valid. Task '{task.name}' will process {total_items} items in {batch_count} batches.{partial_msg}",
     )
@@ -926,8 +931,18 @@ def cmd_doctor(args: argparse.Namespace) -> None:
 
     observed_routes = catalog.get_routes(free_only=True)
     openrouter_key = bool(os.environ.get("OPENROUTER_API_KEY"))
+    schema_version = store.schema_version()
+    # migrate() always writes SCHEMA_VERSION, so a mismatch means the migration
+    # did not run or commit. Comparing against that constant keeps this check
+    # honest across schema bumps instead of blessing a stale hardcoded list.
+    database_ok = schema_version == SCHEMA_VERSION
     checks = [
-        DoctorCheck(name="database", ok=store.schema_version() in ("1", "2", "3", "4", "5"), detail=f"SQLite schema {store.schema_version()} at {store.path.resolve()}"),
+        DoctorCheck(
+            name="database",
+            ok=database_ok,
+            detail=f"SQLite schema {schema_version} at {store.path.resolve()}"
+            + ("" if database_ok else f" (expected {SCHEMA_VERSION}; re-run any command to migrate)"),
+        ),
         *(
             DoctorCheck(
                 name=spec.name,

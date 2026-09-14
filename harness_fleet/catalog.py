@@ -27,13 +27,23 @@ class PriceState(str, Enum):
 
 
 def is_observed_zero_price_route(route: dict[str, Any]) -> bool:
-    """Return whether a route has explicit zero-price evidence."""
+    """Return whether a route has explicit zero-price evidence.
+
+    ``price_state`` is the evidence marker, so an unverified hint is not
+    evidence: a ``candidate``/``unknown``/``disabled`` route stays unpaid-for
+    even when a packaged seed declared ``0.0`` costs for it, because that
+    declaration comes from the model *name*, not from an observation. Treating
+    it as evidence let a ':free' name defeat the paid-route re-approval guard
+    and the circuit breaker. The cost fallback is only for legacy rows written
+    before ``price_state`` existed.
+    """
     declared_costs = (route.get("cost_per_1k_input"), route.get("cost_per_1k_output"))
     if any(cost is not None and cost != 0.0 for cost in declared_costs):
         return False
-    return route.get("price_state") == PriceState.PRICE_OBSERVED_ZERO.value or all(
-        cost is not None and cost == 0.0 for cost in declared_costs
-    )
+    state = route.get("price_state")
+    if state is not None:
+        return state == PriceState.PRICE_OBSERVED_ZERO.value
+    return all(cost is not None and cost == 0.0 for cost in declared_costs)
 
 
 def _observed_prices(model_data: dict) -> list[float] | None:
@@ -75,6 +85,26 @@ def is_free_in_schema(model_data: dict) -> bool:
     """Compatibility predicate: true only for explicit observed zero pricing."""
     return classify_price_state(model_data) is PriceState.PRICE_OBSERVED_ZERO
 
+
+def _apply_price_evidence(route: dict, price_state: PriceState) -> None:
+    """Keep the stored cost fields consistent with the route's price state.
+
+    ``add_route`` refuses ``price_observed_zero`` alongside non-zero declared
+    costs and only derives that state from explicit ``0.0``/``0.0``, so the rest
+    of the catalog expects the two to agree. The harness refresh path used to
+    set the state without recording any cost, leaving a route advertised as
+    verified-free while its cost fields read ``None`` (indistinguishable from
+    unpriced). An observed price of zero is zero in any unit, so the per-1k
+    figures are exactly ``0.0``.
+    """
+    if price_state is PriceState.PRICE_OBSERVED_ZERO:
+        route["cost_per_1k_input"] = 0.0
+        route["cost_per_1k_output"] = 0.0
+    else:
+        route.pop("cost_per_1k_input", None)
+        route.pop("cost_per_1k_output", None)
+
+
 class RouteCatalog:
     def __init__(self, config_path: Path | str | None = None, db_path: Path | str | None = None):
         self.config_path = Path(config_path) if config_path else DEFAULT_CONFIG_PATH
@@ -101,6 +131,11 @@ class RouteCatalog:
             route["last_verified"] = None
             route["verification_source"] = "packaged route hint; refresh required"
             route.pop("zero_price_verified", None)
+            # The hint only decides CANDIDATE vs UNKNOWN. It is not pricing
+            # evidence, so the hinted zeros must not be stored as though they
+            # had been observed -- otherwise the row claims 0.0 while its own
+            # state says "refresh required".
+            _apply_price_evidence(route, PriceState(route["price_state"]))
             self.store.upsert_route(RouteInfo.model_validate(route))
 
     def _load(self) -> dict:
@@ -549,8 +584,9 @@ class RouteCatalog:
                 r["enabled"] = price_state is PriceState.PRICE_OBSERVED_ZERO and is_active
                 r["last_verified"] = time.strftime("%Y-%m-%d")
                 r["verification_source"] = source
+                _apply_price_evidence(r, price_state)
             elif price_state in {PriceState.CANDIDATE, PriceState.PRICE_OBSERVED_ZERO} and is_active:
-                self.data["routes"].append({
+                route: dict[str, Any] = {
                     "id": model_id,
                     "provider": spec.name,
                     "enabled": price_state is PriceState.PRICE_OBSERVED_ZERO,
@@ -558,7 +594,9 @@ class RouteCatalog:
                     "auth": "hosted-free" if spec.name == "opencode" else "cli-default",
                     "last_verified": time.strftime("%Y-%m-%d"),
                     "verification_source": source,
-                })
+                }
+                _apply_price_evidence(route, price_state)
+                self.data["routes"].append(route)
             if price_state in {PriceState.CANDIDATE, PriceState.PRICE_OBSERVED_ZERO}:
                 discovered_count += 1
         for route in self.data.get("routes", []):
@@ -567,6 +605,9 @@ class RouteCatalog:
                 route["price_state"] = PriceState.UNKNOWN.value
                 route["disabled_reason"] = f"not present in latest {spec.binary} model response"
                 route["disabled_at"] = time.time()
+                # Not listed any more means no current pricing evidence, so drop
+                # any stale zero rather than leaving it readable as verified-free.
+                _apply_price_evidence(route, PriceState.UNKNOWN)
         self.save()
         return discovered_count
 
@@ -641,6 +682,11 @@ class RouteCatalog:
                 route["price_state"] = PriceState.UNKNOWN.value
                 route["disabled_reason"] = "not present in latest OpenRouter model response"
                 route["disabled_at"] = time.time()
+                # A route the provider no longer lists has no current pricing
+                # evidence: drop the stale cost figures so nothing reads it as
+                # still-verified-free. (A retired ':free' variant is exactly
+                # this case, and its surviving base model may well be billed.)
+                _apply_price_evidence(route, PriceState.UNKNOWN)
 
         self.save()
         return discovered_count

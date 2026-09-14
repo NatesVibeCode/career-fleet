@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any, Protocol
 
 from .base import BaseProvider
-from .harness import CLIHarnessProvider, HarnessSpec, ProviderReceipt
+from .harness import CLIHarnessProvider, HarnessSpec, ProviderReceipt, classify_failure
 
 OPENCODE_SPEC = HarnessSpec(
     name="opencode",
@@ -86,11 +86,9 @@ def parse_opencode_events(
     if code != 0 or not finished or not texts:
         err_msg = last_err or (stderr or stdout)[-500:] or f"Exit code {code}"
         receipt.error = err_msg
-        if "429" in err_msg.lower() or "rate limit" in err_msg.lower():
-            receipt.error_type = "rate_limit"
+        receipt.error_type = classify_failure(err_msg)  # type: ignore[assignment]
+        if receipt.error_type == "rate_limit":
             receipt.retry_after = 10.0
-        else:
-            receipt.error_type = "inference_error"
         return False, None, receipt
 
     if costs and all(isinstance(c, (int, float)) for c in costs):

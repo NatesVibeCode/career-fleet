@@ -173,7 +173,7 @@ def _safe_json(resp: httpx.Response, url_or_desc: str) -> Any:
 # Broad web search backends
 # ---------------------------------------------------------------------------
 
-def search_ddgs(query: str, max_results: int = 10) -> list[SearchHit]:
+def search_ddgs(query: str, max_results: int = 10, timeout: float = 20.0) -> list[SearchHit]:
     """Broad metasearch via ddgs (no API key). Requires the discover extra."""
     try:
         from ddgs import DDGS
@@ -181,7 +181,13 @@ def search_ddgs(query: str, max_results: int = 10) -> list[SearchHit]:
         raise DiscoverError(f"ddgs is not installed ({DISCOVER_EXTRA})") from exc
     hits: list[SearchHit] = []
     try:
-        with DDGS() as ddgs:
+        try:
+            session = DDGS(timeout=timeout)
+        except TypeError:
+            # Older ddgs releases take no constructor timeout; they fall back to
+            # their own client default, which is the best available behaviour.
+            session = DDGS()
+        with session as ddgs:
             for row in ddgs.text(query, max_results=max_results) or []:
                 url = (row.get("href") or row.get("url") or "").strip()
                 if not url.startswith(("http://", "https://")):
@@ -488,9 +494,12 @@ def _run_backend(
     se_site: str = "stackoverflow",
     discourse_url: str | None = None,
     lemmy_instance: str = LEMMY_DEFAULT,
+    timeout: float = 20.0,
 ) -> list[SearchHit]:
     if backend == "ddgs":
-        return search_ddgs(query, max_results=max_results)
+        # The other backends inherit the timeout from the shared httpx client;
+        # ddgs builds its own session, so it must be told explicitly.
+        return search_ddgs(query, max_results=max_results, timeout=timeout)
     if backend == "searxng":
         return search_searxng(query, base_url=searxng_url or "", max_results=max_results, client=client)
     if backend == "yc":
@@ -533,7 +542,7 @@ def web_search(
         for backend in backends:
             hits = _run_backend(backend, query, max_results, searxng_url, client,
                                 reddit_subreddits, se_tagged, se_site,
-                                discourse_url, lemmy_instance)
+                                discourse_url, lemmy_instance, timeout=timeout)
             for hit in hits:
                 key = canonical_url(hit.url)
                 if key in seen:
@@ -752,8 +761,13 @@ def require_playwright() -> None:
         ) from exc
 
 
-def _render_js(url: str, timeout: float = 30.0) -> str:
-    """Render a JS-heavy page via Playwright (optional ``js`` extra). Experimental."""
+def _render_js_page(url: str, timeout: float = 30.0) -> tuple[str, str]:
+    """Render a JS-heavy page, returning ``(final_url, html)``.
+
+    ``final_url`` is the URL the browser settled on, which differs from the
+    requested URL whenever the page redirects. Callers that resolve relative
+    links must use it as the base.
+    """
     try:
         from playwright.sync_api import sync_playwright  # type: ignore
     except ImportError as exc:
@@ -771,13 +785,18 @@ def _render_js(url: str, timeout: float = 30.0) -> str:
                     page.wait_for_load_state("networkidle", timeout=8000)
                 except Exception:
                     pass
-                return page.content()
+                return page.url, page.content()
             finally:
                 browser.close()
     except DiscoverError:
         raise
     except Exception as exc:
         raise DiscoverError(f"JS render failed for {url}: {exc}") from exc
+
+
+def _render_js(url: str, timeout: float = 30.0) -> str:
+    """Render a JS-heavy page via Playwright (optional ``js`` extra). Experimental."""
+    return _render_js_page(url, timeout=timeout)[1]
 _BLOCKED_HOSTS = frozenset({"localhost", "metadata", "metadata.google.internal", "instance-data"})
 _BLOCKED_HOST_SUFFIXES = (".localhost", ".local", ".internal")
 
@@ -2263,12 +2282,18 @@ def fetch_sitemap_entries(
         child_maps, entries = _sitemap_entries(content[:MAX_BYTES])
         collected = list(entries)
         for child in child_maps[:10]:
-            try:
-                collected.extend(fetch_sitemap_entries(child, client=client, timeout=timeout, _depth=_depth + 1))
-            except DiscoverError:
-                continue  # stale child sitemaps are common; keep the good ones
             if max_urls is not None and len(collected) >= max_urls:
                 break
+            # Hand each child only the budget still outstanding, so a large
+            # sitemapindex cannot download every nested sitemap before the
+            # final truncation makes the cap look effective.
+            remaining = None if max_urls is None else max(1, max_urls - len(collected))
+            try:
+                collected.extend(fetch_sitemap_entries(
+                    child, client=client, timeout=timeout, max_urls=remaining, _depth=_depth + 1,
+                ))
+            except DiscoverError:
+                continue  # stale child sitemaps are common; keep the good ones
         deduped: list[tuple[str, str | None]] = []
         seen: set[str] = set()
         for url, lastmod in collected:
@@ -2312,12 +2337,18 @@ def fetch_sitemap_urls(
         child_maps, pages = _sitemap_locs(content[:MAX_BYTES])
         urls = list(pages)
         for child in child_maps[:10]:
-            try:
-                urls.extend(fetch_sitemap_urls(child, client=client, timeout=timeout, _depth=_depth + 1))
-            except DiscoverError:
-                continue  # stale child sitemaps are common; keep the good ones
             if max_urls is not None and len(urls) >= max_urls:
                 break
+            # Hand each child only the budget still outstanding, so a large
+            # sitemapindex cannot download every nested sitemap before the
+            # final truncation makes the cap look effective.
+            remaining = None if max_urls is None else max(1, max_urls - len(urls))
+            try:
+                urls.extend(fetch_sitemap_urls(
+                    child, client=client, timeout=timeout, max_urls=remaining, _depth=_depth + 1,
+                ))
+            except DiscoverError:
+                continue  # stale child sitemaps are common; keep the good ones
         deduped: list[str] = []
         seen: set[str] = set()
         for u in urls:
@@ -2441,7 +2472,8 @@ def crawl_site(
                 if render_js:
                     if respect_robots and not robots_allowed(url, client):
                         raise DiscoverError(f"blocked by robots.txt: {url}")
-                    rendered_html = _render_js(url, timeout=timeout)[:MAX_BYTES]
+                    final_url, rendered_html = _render_js_page(url, timeout=timeout)
+                    rendered_html = rendered_html[:MAX_BYTES]
                     text = extract_text(rendered_html)
                     if not text:
                         raise DiscoverError(f"no extractable text for {url} (even rendered)")
@@ -2458,7 +2490,11 @@ def crawl_site(
                         depth < max_depth and ctype in ("text/html", "application/xhtml+xml", "")) else ""
                 records.append(record)
                 if html:
-                    for link in extract_links(html, url):
+                    # Relative links belong to the page we actually landed on,
+                    # not the URL we asked for: a redirect to another path (or
+                    # host) would otherwise resolve every link against the
+                    # wrong base.
+                    for link in extract_links(html, final_url):
                         if same_origin and urlparse(link).netloc.lower() != origin:
                             continue
                         key = canonical_url(link)

@@ -268,7 +268,7 @@ def test_web_search_rejects_unknown_backend():
 
 
 def test_web_search_dedupes_across_backends(monkeypatch):
-    monkeypatch.setattr(discover, "search_ddgs", lambda q, max_results=10: [
+    monkeypatch.setattr(discover, "search_ddgs", lambda q, max_results=10, timeout=20.0: [
         SearchHit(url="https://Example.com/a/", title="A", snippet="s", backend="ddgs"),
     ])
     monkeypatch.setattr(discover, "search_hn", lambda q, max_results=10, client=None: [
@@ -381,7 +381,7 @@ def test_write_jsonl_round_trips(tmp_path):
 
 
 def test_run_discovery_snippets_only(monkeypatch):
-    monkeypatch.setattr(discover, "search_ddgs", lambda q, max_results=10: [
+    monkeypatch.setattr(discover, "search_ddgs", lambda q, max_results=10, timeout=20.0: [
         SearchHit(url="https://a.example/1", title="A", snippet="snippet alpha", backend="ddgs"),
     ])
     monkeypatch.setattr(discover, "search_hn", lambda q, max_results=10, client=None: [])
@@ -391,7 +391,7 @@ def test_run_discovery_snippets_only(monkeypatch):
 
 
 def test_run_discovery_fetch_failures_are_skipped(monkeypatch):
-    monkeypatch.setattr(discover, "search_ddgs", lambda q, max_results=10: [
+    monkeypatch.setattr(discover, "search_ddgs", lambda q, max_results=10, timeout=20.0: [
         SearchHit(url="https://bad.example/", title="B", snippet="", backend="ddgs"),
     ])
     monkeypatch.setattr(discover, "fetch_text", lambda url, **kw: (_ for _ in ()).throw(DiscoverError("boom")))
@@ -804,7 +804,8 @@ def test_run_discovery_js_requires_playwright_upfront(monkeypatch):
 
 def test_js_render_success_path(monkeypatch, fake_http):
     class FakePage:
-        def goto(self, url, timeout=None): pass
+        def __init__(self): self.url = ""
+        def goto(self, url, timeout=None): self.url = url
         def wait_for_load_state(self, state, timeout=None): pass
         def content(self): return "<html><head><title>JS app</title></head><body><p>rendered text</p></body></html>"
 

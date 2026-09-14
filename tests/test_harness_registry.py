@@ -140,3 +140,162 @@ def test_refresh_from_harness_discovery_less_is_zero():
 
     catalog = RouteCatalog.__new__(RouteCatalog)
     assert catalog.refresh_from_harness(CLAUDE_SPEC) == 0
+
+
+def test_harness_refresh_records_zero_cost_for_observed_zero_routes(tmp_path, monkeypatch):
+    """An admitted harness route must carry the pricing evidence it was admitted on.
+
+    The harness refresh used to set price_state=price_observed_zero without
+    writing cost_per_1k_*, leaving routes advertised as verified-free whose cost
+    fields read None -- indistinguishable from unpriced.
+    """
+    import subprocess as _sp
+
+    import harness_fleet.catalog as catalog_module
+    from harness_fleet.providers.opencode import OPENCODE_SPEC
+
+    monkeypatch.setattr(catalog_module.shutil, "which", lambda name: "/bin/opencode")
+
+    # Shape taken from `opencode models --verbose`: an explicit all-zero cost
+    # block, which is what earns the observed-zero state.
+    payload = "\n".join([
+        "opencode/big-pickle",
+        json.dumps({
+            "id": "big-pickle", "status": "active",
+            "cost": {"input": 0, "output": 0, "cache": {"read": 0, "write": 0}},
+        }),
+        "opencode/paid-model",
+        json.dumps({
+            "id": "paid-model", "status": "active",
+            "cost": {"input": 0.0000002, "output": 0.0000011},
+        }),
+    ])
+
+    def fake_run(argv, capture_output, text, timeout):
+        return _sp.CompletedProcess(argv, 0, stdout=payload, stderr="")
+
+    monkeypatch.setattr(catalog_module.subprocess, "run", fake_run)
+    catalog = RouteCatalog(db_path=tmp_path / "fleet.db")
+    catalog.refresh_from_harness(OPENCODE_SPEC)
+
+    routes = {r["id"]: r for r in catalog.data["routes"] if r["provider"] == "opencode"}
+    admitted = routes["opencode/big-pickle"]
+    assert admitted["price_state"] == "price_observed_zero"
+    assert admitted["enabled"] is True
+    assert admitted["cost_per_1k_input"] == 0.0
+    assert admitted["cost_per_1k_output"] == 0.0
+
+    # A paid model is never admitted from discovery, so it cannot inherit a
+    # zero cost figure either.
+    assert "opencode/paid-model" not in routes
+
+    # The invariant: a recorded 0.0 cost IS verified zero pricing, nothing else.
+    zero_cost = {
+        r["id"]: r for r in catalog.data["routes"] if r.get("cost_per_1k_input") == 0.0
+    }
+    assert set(zero_cost) == {"opencode/big-pickle"}
+    assert all(r["price_state"] == "price_observed_zero" for r in zero_cost.values())
+
+    # An unverified packaged hint keeps its CANDIDATE label but no price claim:
+    # the hint decides candidate-vs-unknown, it is not evidence. (An openrouter
+    # hint, since the opencode refresh above legitimately retires opencode
+    # routes missing from its own response.)
+    hint = next(r for r in catalog.data["routes"] if r["id"] == "openrouter/minimax/minimax-01:free")
+    assert hint["price_state"] == "candidate"
+    assert hint["enabled"] is False
+    assert hint.get("cost_per_1k_input") is None
+    assert hint.get("cost_per_1k_output") is None
+
+
+def test_retired_routes_lose_their_stale_zero_cost(tmp_path, monkeypatch):
+    """A ':free' variant the provider retired must not keep advertising 0.0.
+
+    Exercised through the real refresh branch: the response no longer lists the
+    model, so its zero-pricing evidence is stale and must be dropped.
+    """
+    import harness_fleet.catalog as catalog_module
+
+    catalog = RouteCatalog(db_path=tmp_path / "fleet.db")
+    catalog.data["routes"].append({
+        "id": "openrouter/vendor/retired-model:free",
+        "provider": "openrouter",
+        "enabled": True,
+        "price_state": "price_observed_zero",
+        "cost_per_1k_input": 0.0,
+        "cost_per_1k_output": 0.0,
+    })
+    catalog.save()
+
+    class _Response:
+        status_code = 200
+        def json(self):
+            # The provider still serves other free models, but not this one.
+            return {"data": [{
+                "id": "vendor/live-model:free",
+                "pricing": {"prompt": "0", "completion": "0"},
+            }]}
+
+    class _Client:
+        def __init__(self, *a, **k): pass
+        def __enter__(self): return self
+        def __exit__(self, *a): return None
+        def get(self, url, **k): return _Response()
+
+    monkeypatch.setattr(catalog_module.httpx, "Client", _Client)
+    catalog.refresh_from_openrouter()
+
+    routes = {r["id"]: r for r in catalog.data["routes"]}
+    retired = routes["openrouter/vendor/retired-model:free"]
+    assert retired["price_state"] == "unknown"
+    assert retired["enabled"] is False
+    assert "not present" in retired["disabled_reason"]
+    # The stale zero is gone, so nothing can read it as still verified-free.
+    assert retired.get("cost_per_1k_input") is None
+    assert retired.get("cost_per_1k_output") is None
+
+    # The model that IS still listed keeps its earned zero-pricing evidence.
+    live = routes["openrouter/vendor/live-model:free"]
+    assert live["price_state"] == "price_observed_zero"
+    assert live["enabled"] is True
+    assert live["cost_per_1k_input"] == 0.0
+
+
+def test_unverified_hint_with_zero_costs_is_not_treated_as_free():
+    """A ':free' name plus packaged 0.0 is a hint, never pricing evidence.
+
+    The predicate is the safety net behind the paid-route re-approval guard and
+    the circuit breaker, so a candidate must not read as verified-free just
+    because a seed declared zero costs for it.
+    """
+    from harness_fleet.catalog import PriceState, is_observed_zero_price_route
+
+    hint = {
+        "id": "openrouter/vendor/model:free",
+        "price_state": PriceState.CANDIDATE.value,
+        "cost_per_1k_input": 0.0,
+        "cost_per_1k_output": 0.0,
+    }
+    assert is_observed_zero_price_route(hint) is False
+
+    for state in (PriceState.UNKNOWN.value, PriceState.DISABLED.value):
+        assert is_observed_zero_price_route({**hint, "price_state": state}) is False
+
+    # Only the observation marker counts.
+    assert is_observed_zero_price_route(
+        {**hint, "price_state": PriceState.PRICE_OBSERVED_ZERO.value}
+    ) is True
+
+    # Any non-zero figure disqualifies a route regardless of its label.
+    assert is_observed_zero_price_route({
+        "price_state": PriceState.PRICE_OBSERVED_ZERO.value,
+        "cost_per_1k_input": 0.0,
+        "cost_per_1k_output": 0.5,
+    }) is False
+
+    # Legacy rows written before price_state existed still resolve via costs.
+    assert is_observed_zero_price_route(
+        {"cost_per_1k_input": 0.0, "cost_per_1k_output": 0.0}
+    ) is True
+    assert is_observed_zero_price_route(
+        {"cost_per_1k_input": None, "cost_per_1k_output": None}
+    ) is False

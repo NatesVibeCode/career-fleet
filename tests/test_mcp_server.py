@@ -170,3 +170,83 @@ def test_mcp_tools_execution(tmp_path):
     assert "isError" not in init_res or not init_res["isError"]
     assert "structuredContent" in init_res
     assert init_res["structuredContent"]["task"] == "mcp-score-task"
+
+
+def test_mcp_validate_surfaces_slicing_caveats(tmp_path):
+    """The typed MCP report must carry the same caveat the CLI prints."""
+    import os
+
+    input_path = tmp_path / "long.jsonl"
+    input_path.write_text(
+        json.dumps({"item_id": "long-1", "text": "Sentence about Kafka. " * 200}) + "\n",
+        encoding="utf-8",
+    )
+    task_spec = {
+        "name": "sliced",
+        "instructions": "Classify each record.",
+        "batch_size": 4,
+        "max_slice_chars": 300,
+        "claims_schema": {
+            "type": "object",
+            "properties": {"ok": {"type": "boolean"}},
+            "additionalProperties": False,
+        },
+    }
+    messages = [
+        {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "initialize",
+            "params": {
+                "protocolVersion": "2024-11-05",
+                "capabilities": {},
+                "clientInfo": {"name": "pytest", "version": "1"},
+            },
+        },
+        {"jsonrpc": "2.0", "method": "notifications/initialized", "params": {}},
+        {
+            "jsonrpc": "2.0",
+            "id": 2,
+            "method": "tools/call",
+            "params": {"name": "harness_fleet_register_task", "arguments": {"task": task_spec}},
+        },
+        {
+            "jsonrpc": "2.0",
+            "id": 3,
+            "method": "tools/call",
+            "params": {
+                "name": "harness_fleet_validate",
+                "arguments": {"task": "sliced", "input_path": "long.jsonl"},
+            },
+        },
+    ]
+    env = {**os.environ, "HARNESS_FLEET_DB": str(tmp_path / "mcp.db")}
+    process = subprocess.Popen(
+        [sys.executable, "-m", "harness_fleet.cli", "serve", "--workspace-root", str(tmp_path)],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        env=env,
+    )
+    assert process.stdin is not None
+    assert process.stdout is not None
+    responses = {}
+    for message in messages:
+        process.stdin.write(json.dumps(message) + "\n")
+        process.stdin.flush()
+        if "id" in message:
+            resp = json.loads(process.stdout.readline())
+            responses[resp["id"]] = resp
+    process.stdin.close()
+    assert process.wait(timeout=10) == 0
+
+    register_result = responses[2]["result"]
+    assert not register_result.get("isError"), register_result
+    validate_result = responses[3]["result"]
+    assert not validate_result.get("isError"), validate_result
+    report = validate_result["structuredContent"]
+    assert report["valid"] is True
+    assert report["input_items"] == 1
+    assert report["errors"], "the slicing caveat must reach the MCP report"
+    assert "max_slice_chars=300" in report["errors"][0]

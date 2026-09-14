@@ -203,14 +203,28 @@ def create_mcp_server(workspace_root: str | Path, db_path: str | Path | None = N
         task_spec = resolve_task(task)
         total_items = 0
         batch_count = 0
+        truncated = 0
         for batch in iter_packed_batches(
             iter_input_items(workspace.path(input_path, exists=True), id_column=id_column, text_column=text_column),
             task_spec.batch_size,
             task_spec.max_slice_chars,
         ):
             batch_count += 1
-            total_items += len(batch["items"])
-        return ValidationReport(valid=True, task=task_spec.name, input_items=total_items, batches=batch_count)
+            for item in batch.get("items", []) if isinstance(batch, dict) else []:
+                total_items += 1
+                slices = item.get("slices", []) if isinstance(item, dict) else []
+                if any(s.get("partial") for s in slices):
+                    truncated += 1
+        errors: list[str] = []
+        if truncated:
+            errors.append(
+                f"{truncated}/{total_items} item(s) exceed max_slice_chars={task_spec.max_slice_chars} "
+                "and were sliding-window sliced with partial:true; quotes must lie within one "
+                "window, so raise max_slice_chars for fewer windows"
+            )
+        return ValidationReport(
+            valid=True, task=task_spec.name, input_items=total_items, batches=batch_count, errors=errors,
+        )
 
     @server.tool(structured_output=True)
     def harness_fleet_run(
@@ -395,8 +409,18 @@ def create_mcp_server(workspace_root: str | Path, db_path: str | Path | None = N
         catalog = RouteCatalog(db_path=store.path)
         routes = catalog.get_routes(free_only=True)
         openrouter = bool(os.environ.get("OPENROUTER_API_KEY"))
+        schema_version = store.schema_version()
+        # migrate() always writes SCHEMA_VERSION, so a mismatch means the
+        # migration did not run or commit. Comparing against that constant keeps
+        # this check honest across schema bumps instead of blessing a stale list.
+        database_ok = schema_version == SCHEMA_VERSION
         checks = [
-            DoctorCheck(name="database", ok=store.schema_version() in ("1", "2", "3", "4", "5"), detail=f"SQLite schema {store.schema_version()}"),
+            DoctorCheck(
+                name="database",
+                ok=database_ok,
+                detail=f"SQLite schema {schema_version}"
+                + ("" if database_ok else f" (expected {SCHEMA_VERSION}; re-run any command to migrate)"),
+            ),
             *(
                 DoctorCheck(
                     name=spec.name,

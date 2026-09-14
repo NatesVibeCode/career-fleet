@@ -17,7 +17,12 @@ import json
 from pathlib import Path
 
 from ..models import ProviderReceipt
-from .harness import CLIHarnessProvider, HarnessSpec, extract_conservative_text
+from .harness import (
+    CLIHarnessProvider,
+    HarnessSpec,
+    classify_failure,
+    extract_conservative_text,
+)
 
 CODEX_SPEC = HarnessSpec(
     name="codex",
@@ -76,11 +81,9 @@ def parse_codex_jsonl(
                 return True, fallback, receipt
         err_msg = last_err or (stderr or stdout)[-500:] or f"Exit code {code}"
         receipt.error = err_msg
-        if "429" in err_msg.lower() or "rate limit" in err_msg.lower():
-            receipt.error_type = "rate_limit"
+        receipt.error_type = classify_failure(err_msg)  # type: ignore[assignment]
+        if receipt.error_type == "rate_limit":
             receipt.retry_after = 10.0
-        else:
-            receipt.error_type = "inference_error"
         return False, None, receipt
     receipt.status = "complete"
     return True, "\n".join(texts), receipt

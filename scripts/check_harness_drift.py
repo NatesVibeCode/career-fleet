@@ -52,6 +52,7 @@ EXACT_FILES = (
     "harness_fleet/studio.py",
     "harness_fleet/__init__.py",
     "harness_fleet/migrations/003_profiles.sql",
+    "harness_fleet/migrations/004_studio_settings.sql",
     "harness_fleet/export.py",
     "harness_fleet/grounding.py",
     "harness_fleet/input_data.py",

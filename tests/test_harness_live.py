@@ -3,6 +3,11 @@
 A binary present but not operational (no auth, no model) skips instead of
 failing: stub tests prove parsing, this proves end-to-end wiring where the
 environment allows it. The H1 commit message records the ran/skipped matrix.
+
+Only *environmental* failures skip. A binary that is installed and
+authenticated but answers with a bad receipt is a wiring regression, so it
+fails here rather than hiding as another skip — otherwise this file can never
+report the breakage it exists to catch.
 """
 import shutil
 
@@ -15,6 +20,12 @@ from harness_fleet.providers.cursor import CursorProvider
 from harness_fleet.providers.grok import GrokProvider
 from harness_fleet.providers.muse import MuseProvider
 from harness_fleet.providers.opencode import OpenCodeProvider
+
+#: Failure kinds explained by the machine, not by our code: missing credentials,
+#: a provider-side outage, or a slow model. Anything else is ours to fix.
+ENVIRONMENTAL_ERROR_TYPES = frozenset(
+    {"auth_error", "rate_limit", "timeout", "transient_http"}
+)
 
 CASES = [
     ("opencode", "opencode", OpenCodeProvider, "opencode/harness-fleet-ping"),
@@ -36,5 +47,10 @@ def test_live_ping(name, binary, provider_cls, route_id):
     )
     assert receipt.provider == name
     if not ok:
-        pytest.skip(f"{name} not operational here: {(receipt.error or '')[:200]}")
+        detail = f"{name} not operational here: {(receipt.error or '')[:200]}"
+        if receipt.error_type in ENVIRONMENTAL_ERROR_TYPES:
+            pytest.skip(detail)
+        pytest.fail(
+            f"{name} is installed but failed with error_type={receipt.error_type!r}: {detail}"
+        )
     assert text is not None and "PING" in text

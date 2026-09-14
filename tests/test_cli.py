@@ -39,6 +39,39 @@ def test_validate_is_offline_and_strict(tmp_path, capsys):
     assert payload["input_items"] == 1
 
 
+def test_validate_reports_slicing_caveats_in_the_typed_report(tmp_path, capsys):
+    """A JSON consumer must see the partial-window warning, not just stderr."""
+    from harness_fleet.models import TaskSpec
+
+    db = tmp_path / "state.db"
+    store = HarnessStore(db)
+    store.register_task(TaskSpec(
+        name="sliced",
+        instructions="Classify each record.",
+        batch_size=4,
+        max_slice_chars=300,
+        claims_schema={
+            "type": "object",
+            "properties": {"ok": {"type": "boolean"}},
+            "additionalProperties": False,
+        },
+    ))
+
+    input_path = tmp_path / "input.jsonl"
+    input_path.write_text(
+        json.dumps({"item_id": "long-1", "text": "Sentence about Kafka. " * 200}) + "\n",
+        encoding="utf-8",
+    )
+
+    cli.cmd_validate(Namespace(task="sliced", input=str(input_path), db=str(db), json=True))
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["valid"] is True
+    assert payload["input_items"] == 1
+    assert payload["errors"], "the slicing caveat must reach the typed report"
+    assert "max_slice_chars=300" in payload["errors"][0]
+
+
 def test_profile_command_persists_ideal_company_profile(tmp_path, capsys):
     profile_path = tmp_path / "ideal_company_profile.json"
     db_path = tmp_path / "state.db"

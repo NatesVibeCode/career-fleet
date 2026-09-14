@@ -306,3 +306,95 @@ def test_legacy_database_with_both_meta_tables_migrates(tmp_path):
         assert "harness_meta" in tables
         assert "bulk_meta" not in tables
         assert reopened.schema_version() == "5"
+
+
+def test_advertised_schema_matches_the_database_migrate_builds(tmp_path):
+    """Introspecting agents must see every table/index that actually exists.
+
+    score_history and route_claim_bias were created by inline DDL in migrate()
+    and so were missing from get_database_schema_sql() -- the schema the CLI and
+    MCP tools report.
+    """
+    import re
+    import sqlite3
+
+    from harness_fleet.store import get_database_schema_sql
+
+    db = tmp_path / "schema.db"
+    HarnessStore(db)
+    connection = sqlite3.connect(db)
+    try:
+        actual_tables = sorted(
+            row[0] for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
+            )
+        )
+        actual_indexes = sorted(
+            row[0] for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type='index' AND name NOT LIKE 'sqlite_%'"
+            )
+        )
+    finally:
+        connection.close()
+
+    advertised = get_database_schema_sql()
+    advertised_tables = sorted({
+        line.split()[5].strip('("')
+        for line in advertised.splitlines()
+        if line.upper().startswith("CREATE TABLE")
+    })
+    advertised_indexes = sorted(set(
+        re.findall(r"CREATE INDEX IF NOT EXISTS\s+(\w+)", advertised, re.IGNORECASE)
+    ))
+
+    assert advertised_tables == actual_tables
+    assert advertised_indexes == actual_indexes
+    assert {"score_history", "route_claim_bias", "studio_settings"} <= set(actual_tables)
+
+
+def test_migrate_is_idempotent_and_upgrades_a_pre_studio_database(tmp_path):
+    """An existing database must gain the new tables in place, keeping its rows."""
+    import sqlite3
+
+    from harness_fleet.store import (
+        MIGRATION_002_PATH,
+        MIGRATION_003_PATH,
+        SCHEMA_SQL,
+        SCHEMA_VERSION,
+    )
+
+    db = tmp_path / "legacy.db"
+    connection = sqlite3.connect(db)
+    try:
+        connection.executescript(SCHEMA_SQL)
+        connection.executescript(MIGRATION_002_PATH.read_text(encoding="utf-8"))
+        connection.executescript(MIGRATION_003_PATH.read_text(encoding="utf-8"))
+        connection.execute(
+            "INSERT INTO harness_meta(key,value) VALUES('schema_version','4') "
+            "ON CONFLICT(key) DO UPDATE SET value='4'"
+        )
+        connection.commit()
+        assert "studio_settings" not in {
+            row[0] for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            )
+        }
+    finally:
+        connection.close()
+
+    store = HarnessStore(db)
+    assert store.schema_version() == SCHEMA_VERSION
+
+    connection = sqlite3.connect(db)
+    try:
+        tables = {row[0] for row in connection.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'"
+        )}
+        assert {"studio_settings", "score_history", "route_claim_bias"} <= tables
+    finally:
+        connection.close()
+
+    # Re-running migrate() must not disturb an already-current database.
+    store.migrate()
+    store.migrate()
+    assert store.schema_version() == SCHEMA_VERSION

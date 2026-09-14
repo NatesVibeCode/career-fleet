@@ -36,7 +36,7 @@ from ..models import (
 from .base import BaseProvider
 
 PromptDelivery = Literal["argv_last", "stdin", "file_flag"]
-ParserKind = Literal["opencode_jsonl", "codex_jsonl", "json_object"]
+ParserKind = Literal["opencode_jsonl", "codex_jsonl", "muse_jsonl", "json_object"]
 TaskConfigStrategy = Literal["opencode_deny_all", "cursor_sandbox_enabled", "none"]
 
 
@@ -89,14 +89,16 @@ def extract_conservative_text(payload: Any) -> str | None:
     """Best-effort text from a harness JSON object, or None when absent.
 
     Only documented keys plus narrow fallbacks are read
-    (``text``/``result``/``output``/``message``/``content``); anything else
-    fails closed to an error receipt, never garbage text.
+    (``text``/``result``/``output``/``message``/``content``/``response``);
+    anything else fails closed to an error receipt, never garbage text.
+    ``response`` is a plain string for some harnesses (antigravity) and a
+    container for others, so it is checked as both.
     """
     if isinstance(payload, str):
         return payload if payload.strip() else None
     if not isinstance(payload, dict):
         return None
-    for key in ("text", "result", "output", "message", "content"):
+    for key in ("text", "result", "output", "message", "content", "response"):
         value = payload.get(key)
         if isinstance(value, str) and value.strip():
             return value
@@ -128,9 +130,17 @@ def parse_json_object_stdout(
     if isinstance(payload, dict) and (
         payload.get("error") or payload.get("type") == "error" or payload.get("is_error") is True
     ):
-        detail = payload.get("error", payload.get("message", "harness reported an error"))
+        detail = payload.get("error") or payload.get("message")
+        if detail is None:
+            data = payload.get("data")
+            if isinstance(data, dict):
+                detail = data.get("message") or data.get("error")
+        if detail is None:
+            # Never drop the transcript: an unlabelled error object is still the
+            # only diagnostic the operator gets.
+            detail = json.dumps(payload)[:500]
         receipt.error = str(detail)[:500]
-        receipt.error_type = "inference_error"
+        receipt.error_type = classify_failure(receipt.error)  # type: ignore[assignment]
         return False, None, receipt
     if not text:
         receipt.error = "harness returned no readable text"
@@ -148,17 +158,56 @@ def parse_json_object_stdout(
     return True, text, receipt
 
 
+def classify_failure(err_msg: str) -> str:
+    """Map a harness error transcript onto a receipt ``error_type``.
+
+    The engine parks ``rate_limit``/``transient_http``/``auth_error`` routes in
+    cooldown without burning attempt budget. Leaving an unauthenticated CLI
+    classified as ``inference_error`` makes a run spend its whole budget on a
+    route that can never answer, so the sign-in case is called out explicitly.
+    """
+    lowered = err_msg.lower()
+    if "429" in lowered or "rate limit" in lowered:
+        return "rate_limit"
+    if any(marker in lowered for marker in (
+        "authentication required",
+        "not signed in",
+        "not logged in",
+        "please login",
+        "please log in",
+        "unauthorized",
+        "forbidden",
+        "invalid api key",
+        "api key not",
+        "no credentials",
+        "credentials not found",
+        "agent login",
+        "run 'claude login'",
+    )):
+        return "auth_error"
+    if any(marker in lowered for marker in (
+        "unexpected server error",
+        "internal server error",
+        "bad gateway",
+        "service unavailable",
+        "gateway timeout",
+        "502",
+        "503",
+        "504",
+    )):
+        return "transient_http"
+    return "inference_error"
+
+
 def run_error_receipt(
     code: int, stdout: str, stderr: str, *, receipt: ProviderReceipt
 ) -> tuple[bool, None, ProviderReceipt]:
     """Shared non-zero-exit / no-output failure receipt (rate-limit aware)."""
     err_msg = (stderr or stdout)[-500:] or f"Exit code {code}"
     receipt.error = err_msg
-    if "429" in err_msg.lower() or "rate limit" in err_msg.lower():
-        receipt.error_type = "rate_limit"
+    receipt.error_type = classify_failure(err_msg)  # type: ignore[assignment]
+    if receipt.error_type == "rate_limit":
         receipt.retry_after = 10.0
-    else:
-        receipt.error_type = "inference_error"
     return False, None, receipt
 
 

@@ -32,6 +32,11 @@ from .providers.registry import ProviderRegistry, ProviderResolutionError
 from .sessions import SessionPool, WorkerSession
 from .store import STREAMING_INPUT_DIGEST, HarnessStore
 
+#: How long an unauthenticated route stays parked. Long enough that a run does
+#: not keep re-picking a CLI that needs a human to sign in, short enough that
+#: logging in mid-session unblocks the route without a restart.
+AUTH_ERROR_COOLDOWN_SEC = 900.0
+
 
 class _InputManifest:
     """Incrementally reproduce the canonical list digest without retaining items."""
@@ -270,8 +275,13 @@ class Engine:
                 error_type = receipt.error_type
                 retry_after = receipt.retry_after
 
-                if error_type in ("rate_limit", "transient_http"):
-                    # Temporarily cool down route without burning batch attempt budget (adaptive if retry_after is None)
+                if error_type in ("rate_limit", "transient_http", "auth_error"):
+                    # Temporarily cool down route without burning batch attempt
+                    # budget (adaptive if retry_after is None). An unauthenticated
+                    # harness is parked the same way: retrying it cannot succeed,
+                    # so it must not consume the run's attempts.
+                    if error_type == "auth_error" and retry_after is None:
+                        retry_after = AUTH_ERROR_COOLDOWN_SEC
                     self.catalog.set_cooldown(route_id, retry_after, reason=f"{error_type}: {last_err}")
                     attempt_record.update({
                         "transport_status": error_type,

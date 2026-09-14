@@ -37,6 +37,30 @@ MIGRATION_002_PATH = Path(__file__).resolve().parent / "migrations" / "002_intel
 MIGRATION_003_PATH = Path(__file__).resolve().parent / "migrations" / "003_profiles.sql"
 MIGRATION_004_PATH = Path(__file__).resolve().parent / "migrations" / "004_studio_settings.sql"
 
+# Tables added after the numbered migrations were frozen. They are defined here
+# rather than inline in migrate() so that migrate() and
+# get_database_schema_sql() read the SAME text: an introspecting agent must see
+# every table that actually exists, and duplicating the DDL is how
+# score_history/route_claim_bias went missing from the advertised schema.
+EXTRA_SCHEMA_SQL = """
+CREATE TABLE IF NOT EXISTS score_history(
+    run_id TEXT NOT NULL,
+    item_id TEXT NOT NULL,
+    entity TEXT NOT NULL,
+    score REAL NOT NULL,
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_score_history_entity ON score_history(entity, created_at);
+CREATE TABLE IF NOT EXISTS route_claim_bias(
+    task_name TEXT NOT NULL,
+    route_id TEXT NOT NULL,
+    bias REAL NOT NULL DEFAULT 0.0,
+    sample_count INTEGER NOT NULL DEFAULT 0,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY(task_name, route_id)
+);
+"""
+
 
 def get_database_schema_sql() -> str:
     parts = [SCHEMA_SQL]
@@ -46,6 +70,7 @@ def get_database_schema_sql() -> str:
         parts.append(MIGRATION_003_PATH.read_text(encoding="utf-8"))
     if MIGRATION_004_PATH.is_file():
         parts.append(MIGRATION_004_PATH.read_text(encoding="utf-8"))
+    parts.append(EXTRA_SCHEMA_SQL)
     return "\n".join(parts)
 
 
@@ -256,18 +281,8 @@ class HarnessStore:
                 connection.execute("ALTER TABLE runs ADD COLUMN parent_run_id TEXT")
             # Score history prices every verified record per run so rescore
             # rounds form a queryable trajectory per entity across runs.
-            connection.execute(
-                """CREATE TABLE IF NOT EXISTS score_history(
-                    run_id TEXT NOT NULL,
-                    item_id TEXT NOT NULL,
-                    entity TEXT NOT NULL,
-                    score REAL NOT NULL,
-                    created_at TEXT NOT NULL
-                )"""
-            )
-            connection.execute(
-                "CREATE INDEX IF NOT EXISTS idx_score_history_entity ON score_history(entity, created_at)"
-            )
+            # Shared with get_database_schema_sql() via EXTRA_SCHEMA_SQL.
+            connection.executescript(EXTRA_SCHEMA_SQL)
             # R21 cutover, part 2: a pre-rename database can reach this point
             # with BOTH tables (fresh harness_meta created above alongside the
             # legacy bulk_meta). Carry the version row forward, then drop the
@@ -366,16 +381,6 @@ class HarnessStore:
                     "UPDATE task_revisions SET format_version='harness_fleet_task_v1' "
                     "WHERE format_version IN ('free_fleet_task_v1','bulk_lanes_task_v1')"
                 )
-            connection.execute(
-                """CREATE TABLE IF NOT EXISTS route_claim_bias(
-                    task_name TEXT NOT NULL,
-                    route_id TEXT NOT NULL,
-                    bias REAL NOT NULL DEFAULT 0.0,
-                    sample_count INTEGER NOT NULL DEFAULT 0,
-                    updated_at TEXT NOT NULL,
-                    PRIMARY KEY(task_name, route_id)
-                )"""
-            )
             connection.execute(
                 "INSERT INTO harness_meta(key,value) VALUES('schema_version',?) "
                 "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
