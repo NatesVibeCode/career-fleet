@@ -422,3 +422,78 @@ def test_routes_refresh_can_target_one_harness(server):
 
     status, payload = _call(base, "POST", "/api/routes/refresh", {"provider": "not-a-harness"})
     assert status == 400 and "unknown harness" in payload["error"]
+
+
+def test_settings_round_trip_persists_to_the_database(server):
+    """The selection the studio saves is the row runs are audited against."""
+    import sqlite3
+
+    base, tmp_path = server
+    status, payload = _call(base, "GET", "/api/settings")
+    assert status == 200
+    assert payload["settings"] is None
+
+    status, saved = _call(base, "PUT", "/api/settings", {
+        "mode": "specific",
+        "providers": ["muse", "codex"],
+        "routes": ["muse/x", "muse/a"],
+    })
+    assert status == 200
+    revision = saved["revision"]
+    assert revision
+    assert saved["settings"]["providers"] == ["codex", "muse"]
+    assert saved["settings"]["routes"] == ["muse/a", "muse/x"]
+
+    status, reloaded = _call(base, "GET", "/api/settings")
+    assert status == 200
+    assert reloaded["settings"]["mode"] == "specific"
+    assert reloaded["settings"]["providers"] == ["codex", "muse"]
+    assert reloaded["settings"]["revision"] == revision
+
+    connection = sqlite3.connect(tmp_path / "studio.db")
+    try:
+        rows = connection.execute(
+            "SELECT mode, providers_json, routes_json, revision_id FROM studio_settings"
+        ).fetchall()
+    finally:
+        connection.close()
+    assert len(rows) == 1, "the singleton row must be updated, never duplicated"
+    assert rows[0][0] == "specific"
+    assert json.loads(rows[0][1]) == ["codex", "muse"]
+    assert json.loads(rows[0][2]) == ["muse/a", "muse/x"]
+    assert rows[0][3] == revision
+
+
+def test_free_mode_ignores_specific_routes_and_an_empty_selection_clears(server):
+    base, tmp_path = server
+    status, saved = _call(base, "PUT", "/api/settings", {
+        "mode": "free",
+        "providers": ["codex"],
+        "routes": ["muse/x"],
+    })
+    assert status == 200
+    assert saved["settings"]["routes"] == [], "free mode must not pin specific routes"
+
+    # Choosing no harness clears the stored selection entirely.
+    status, cleared = _call(base, "PUT", "/api/settings", {
+        "mode": "free", "providers": [], "routes": [],
+    })
+    assert status == 200
+    assert cleared["revision"] is None
+    status, reloaded = _call(base, "GET", "/api/settings")
+    assert reloaded["settings"] is None
+
+    import sqlite3
+    connection = sqlite3.connect(tmp_path / "studio.db")
+    try:
+        count = connection.execute("SELECT COUNT(*) FROM studio_settings").fetchone()[0]
+    finally:
+        connection.close()
+    assert count == 0
+
+
+def test_settings_rejects_an_unknown_mode(server):
+    base, _ = server
+    status, payload = _call(base, "PUT", "/api/settings", {"mode": "everything"})
+    assert status == 400
+    assert "mode" in payload["error"]
