@@ -3,11 +3,11 @@ import argparse
 import csv
 import json
 import os
-from pathlib import Path
 import subprocess
 import sys
 import tempfile
 import venv
+from pathlib import Path
 
 
 def main():
