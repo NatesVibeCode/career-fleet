@@ -52,9 +52,10 @@
   .ok { background: #2a2; } .no { background: #a22; }
   .models { font-size: 0.85rem; columns: 2; }
   .models label { display: block; break-inside: avoid; padding: 2px 0; }
-  .route-group { margin: 2px 0; }
-  .route-group b { font-size: 0.78rem; opacity: 0.75; margin-right: 6px; }
-  .route-group label { margin-right: 10px; font-size: 0.82rem; }
+  .route-group { margin: 2px 0; display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: center; }
+  .route-group b { font-size: 0.78rem; opacity: 0.75; }
+  .route-group label { display: inline-flex; align-items: center; gap: 4px; font-size: 0.82rem;
+    white-space: nowrap; break-inside: avoid; }
   .hm { border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; margin: 8px 0; }
   .hm-head { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
   .hm-head .spacer { flex: 1; }
@@ -62,6 +63,7 @@
   .hm-note { font-size: 0.8rem; opacity: 0.78; margin: 6px 0 4px; }
   .hm-note.bad { color: var(--bad); opacity: 1; }
   .hm-empty { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; font-size: 0.85rem; margin: 10px 0 0; }
+  .hm-empty code { white-space: nowrap; }
   .muted { opacity: 0.7; }
   .ghost { padding: 2px 8px; font-size: 0.78rem; opacity: 0.9; }
   .pill.bad { color: var(--bad); border-color: var(--bad); }
@@ -170,7 +172,9 @@ async function load() {
   document.getElementById("newTaskPreset").innerHTML = H.presets.map(p => `<option ${p === "score" ? "selected" : ""}>${esc(p)}</option>`).join("");
   updatePresetHelp();
   await loadTasks();
-  const first = H.tasks[0] ? H.tasks[0].task_name : "";
+  // Land on a task that actually has a scoring contract to edit.
+  const scorable = H.tasks.find(t => t.scorable) || H.tasks[0];
+  const first = scorable ? scorable.task_name : "";
   if (first) { document.getElementById("taskSel").value = first; await loadScoring(first); }
   else await loadScoring("");
 }

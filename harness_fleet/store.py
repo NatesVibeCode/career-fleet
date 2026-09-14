@@ -501,7 +501,9 @@ class HarnessStore:
     def list_tasks(self) -> list[dict[str, Any]]:
         with self.connect() as connection:
             rows = connection.execute(
-                "SELECT c.task_name,c.revision_id,r.created_at FROM current_tasks c "
+                "SELECT c.task_name,c.revision_id,r.created_at,"
+                "(r.checklist_json IS NOT NULL) AS scorable "
+                "FROM current_tasks c "
                 "JOIN task_revisions r ON r.revision_id=c.revision_id ORDER BY c.task_name"
             ).fetchall()
         return [dict(row) for row in rows]
