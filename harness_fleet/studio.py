@@ -24,7 +24,13 @@ from .engine import Engine
 from .input_data import InputItem
 from .models import RoutePolicy
 from .store import HarnessStore
-from .task import PRESETS, apply_scoring_edit, create_task_from_preset, scoring_view
+from .task import (
+    PRESETS,
+    apply_scoring_edit,
+    create_task_from_preset,
+    duplicate_spec,
+    scoring_view,
+)
 
 STUDIO_DIR = Path(__file__).resolve().parent / "resources" / "studio"
 
@@ -38,14 +44,53 @@ def _send_json(handler: BaseHTTPRequestHandler, status: int, payload: Any) -> No
     handler.wfile.write(body)
 
 
+MAX_BODY_BYTES = 1_000_000
+MAX_DRAIN_BYTES = 8_000_000
+
+
+def _drain(handler: BaseHTTPRequestHandler, length: int) -> None:
+    """Consume an unread request body so the client can read our response.
+
+    Bounded so a lying Content-Length cannot pin a worker thread indefinitely.
+    """
+    remaining = min(length, MAX_DRAIN_BYTES)
+    while remaining > 0:
+        chunk = handler.rfile.read(min(65_536, remaining))
+        if not chunk:
+            return
+        remaining -= len(chunk)
+
+
 def _read_json(handler: BaseHTTPRequestHandler) -> Any:
-    length = int(handler.headers.get("Content-Length") or 0)
+    raw_length = handler.headers.get("Content-Length")
+    if raw_length in (None, ""):
+        return {}
+    try:
+        length = int(raw_length)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("Content-Length must be an integer") from exc
     if length <= 0:
         return {}
+    if length > MAX_BODY_BYTES:
+        _drain(handler, length)
+        raise ValueError(f"request body is too large (limit {MAX_BODY_BYTES} bytes)")
     try:
         return json.loads(handler.rfile.read(length).decode("utf-8"))
     except (json.JSONDecodeError, UnicodeDecodeError) as exc:
         raise ValueError(f"request body is not JSON: {exc}") from exc
+
+
+def _step_int(step: dict[str, Any], key: str, default: int, low: int, high: int) -> int:
+    value = step.get(key, default)
+    if isinstance(value, bool):
+        raise ValueError(f"{key} must be an integer")
+    try:
+        number = int(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{key} must be an integer") from exc
+    if not low <= number <= high:
+        raise ValueError(f"{key} must be between {low} and {high}")
+    return number
 
 
 def _store(handler: BaseHTTPRequestHandler) -> HarnessStore:
@@ -75,14 +120,27 @@ def _scoring_payload(store: HarnessStore, name: str) -> dict[str, Any]:
     return view
 
 
-def _scoring_task_name(path: str) -> str | None:
-    """Extract <name> from /api/tasks/<name>/scoring; None when it is not one."""
-    prefix, suffix = "/api/tasks/", "/scoring"
+def _task_subpath(path: str, suffix: str) -> str | None:
+    """Extract <name> from /api/tasks/<name><suffix>; None when it is not one."""
+    prefix = "/api/tasks/"
     if path.startswith(prefix) and path.endswith(suffix):
         name = path[len(prefix):-len(suffix)]
         if name and "/" not in name:
             return name
     return None
+
+
+def _scoring_task_name(path: str) -> str | None:
+    """Extract <name> from /api/tasks/<name>/scoring; None when it is not one."""
+    return _task_subpath(path, "/scoring")
+
+
+def _task_exists(store: HarnessStore, name: str) -> bool:
+    try:
+        store.current_task_revision(name)
+        return True
+    except KeyError:
+        return False
 
 
 def _request_allowed(handler: BaseHTTPRequestHandler) -> bool:
@@ -147,14 +205,14 @@ def _run_step(
         task=spec,
         store=store,
         policy=policy,
-        max_attempts_per_batch=int(step.get("max_per_batch", 3)),
+        max_attempts_per_batch=_step_int(step, "max_per_batch", 3, 1, 100),
     )
     packet = engine.run_campaign(
         raw_items=items,
         run_id=run_id,
         input_path="studio",
-        concurrency=int(step.get("concurrency", 2)),
-        max_attempts=int(step.get("max_attempts", 20)),
+        concurrency=_step_int(step, "concurrency", 2, 1, 64),
+        max_attempts=_step_int(step, "max_attempts", 20, 1, 1_000_000),
         output_packet_path=workspace / "runs" / run_id / "clean_packet.json",
         parent_run_id=parent_run_id,
     )
@@ -204,6 +262,14 @@ class StudioHandler(BaseHTTPRequestHandler):
                 _send_json(self, 200, {"routes": catalog.get_routes(free_only=False, include_disabled=True)})
             elif path == "/api/presets":
                 _send_json(self, 200, {"presets": sorted(PRESETS)})
+            elif path == "/api/meta":
+                store = _store(self)
+                _send_json(self, 200, {
+                    "studio": self.server_version,
+                    "workspace": str(self._workspace()),
+                    "database": str(store.path),
+                    "schema_version": store.schema_version(),
+                })
             elif path == "/api/tasks":
                 _send_json(self, 200, {"tasks": _store(self).list_tasks()})
             elif (scoring_name := _scoring_task_name(path)) is not None:
@@ -247,6 +313,22 @@ class StudioHandler(BaseHTTPRequestHandler):
                     })
                     return
                 spec = create_task_from_preset(name, preset_name=preset)
+                view = scoring_view(spec)
+                view["revision_id"] = store.register_task(spec)
+                _send_json(self, 200, {"scoring": view})
+            elif (source_name := _task_subpath(path, "/duplicate")) is not None:
+                body = _read_json(self)
+                new_name = str(body.get("name") or "").strip()
+                if not new_name:
+                    raise ValueError("body needs the new task name")
+                store = _store(self)
+                if not _task_exists(store, source_name):
+                    _send_json(self, 404, {"error": f"task not found: {source_name}"})
+                    return
+                if _task_exists(store, new_name):
+                    _send_json(self, 409, {"error": f"task '{new_name}' already exists; choose another name"})
+                    return
+                spec = duplicate_spec(store.get_task(source_name), new_name)
                 view = scoring_view(spec)
                 view["revision_id"] = store.register_task(spec)
                 _send_json(self, 200, {"scoring": view})

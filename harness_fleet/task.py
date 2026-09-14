@@ -524,6 +524,18 @@ def apply_scoring_edit(spec: TaskSpec, patch: Any) -> TaskSpec:
     return TaskSpec.model_validate(payload)
 
 
+def duplicate_spec(spec: TaskSpec, new_name: str) -> TaskSpec:
+    """Copy a task contract under a new name.
+
+    Round-trips through model_validate so the copy is re-checked, and clears
+    nothing else: the duplicate starts as an exact, separately-revisioned
+    clone that can be tuned without touching the original.
+    """
+    payload = spec.model_dump(mode="json", by_alias=True)
+    payload["name"] = new_name
+    return TaskSpec.model_validate(payload)
+
+
 def load_task_spec(task_path: str | Path) -> TaskSpec:
     path = Path(task_path)
     if path.suffix.lower() != ".json":

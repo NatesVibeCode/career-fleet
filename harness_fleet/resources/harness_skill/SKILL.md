@@ -31,7 +31,7 @@ Start with `command -v harness-fleet`. On a fresh system, run `harness-fleet set
 8. For MCP, set one absolute `--workspace-root`. Keep its SQLite database and every file path below that root.
 9. Read exported packets through `read_packet`; it checks the embedded TaskSpec digest and revalidates every record's claims. Do not bypass `harness_fleet_v2` validation.
 10. Model selection uses Bayesian-smoothed historical scoring. Every intermediate attempt failure, schema error, ungrounded quote, rate limit, and latency is recorded immutably in `inference_attempts`.
-11. Mechanical discovery enforces a 70% source-capture floor by default. Its report includes per-backend hit/capture counts, and fetched records retain the backend, query, and originating URL.
+11. Mechanical discovery reports per-backend hits and skips, and fetched records retain the backend, query, and originating URL.
 
 ## Workflow
 

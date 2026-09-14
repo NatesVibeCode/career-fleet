@@ -43,3 +43,31 @@ def test_openrouter_rate_limit_populates_retry_after(monkeypatch):
     assert ok is False
     assert receipt.error_type == "rate_limit"
     assert receipt.retry_after == 8.0
+
+
+def test_openrouter_order_precedence_and_no_fallbacks(monkeypatch):
+    captured_payload = {}
+
+    def mock_post(url, headers, json):
+        nonlocal captured_payload
+        captured_payload = json
+        return httpx.Response(200, json={
+            "choices": [{"message": {"content": "ok"}}],
+            "cost": 0.0,
+        })
+
+    monkeypatch.setattr(httpx.Client, "post", lambda self, url, headers, json: mock_post(url, headers, json))
+
+    prov = OpenRouterProvider(api_key="test-key")
+    policy = RoutePolicy(
+        openrouter_order=["a", "b"],
+        openrouter_providers=["c"],
+        allowed_providers=["d"],
+        openrouter_ignore=["e"],
+        openrouter_allow_fallbacks=False,
+    )
+    ok, _, _ = prov.run_prompt("openrouter/meta/llama-3:free", "hello", policy=policy)
+    assert ok is True
+    assert captured_payload["provider"]["order"] == ["a", "b"]
+    assert captured_payload["provider"]["ignore"] == ["e"]
+    assert captured_payload["provider"]["allow_fallbacks"] is False

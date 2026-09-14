@@ -19,6 +19,10 @@ class FakeResponse:
         self.url = url
 
     @property
+    def is_redirect(self):
+        return 300 <= self.status_code < 400
+
+    @property
     def text(self):
         return self.content.decode("utf-8", errors="replace")
 
@@ -43,7 +47,7 @@ class FakeClient:
     def close(self):
         pass
 
-    def get(self, url, params=None, timeout=None):
+    def get(self, url, params=None, timeout=None, follow_redirects=None):
         key = str(url)
         if key in self.routes:
             resp = self.routes[key]
@@ -186,7 +190,7 @@ def test_fetch_yc_records_carry_page_coverage(monkeypatch):
     ], "page": 2, "totalPages": 2}
 
     class YCClient(FakeClient):
-        def get(self, url, params=None, timeout=None):
+        def get(self, url, params=None, timeout=None, follow_redirects=None):
             return FakeResponse(json_data={1: page1, 2: page2}[(params or {}).get("page", 1)])
 
     monkeypatch.setattr("harness_fleet.discover.httpx.Client", YCClient)

@@ -260,6 +260,18 @@ def _resolve_node_profile(node: RescoreNode, store: HarnessStore, root: Path):
     return None, None
 
 
+def _resolve_run_ref(state: dict[str, Any], dag_id: str, node_id: str) -> str:
+    """Actual run id for a referenced node.
+
+    Downstream nodes name their source node, not its run id, and a `run` or
+    `rescore` node may override the deterministic ``<dag-id>-<node-id>``
+    default. Read the resolved id back from recorded state; fall back to the
+    deterministic name for legacy states written before it was recorded.
+    """
+    node_state = (state.get("nodes") or {}).get(node_id) or {}
+    return str(node_state.get("run_id") or node_state.get("from_run") or f"{dag_id}-{node_id}")
+
+
 def _execute_rescore_node(
     node: RescoreNode,
     run_id: str,
@@ -268,7 +280,7 @@ def _execute_rescore_node(
     root: Path,
     dag_id: str,
 ) -> None:
-    parent = f"{dag_id}-{node.from_run}" if node.from_run else node.parent_run
+    parent = _resolve_run_ref(state, dag_id, node.from_run) if node.from_run else node.parent_run
     assert parent is not None
     try:
         store.run_snapshot(parent)
@@ -496,7 +508,7 @@ def run_dag(
                 continue
             _execute_calibrate_node(node, state, store, root, dag_dir)
         elif isinstance(node, FilterNode):
-            run_id = f"{dag_id}-{node.from_run}"
+            run_id = _resolve_run_ref(state, dag_id, node.from_run)
             snapshot = store.run_snapshot(run_id)
             records, _ = verified_records_from_snapshot(snapshot)
             selected = _filter_and_sort_records(
@@ -517,7 +529,7 @@ def run_dag(
                 "count": len(ids),
             }
         elif isinstance(node, ExportNode):
-            run_id = f"{dag_id}-{node.from_run}"
+            run_id = _resolve_run_ref(state, dag_id, node.from_run)
             snapshot = store.run_snapshot(run_id)
             dest = root / node.output if node.output else dag_dir / node_id / f"output.{node.format}"
             packet = export_clean_packet(

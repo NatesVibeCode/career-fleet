@@ -5,16 +5,31 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Harness Studio</title>
 <style>
-  :root { color-scheme: light dark; }
-  body { font-family: system-ui, sans-serif; margin: 0 auto; max-width: 960px; padding: 16px; }
-  h1 { font-size: 1.4rem; }
-  h2 { font-size: 1.05rem; margin-top: 1.6em; border-bottom: 1px solid #8884; padding-bottom: 4px; }
+  :root {
+    color-scheme: light dark;
+    --line: #8884;
+    --muted: #8889;
+    --accent: #2a7;
+    --warn: #c80;
+    --bad: #c33;
+  }
+  body { font-family: system-ui, sans-serif; margin: 0 auto; max-width: 1000px; padding: 16px 18px 64px; line-height: 1.45; }
+  h1 { font-size: 1.4rem; margin-bottom: 0.2em; }
+  h2 { font-size: 1.05rem; margin-top: 1.7em; border-bottom: 1px solid var(--line); padding-bottom: 4px; }
   h3 { font-size: 0.95rem; margin: 1.1em 0 0.4em; }
+  p { margin: 0.5em 0; }
+  code { font-size: 0.9em; }
   table { border-collapse: collapse; }
   th, td { text-align: left; padding: 2px 8px 2px 0; vertical-align: middle; }
+  .panel { border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; margin: 10px 0; }
+  .panel > :first-child { margin-top: 0; }
   .wide { display: block; margin: 8px 0; }
+  .hint { font-size: 0.85rem; opacity: 0.78; }
+  .note { font-style: italic; opacity: 0.85; }
+  .meta { font-size: 0.78rem; opacity: 0.65; }
+  .err { color: var(--bad); }
   #cards { display: flex; flex-wrap: wrap; gap: 8px; }
-  .card { border: 2px solid #8886; border-radius: 10px; padding: 8px 10px; cursor: pointer; min-width: 110px; text-align: center; }
+  .card { border: 2px solid var(--line); border-radius: 10px; padding: 8px 10px; cursor: pointer; min-width: 110px; text-align: center; }
   .card.off { opacity: 0.45; }
   .card.unavail { cursor: not-allowed; border-style: dashed; }
   .card svg { display: block; margin: 0 auto 4px; }
@@ -22,24 +37,36 @@
   .ok { background: #2a2; } .no { background: #a22; }
   .models { font-size: 0.85rem; columns: 2; }
   .models label { display: block; break-inside: avoid; padding: 2px 0; }
-  .badge { font-size: 0.72rem; border: 1px solid #8886; border-radius: 6px; padding: 0 5px; margin-left: 6px; }
-  .step { border: 1px solid #8886; border-radius: 10px; padding: 10px; margin: 10px 0; }
+  .badge { font-size: 0.72rem; border: 1px solid var(--line); border-radius: 6px; padding: 0 5px; margin-left: 6px; }
+  .pill { font-size: 0.72rem; border: 1px solid var(--line); border-radius: 999px; padding: 1px 8px; opacity: 0.9; }
+  .pill.dirty { color: var(--warn); border-color: var(--warn); }
+  .step { border: 1px solid var(--line); border-radius: 10px; padding: 10px; margin: 10px 0; }
   .row { display: flex; flex-wrap: wrap; gap: 10px; align-items: end; margin: 6px 0; }
   .row label { display: flex; flex-direction: column; font-size: 0.8rem; gap: 2px; }
+  .actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin: 10px 0; }
   input[type=number] { width: 7em; }
   input[type=text], select, textarea { font: inherit; }
-  textarea { width: 100%; min-height: 64px; font-family: monospace; font-size: 0.8rem; }
+  textarea { width: 100%; min-height: 64px; font-family: monospace; font-size: 0.8rem; box-sizing: border-box; }
   button { font: inherit; padding: 6px 14px; cursor: pointer; }
   #runBtn { font-size: 1.05rem; }
-  .result { border-left: 4px solid #2a2; padding: 6px 10px; margin: 8px 0; }
-  .result.failed { border-color: #a22; }
-  .note { font-style: italic; }
-  .err { color: #a22; }
+  .empty { border: 1px dashed var(--line); border-radius: 12px; padding: 18px; text-align: center; opacity: 0.9; }
+  .stale { border-left: 4px solid var(--warn); padding: 8px 10px; margin: 8px 0; border-radius: 6px; background: color-mix(in srgb, var(--warn) 12%, transparent); }
+  .grid { width: 100%; }
+  .grid th { font-size: 0.76rem; text-transform: uppercase; letter-spacing: 0.03em; opacity: 0.65; font-weight: 600; }
+  .grid td { border-top: 1px solid var(--line); padding: 6px 10px 6px 0; }
+  .grid input[type=text] { width: 100%; box-sizing: border-box; }
+  .bar { height: 8px; border-radius: 999px; background: var(--line); overflow: hidden; margin: 6px 0 2px; }
+  .bar > i { display: block; height: 100%; background: var(--accent); transition: width 0.15s ease; }
+  .bar.over > i { background: var(--warn); }
+  .result { border-left: 4px solid var(--accent); padding: 6px 10px; margin: 8px 0; }
+  .result.failed { border-color: var(--bad); }
+  @media (max-width: 640px) { .models { columns: 1; } }
 </style>
 </head>
 <body>
 <h1>Harness Studio</h1>
-<p>Pick harnesses, pick their models, then build steps: each step is a sequenced run with its own routes, budgets, and an optional paid opt-in with a recorded trust note. Paid routes never run without the opt-in.</p>
+<p class="meta" id="metaLine"></p>
+<p>Start at <b>3 · Scoring contract</b> to define what counts as a good target — the evidence checklist, points, source weights, and recency. Then pick harnesses and models, build steps, and run. Paid routes never run without an explicit opt-in.</p>
 
 <h2>1 · Harnesses</h2>
 <div id="cards"></div>
@@ -48,15 +75,23 @@
 <div id="modelsBox"><p><button id="refreshBtn" type="button">Refresh catalog</button> <span id="refreshMsg"></span></p><div class="models" id="models"></div></div>
 
 <h2>3 · Scoring contract</h2>
-<p>A view over the task's typed spec. The pipeline derives <b>score</b>, <b>fit tier</b>, and <b>pass/fail</b> from the evidence checklist, so this panel edits only the checklist items, their points, source weights, and recency — never a per-record score.</p>
-<div class="row">
-  <label>Task<select id="taskSel"></select></label>
-  <button id="taskLoad" type="button">Load</button>
-  <label>New task name<input type="text" id="newTaskName" placeholder="my-scoring-task"></label>
-  <label>Preset<select id="newTaskPreset"></select></label>
-  <button id="taskCreate" type="button">Create</button>
+<div class="panel">
+  <p class="hint">A view over the task's typed spec. The pipeline derives <b>score</b>, <b>fit tier</b>, and <b>pass/fail</b> from the evidence checklist, so you tune the evidence rules here — never a per-record score.</p>
+  <div class="row">
+    <label>Task<select id="taskSel"></select></label>
+    <button id="taskLoad" type="button">Reload</button>
+    <button id="taskDup" type="button">Duplicate…</button>
+    <span id="dirtyPill" class="pill dirty" hidden>● unsaved changes</span>
+  </div>
+  <div class="row">
+    <label>New task name<input type="text" id="newTaskName" placeholder="my-scoring-task" pattern="[A-Za-z0-9_.-]+" title="letters, digits, and _ . - only"></label>
+    <label>Preset<select id="newTaskPreset"></select></label>
+    <button id="taskCreate" type="button">Create</button>
+    <span class="hint">name allows letters, digits, <code>_ . -</code></span>
+  </div>
+  <p id="presetHelp" class="hint"></p>
+  <p id="scoringMsg" class="note"></p>
 </div>
-<p id="scoringMsg" class="note"></p>
 <div id="scoringBox"></div>
 
 <h2>4 · Steps</h2>
@@ -69,8 +104,8 @@
 <div id="results"></div>
 
 <script>
-const H = { harnesses: [], routes: [], presets: [], tasks: [], scoring: null, draft: null, enabled: new Set(), picked: new Set(), steps: [] };
-const initial = { O: "opencode", C: "claude", X: "codex", U: "cursor", G: "grok", M: "muse", A: "antigravity" };
+const H = { harnesses: [], routes: [], presets: [], tasks: [], scoring: null, draft: null, meta: null,
+  dirty: false, stale: false, enabled: new Set(), picked: new Set(), steps: [] };
 
 async function api(method, path, body, headers) {
   const r = await fetch(path, { method, headers: {"Content-Type": "application/json", ...(headers || {})},
@@ -89,13 +124,43 @@ async function load() {
   H.harnesses = (await api("GET", "/api/harnesses")).harnesses;
   H.routes = (await api("GET", "/api/routes")).routes;
   H.presets = (await api("GET", "/api/presets")).presets;
+  H.meta = await api("GET", "/api/meta").catch(() => null);
+  renderMeta();
   H.harnesses.forEach(h => { if (h.available) H.enabled.add(h.name); });
   renderCards(); renderModels(); addStep();
-  document.getElementById("newTaskPreset").innerHTML = H.presets.map(p => `<option ${p === "score" ? "selected" : ""}>${p}</option>`).join("");
+  document.getElementById("newTaskPreset").innerHTML = H.presets.map(p => `<option ${p === "score" ? "selected" : ""}>${esc(p)}</option>`).join("");
+  updatePresetHelp();
   await loadTasks();
   const first = H.tasks[0] ? H.tasks[0].task_name : "";
   if (first) { document.getElementById("taskSel").value = first; await loadScoring(first); }
   else await loadScoring("");
+}
+function renderMeta() {
+  const el = document.getElementById("metaLine");
+  if (!el) return;
+  el.textContent = H.meta
+    ? `${H.meta.studio} · workspace ${H.meta.workspace} · schema ${H.meta.schema_version}`
+    : "";
+}
+const PRESET_HELP = {
+  score: "score — 0–100 qualification from an evidence checklist (start here)",
+  "account-research": "account-research — ICP fit score + identified gap + derived tier",
+  filter: "filter — boolean pass/fail gate with a reason",
+  triage: "triage — high/medium/low priority with a reason",
+  classify: "classify — one category label plus a summary",
+  extract: "extract — named entities plus a summary",
+  summarize: "summarize — a short summary supported by quotes",
+};
+function updatePresetHelp() {
+  const el = document.getElementById("presetHelp");
+  if (!el) return;
+  const preset = document.getElementById("newTaskPreset").value;
+  el.textContent = PRESET_HELP[preset] || "custom preset";
+}
+function setDirty(flag) {
+  H.dirty = flag;
+  const pill = document.getElementById("dirtyPill");
+  if (pill) pill.hidden = !flag;
 }
 function renderCards() {
   const box = document.getElementById("cards"); box.innerHTML = "";
@@ -103,8 +168,8 @@ function renderCards() {
     const d = document.createElement("div");
     d.className = "card" + (H.enabled.has(h.name) ? "" : " off") + (h.available ? "" : " unavail");
     d.title = h.detail;
-    d.innerHTML = icon(initial[h.name[0].toUpperCase()] || "?", COLORS[h.name] || "#888") +
-      `<div><span class="dot ${h.available ? "ok" : "no"}"></span><b>${h.name}</b></div><small>${h.binary}</small>`;
+    d.innerHTML = icon(h.name[0].toUpperCase(), COLORS[h.name] || "#888") +
+      `<div><span class="dot ${h.available ? "ok" : "no"}"></span><b>${esc(h.name)}</b></div><small>${esc(h.binary)}</small>`;
     if (h.available) d.onclick = () => { H.enabled.has(h.name) ? H.enabled.delete(h.name) : H.enabled.add(h.name); renderCards(); renderModels(); };
     box.appendChild(d);
   });
@@ -139,11 +204,11 @@ function renderSteps() {
   H.steps.forEach((s, i) => {
     const d = document.createElement("div"); d.className = "step";
     const routeCbs = offeredRoutes().filter(r => H.picked.has(r.id)).map(r =>
-      `<label><input type="checkbox" data-s="${i}" data-r="${r.id}" ${s.routes.includes(r.id) ? "checked" : ""}> ${r.id}</label>`).join("");
+      `<label><input type="checkbox" data-s="${i}" data-r="${esc(r.id)}" ${s.routes.includes(r.id) ? "checked" : ""}> ${esc(r.id)}</label>`).join("");
     d.innerHTML = `<b>Step ${i + 1}</b> <button type="button" data-del="${i}">remove</button>
       <div class="row">
-        <label>Task name (existing)<input type="text" list="taskNames" data-f="task" data-s="${i}" value="${s.task}" placeholder="optional if preset"></label>
-        <label>Preset<select data-f="preset" data-s="${i}">${H.presets.map(p => `<option ${p === s.preset ? "selected" : ""}>${p}</option>`).join("")}</select></label>
+        <label>Task name (existing)<input type="text" list="taskNames" data-f="task" data-s="${i}" value="${esc(s.task)}" placeholder="optional if preset"></label>
+        <label>Preset<select data-f="preset" data-s="${i}">${H.presets.map(p => `<option ${p === s.preset ? "selected" : ""}>${esc(p)}</option>`).join("")}</select></label>
         <label>Max attempts<input type="number" data-f="max_attempts" data-s="${i}" value="${s.max_attempts}" min="1"></label>
         <label>Sessions<input type="number" data-f="concurrency" data-s="${i}" value="${s.concurrency}" min="1"></label>
         <label>Max per batch<input type="number" data-f="max_per_batch" data-s="${i}" value="${s.max_per_batch}" min="1"></label>
@@ -151,8 +216,8 @@ function renderSteps() {
       </div>
       <div>Routes for this step: ${routeCbs || "<i>pick models above</i>"}</div>
       <div class="row"><label><span><input type="checkbox" data-f="allow_paid" data-s="${i}" ${s.allow_paid ? "checked" : ""}> allow paid routes for this step</span></label>
-      <label>Trust note (recorded)<input type="text" data-f="paid_note" data-s="${i}" value="${s.paid_note}" size="48" placeholder="e.g. claude for career scoring: personal data"></label></div>
-      <label>Items (JSON array)<textarea data-f="itemsText" data-s="${i}">${s.itemsText}</textarea></label>`;
+      <label>Trust note (recorded)<input type="text" data-f="paid_note" data-s="${i}" value="${esc(s.paid_note)}" size="48" placeholder="e.g. claude for career scoring: personal data"></label></div>
+      <label>Items (JSON array)<textarea data-f="itemsText" data-s="${i}">${esc(s.itemsText)}</textarea></label>`;
     box.appendChild(d);
   });
   box.querySelectorAll("[data-f]").forEach(el => {
@@ -177,6 +242,8 @@ function useScoring(view) {
   H.scoring = view;
   H.draft = JSON.parse(JSON.stringify(view));
   H.draft._weights = Object.entries(view.source_weights).map(([match, weight]) => ({match, weight}));
+  H.stale = false;
+  setDirty(false);
 }
 async function loadTasks() {
   H.tasks = (await api("GET", "/api/tasks")).tasks;
@@ -191,56 +258,90 @@ async function loadScoring(name) {
   document.getElementById("scoringMsg").textContent = "";
   if (!name) {
     H.scoring = H.draft = null;
-    box.innerHTML = "<p class='note'>No task yet. Create one from a preset above, or run a step with a task name.</p>";
+    setDirty(false);
+    box.innerHTML = `<div class="empty">
+      <p><b>No scoring task yet.</b></p>
+      <p class="hint">Create one above from a preset — <code>score</code> for open-ended qualification, or <code>account-research</code> for ICP fit with a gap and tier — then tune the evidence checklist here. Duplicate a task to branch it.</p>
+    </div>`;
     return;
   }
   useScoring((await api("GET", `/api/tasks/${encodeURIComponent(name)}/scoring`)).scoring);
   renderScoring();
 }
 function updateTotal() {
-  const v = H.draft, total = v.checklist.reduce((a, it) => a + (+it.points || 0), 0);
-  v.total_points = total;
+  const v = H.draft;
+  v.total_points = v.checklist.reduce((a, it) => a + (+it.points || 0), 0);
   const el = document.getElementById("totalPts");
-  if (el) el.innerHTML = `<b>${total}</b>/${v.score_cap}` + (total === v.score_cap ? "" : ` <span class="err">(does not total ${v.score_cap})</span>`);
+  if (el) el.innerHTML = `<b>${v.total_points}</b>/${v.score_cap}`;
+  const bar = document.getElementById("totalBar");
+  if (bar) {
+    bar.classList.toggle("over", v.total_points > v.score_cap);
+    bar.firstElementChild.style.width = Math.min(100, v.total_points) + "%";
+  }
 }
 function renderScoring() {
   const box = document.getElementById("scoringBox"), v = H.draft;
   if (!v) { box.innerHTML = ""; return; }
   if (!v.scorable) {
-    box.innerHTML = `<p class="note">Task <b>${esc(v.task)}</b> carries no evidence checklist, so there is no scoring contract to edit. Use the <code>score</code> or <code>account-research</code> preset.</p>`;
+    box.innerHTML = `<div class="panel"><p class="note">Task <b>${esc(v.task)}</b> carries no evidence checklist, so there is no scoring contract to edit. Create one from the <code>score</code> or <code>account-research</code> preset.</p></div>`;
     return;
   }
   v.total_points = v.checklist.reduce((a, it) => a + (+it.points || 0), 0);
+  const over = v.total_points > v.score_cap;
+  const totalNote = over
+    ? ` — over the cap, so the score saturates at ${v.score_cap}`
+    : (v.total_points === v.score_cap ? "" : ` — true items sum below ${v.score_cap}`);
   const bands = v.tier_bands.map(b => `<tr><td>${esc(b.tier)}</td><td>${b.min_score}–${b.max_score}</td></tr>`).join("");
   const rows = v.checklist.map((it, i) => `<tr>
-      <td><input type="text" data-c="${i}" data-k="item_id" value="${esc(it.item_id)}"></td>
-      <td><input type="number" min="1" data-c="${i}" data-k="points" value="${it.points}"></td>
-      <td><input type="text" size="42" data-c="${i}" data-k="description" value="${esc(it.description)}"></td>
+      <td><input type="text" data-c="${i}" data-k="item_id" value="${esc(it.item_id)}" title="Named by claims and score history; renaming changes identity"></td>
+      <td><input type="number" min="1" max="100" data-c="${i}" data-k="points" value="${it.points}"></td>
+      <td><input type="text" data-c="${i}" data-k="description" value="${esc(it.description)}" placeholder="what counts as true"></td>
       <td><input type="number" min="0" step="any" placeholder="—" data-c="${i}" data-k="half_life_days" value="${it.half_life_days ?? ""}"></td>
-      <td><button type="button" data-rm="${i}">×</button></td></tr>`).join("");
+      <td><button type="button" data-rm="${i}" title="Remove item">×</button></td></tr>`).join("");
   const wrows = v._weights.map((w, i) => `<tr>
-      <td><input type="text" data-w="${i}" data-k="match" value="${esc(w.match)}"></td>
+      <td><input type="text" data-w="${i}" data-k="match" value="${esc(w.match)}" placeholder="boards.greenhouse.io"></td>
       <td><input type="number" min="0" max="1" step="any" data-w="${i}" data-k="weight" value="${w.weight}"></td>
-      <td><button type="button" data-wrm="${i}">×</button></td></tr>`).join("");
+      <td><button type="button" data-wrm="${i}" title="Remove weight">×</button></td></tr>`).join("");
   box.innerHTML = `
-    <p class="note">Task <b>${esc(v.task)}</b> · revision <code>${esc((v.revision_id || "").slice(0, 12))}</code> · total <span id="totalPts"><b>${v.total_points}</b>/${v.score_cap}</span></p>
-    <p class="note">Score, fit tier, and pass/fail are computed by the pipeline from this checklist. They cannot be edited here.</p>
-    <h3>Fixed score bands</h3>
-    <table><thead><tr><th>Tier</th><th>0–100 range</th></tr></thead><tbody>${bands}</tbody></table>
-    <label class="wide">Instructions<textarea data-f="instructions">${esc(v.instructions)}</textarea></label>
-    <h3>Evidence checklist</h3>
-    <table><thead><tr><th>Item id</th><th>Points</th><th>Description (what counts as true)</th><th>Half-life (days)</th><th></th></tr></thead><tbody>${rows}</tbody></table>
-    <p><button type="button" id="addItem">+ Add item</button></p>
-    <h3>Source weights</h3>
-    <table><thead><tr><th>URI substring</th><th>Weight 0–1</th><th></th></tr></thead><tbody>${wrows}</tbody></table>
-    <p><button type="button" id="addWeight">+ Add weight</button></p>
-    <div class="row">
-      <label>Default source weight<input type="number" min="0" max="1" step="any" data-f="default_source_weight" value="${v.default_source_weight}"></label>
-      <label>Pass score${v.has_pass ? "" : " (inert: no pass/fail claim)"}<input type="number" min="0" max="100" data-f="pass_score" value="${v.pass_score ?? ""}"></label>
-      <label>Min quote chars<input type="number" min="1" data-f="min_quote_chars" value="${v.min_quote_chars}"></label>
+    ${H.stale ? `<div class="stale"><b>This task changed elsewhere.</b> Your edits are not saved. <button type="button" id="staleReload">Reload latest</button></div>` : ""}
+    <div class="panel">
+      <p><b>${esc(v.task)}</b> · revision <code>${esc((v.revision_id || "").slice(0, 12))}</code></p>
+      <div class="bar${over ? " over" : ""}" id="totalBar"><i style="width:${Math.min(100, v.total_points)}%"></i></div>
+      <p class="hint">Checklist total <span id="totalPts"><b>${v.total_points}</b>/${v.score_cap}</span>${totalNote}. Score, fit tier, and pass/fail are derived by the pipeline from this checklist and cannot be edited here.</p>
+      <label class="wide">Instructions<textarea data-f="instructions">${esc(v.instructions)}</textarea></label>
     </div>
-    <p><button type="button" id="saveScoring">Save as new revision</button> <span id="scoringSaveMsg" class="note"></span></p>`;
+    <div class="panel">
+      <h3>Evidence checklist</h3>
+      <table class="grid"><thead><tr><th>Item id</th><th>Points</th><th>Description (what counts as true)</th><th>Half-life (days)</th><th></th></tr></thead><tbody>${rows}</tbody></table>
+      <p><button type="button" id="addItem">+ Add item</button></p>
+    </div>
+    <div class="panel">
+      <h3>Source weights</h3>
+      <p class="hint">Longest matching URI substring wins. The weight scales the points an item can contribute; half-life decays them as evidence ages.</p>
+      <table class="grid"><thead><tr><th>URI substring</th><th>Weight 0–1</th><th></th></tr></thead><tbody>${wrows}</tbody></table>
+      <p><button type="button" id="addWeight">+ Add weight</button></p>
+    </div>
+    <div class="panel">
+      <h3>Score bands (fixed)</h3>
+      <table class="grid"><thead><tr><th>Tier</th><th>0–100 range</th></tr></thead><tbody>${bands}</tbody></table>
+      <div class="row">
+        <label>Default source weight<input type="number" min="0" max="1" step="any" data-f="default_source_weight" value="${v.default_source_weight}"></label>
+        <label>Pass score${v.has_pass ? "" : " (inert: no pass/fail claim)"}<input type="number" min="0" max="100" data-f="pass_score" value="${v.pass_score ?? ""}"></label>
+        <label>Min quote chars<input type="number" min="1" data-f="min_quote_chars" value="${v.min_quote_chars}"></label>
+      </div>
+    </div>
+    <div class="actions">
+      <button type="button" id="saveScoring">Save as new revision</button>
+      <button type="button" id="revertScoring">Discard changes</button>
+      <span id="scoringSaveMsg" class="note"></span>
+    </div>`;
   wireScoring();
+}
+function reloadScoring() {
+  if (!H.draft) return;
+  return loadScoring(H.draft.task).catch(e => {
+    document.getElementById("scoringMsg").textContent = "error: " + e.message;
+  });
 }
 function wireScoring() {
   const v = H.draft, box = document.getElementById("scoringBox");
@@ -250,31 +351,37 @@ function wireScoring() {
       if (k === "instructions") v.instructions = el.value;
       else if (k === "pass_score") v.pass_score = el.value === "" ? null : +el.value;
       else v[k] = +el.value;
+      setDirty(true);
     };
   });
   box.querySelectorAll("[data-c]").forEach(el => {
     el.onchange = () => {
       const it = v.checklist[+el.dataset.c], k = el.dataset.k;
-      if (k === "points") { it.points = Math.max(1, parseInt(el.value, 10) || 1); el.value = it.points; updateTotal(); }
+      if (k === "points") { it.points = Math.max(1, Math.min(100, parseInt(el.value, 10) || 1)); el.value = it.points; updateTotal(); }
       else if (k === "half_life_days") it.half_life_days = el.value === "" ? null : +el.value;
       else it[k] = el.value;
+      setDirty(true);
     };
   });
   box.querySelectorAll("[data-w]").forEach(el => {
-    el.onchange = () => { v._weights[+el.dataset.w][el.dataset.k] = el.dataset.k === "weight" ? +el.value : el.value; };
+    el.onchange = () => { v._weights[+el.dataset.w][el.dataset.k] = el.dataset.k === "weight" ? +el.value : el.value; setDirty(true); };
   });
   box.querySelectorAll("[data-rm]").forEach(el => {
-    el.onclick = () => { v.checklist.splice(+el.dataset.rm, 1); renderScoring(); };
+    el.onclick = () => { v.checklist.splice(+el.dataset.rm, 1); setDirty(true); renderScoring(); };
   });
   box.querySelectorAll("[data-wrm]").forEach(el => {
-    el.onclick = () => { v._weights.splice(+el.dataset.wrm, 1); renderScoring(); };
+    el.onclick = () => { v._weights.splice(+el.dataset.wrm, 1); setDirty(true); renderScoring(); };
   });
   document.getElementById("addItem").onclick = () => {
     v.checklist.push({item_id: "item_" + (v.checklist.length + 1), points: 1, description: "", half_life_days: null});
+    setDirty(true);
     renderScoring();
   };
-  document.getElementById("addWeight").onclick = () => { v._weights.push({match: "", weight: 1}); renderScoring(); };
+  document.getElementById("addWeight").onclick = () => { v._weights.push({match: "", weight: 1}); setDirty(true); renderScoring(); };
   document.getElementById("saveScoring").onclick = saveScoring;
+  document.getElementById("revertScoring").onclick = reloadScoring;
+  const staleReload = document.getElementById("staleReload");
+  if (staleReload) staleReload.onclick = reloadScoring;
 }
 async function saveScoring() {
   const v = H.draft, msg = document.getElementById("scoringSaveMsg");
@@ -301,13 +408,34 @@ async function saveScoring() {
       r.scoring.revision_id === r.scoring.previous_revision_id
         ? "no changes to save"
         : `saved revision ${r.scoring.revision_id.slice(0, 12)} (previous ${r.scoring.previous_revision_id.slice(0, 12)})`;
-  } catch (e) { msg.textContent = "error: " + e.message; }
+  } catch (e) {
+    if (/changed elsewhere/.test(e.message)) {
+      H.stale = true;
+      renderScoring();
+      const stale = document.getElementById("scoringSaveMsg");
+      if (stale) stale.textContent = "not saved — reload the latest revision";
+    } else {
+      msg.textContent = "error: " + e.message;
+    }
+  }
 }
-document.getElementById("taskLoad").onclick = () => loadScoring(document.getElementById("taskSel").value).catch(e => { document.getElementById("scoringMsg").textContent = "error: " + e.message; });
-document.getElementById("taskSel").onchange = () => loadScoring(document.getElementById("taskSel").value).catch(e => { document.getElementById("scoringMsg").textContent = "error: " + e.message; });
+function confirmDiscard() {
+  return !H.dirty || confirm("Discard unsaved scoring changes?");
+}
+function currentTask() { return H.draft ? H.draft.task : ""; }
+document.getElementById("taskLoad").onclick = () => {
+  if (!confirmDiscard()) return;
+  loadScoring(document.getElementById("taskSel").value).catch(e => { document.getElementById("scoringMsg").textContent = "error: " + e.message; });
+};
+document.getElementById("taskSel").onchange = () => {
+  const select = document.getElementById("taskSel");
+  if (!confirmDiscard()) { select.value = currentTask(); return; }
+  loadScoring(select.value).catch(e => { document.getElementById("scoringMsg").textContent = "error: " + e.message; });
+};
 document.getElementById("taskCreate").onclick = async () => {
   const name = document.getElementById("newTaskName").value.trim();
   const preset = document.getElementById("newTaskPreset").value;
+  if (!confirmDiscard()) return;
   try {
     const r = await api("POST", "/api/tasks", {name, preset});
     useScoring(r.scoring);
@@ -318,6 +446,23 @@ document.getElementById("taskCreate").onclick = async () => {
     renderScoring();
   } catch (e) { document.getElementById("scoringMsg").textContent = "error: " + e.message; }
 };
+document.getElementById("newTaskPreset").onchange = updatePresetHelp;
+document.getElementById("taskDup").onclick = async () => {
+  const v = H.draft;
+  if (!v) { document.getElementById("scoringMsg").textContent = "load a task first"; return; }
+  if (!confirmDiscard()) return;
+  const name = (prompt("Name for the copy of '" + v.task + "':", v.task + "-copy") || "").trim();
+  if (!name) return;
+  try {
+    const r = await api("POST", `/api/tasks/${encodeURIComponent(v.task)}/duplicate`, {name});
+    useScoring(r.scoring);
+    await loadTasks();
+    document.getElementById("taskSel").value = r.scoring.task;
+    document.getElementById("scoringMsg").textContent = `duplicated '${v.task}' as '${r.scoring.task}'`;
+    renderScoring();
+  } catch (e) { document.getElementById("scoringMsg").textContent = "error: " + e.message; }
+};
+window.addEventListener("beforeunload", e => { if (H.dirty) { e.preventDefault(); e.returnValue = ""; } });
 document.getElementById("addStep").onclick = addStep;
 document.getElementById("refreshBtn").onclick = async () => {
   const m = document.getElementById("refreshMsg"); m.textContent = "refreshing…";
@@ -339,8 +484,8 @@ document.getElementById("runBtn").onclick = async () => {
     r.steps.forEach(st => {
       const d = document.createElement("div");
       d.className = "result" + (st.status === "completed" ? "" : " failed");
-      d.innerHTML = `<b>${st.run_id}</b> · ${st.task} · ${st.status} · verified ${st.verified} · tokens ${st.tokens} · cost ${st.cost} · receipts ${st.receipts}<br><small>${st.routes.join(", ")}</small>` +
-        (st.paid_note ? `<br><span class="note">trust note: ${st.paid_note}</span>` : "");
+      d.innerHTML = `<b>${esc(st.run_id)}</b> · ${esc(st.task)} · ${esc(st.status)} · verified ${esc(st.verified)} · tokens ${esc(st.tokens)} · cost ${esc(st.cost)} · receipts ${esc(st.receipts)}<br><small>${esc(st.routes.join(", "))}</small>` +
+        (st.paid_note ? `<br><span class="note">trust note: ${esc(st.paid_note)}</span>` : "");
       out.appendChild(d);
     });
   } catch (e) { msg.innerHTML = ""; const p = document.createElement("p"); p.className = "err"; p.textContent = "error: " + e.message; out.appendChild(p); }

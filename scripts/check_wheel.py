@@ -34,7 +34,7 @@ def main():
             "PYTHONPATH", "HARNESS_FLEET", "OPENROUTER", "OPENAI", "OLLAMA", "LMSTUDIO", "VLLM", "GROQ", "CEREBRAS", "OPENCODE",
         ))}
         cli = bindir / (args.distribution + (".exe" if os.name == "nt" else ""))
-        subprocess.run([str(python), "-c", "import harness_fleet, sys; from pathlib import Path; assert Path(harness_fleet.__file__).is_relative_to(Path(sys.prefix)), harness_fleet.__file__"], cwd=workspace, env=env, check=True)
+        subprocess.run([str(python), "-c", "import harness_fleet, sys; from pathlib import Path; assert Path(harness_fleet.__file__).is_relative_to(Path(sys.prefix)), harness_fleet.__file__; assert (Path(harness_fleet.__file__).parent / 'resources' / 'studio' / 'index.html').is_file(), 'studio page missing from wheel'"], cwd=workspace, env=env, check=True)
 
         if args.distribution == "career-fleet":
             subprocess.run([str(python), "-c", "import career_fleet, sys; from pathlib import Path; assert Path(career_fleet.__file__).is_relative_to(Path(sys.prefix)), career_fleet.__file__"], cwd=workspace, env=env, check=True)

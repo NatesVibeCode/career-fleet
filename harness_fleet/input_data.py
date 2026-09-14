@@ -42,7 +42,9 @@ def _strip_html(text: str) -> str:
     try:
         parser.feed(text)
         stripped = parser.get_text()
-        return _html.unescape(stripped) if stripped else _html.unescape(re.sub(r"<[^>]+>", " ", text))
+        # HTMLParser already decodes character references (convert_charrefs),
+        # so only the regex fallback needs an explicit unescape.
+        return stripped if stripped else _html.unescape(re.sub(r"<[^>]+>", " ", text))
     except Exception:
         return _html.unescape(re.sub(r"<[^>]+>", " ", text))
 

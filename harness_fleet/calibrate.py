@@ -54,7 +54,12 @@ def _project_simplex(values: list[float], total: float = 100.0) -> list[float]:
 
 
 def round_points_to_simplex(points: dict[str, float], total: int = 100) -> dict[str, int]:
-    """Round fitted points to ints summing to total via largest remainder."""
+    """Round fitted points to ints summing to total via largest remainder.
+
+    TaskSpec requires every checklist item to be worth at least one point, so
+    zero-point floors are topped up from the largest item. That keeps the fitted
+    calibration loadable instead of raising on an unrepresentable 0.
+    """
     names = sorted(points)
     if not names:
         return {}
@@ -67,6 +72,15 @@ def round_points_to_simplex(points: dict[str, float], total: int = 100) -> dict[
     result = dict(floors)
     for i in range(max(0, leftover)):
         result[remainders[i % len(remainders)][1]] += 1
+    while len(result) <= total:
+        zero = next((name for name in names if result[name] < 1), None)
+        if zero is None:
+            break
+        donor = max(names, key=lambda name: result[name])
+        if result[donor] <= 1:
+            break
+        result[donor] -= 1
+        result[zero] += 1
     return result
 
 

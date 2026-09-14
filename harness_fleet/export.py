@@ -18,10 +18,22 @@ from .models import (
 )
 
 
+def _as_int(value: Any) -> int:
+    """Token counts from raw provider usage JSON; anything non-numeric is 0."""
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return 0
+
+
 def _values_equal(actual: Any, expected: Any) -> bool:
     if expected is None:
         return actual is None
     if actual is None:
+        return False
+    # Booleans are not 0/1 for filtering: a `passed: true` clause must not
+    # match score 1, and `count: 0` must not match false.
+    if isinstance(actual, bool) != isinstance(expected, bool):
         return False
     return actual == expected or str(actual).lower() == str(expected).lower()
 
@@ -122,7 +134,7 @@ def verified_records_from_snapshot(run_data: dict) -> tuple[list[ExtractedItem],
             else:
                 raise ValueError("verified batch result has an invalid shape")
             for item in validated:
-                task.validate_claims(item.claims)
+                task.validate_extracted_item(item)
             verified_records.extend(validated)
     return verified_records, task
 
@@ -276,7 +288,7 @@ def export_clean_packet(
             if batch.get("receipt")
         ]
     total_tokens = sum(
-        int(receipt.usage.get("total_tokens", 0))  # type: ignore[arg-type, misc]
+        _as_int(receipt.usage.get("total_tokens"))
         for receipt in receipts
         if isinstance(receipt.usage, dict)
     )

@@ -61,6 +61,10 @@ class FakeResponse:
         self.url = url
 
     @property
+    def is_redirect(self):
+        return 300 <= self.status_code < 400
+
+    @property
     def text(self):
         return self.content.decode("utf-8", errors="replace")
 
@@ -85,7 +89,7 @@ class FakeClient:
     def close(self):
         pass
 
-    def get(self, url, params=None, timeout=None):
+    def get(self, url, params=None, timeout=None, follow_redirects=None):
         key = str(url)
         if key in self.routes:
             resp = self.routes[key]
@@ -520,7 +524,7 @@ def test_searxng_paginates_to_max_results(fake_http):
     seen_pages = []
 
     class PagingClient(FakeClient):
-        def get(self, url, params=None, timeout=None):
+        def get(self, url, params=None, timeout=None, follow_redirects=None):
             seen_pages.append((params or {}).get("pageno"))
             n = (params or {}).get("pageno", 1)
             rows = [{"url": f"https://p{n}-{i}.example/", "title": "t", "content": "c"} for i in range(2)]
@@ -642,7 +646,7 @@ YC_PAGE_2 = {"companies": [
 
 
 class YCFakeClient(FakeClient):
-    def get(self, url, params=None, timeout=None):
+    def get(self, url, params=None, timeout=None, follow_redirects=None):
         page = (params or {}).get("page", 1)
         return FakeResponse(json_data={1: YC_PAGE_1, 2: YC_PAGE_2}[page])
 
@@ -863,7 +867,7 @@ def test_cli_fetch_site_falls_back_to_crawl(tmp_path, fake_http, capsys):
 class ThrottleThenOkClient(FakeClient):
     calls = 0
 
-    def get(self, url, params=None, timeout=None):
+    def get(self, url, params=None, timeout=None, follow_redirects=None):
         ThrottleThenOkClient.calls += 1
         if ThrottleThenOkClient.calls < 3:
             return FakeResponse(status=429, headers={"retry-after": "0"}, content=b"slow")
@@ -883,7 +887,7 @@ def test_backoff_gives_up_with_reason(monkeypatch, fake_http):
     monkeypatch.setattr("time.sleep", lambda s: None)
 
     class Always429(FakeClient):
-        def get(self, url, params=None, timeout=None):
+        def get(self, url, params=None, timeout=None, follow_redirects=None):
             return FakeResponse(status=429, content=b"slow")
 
     monkeypatch.setattr("harness_fleet.discover.httpx.Client", Always429)
@@ -895,7 +899,7 @@ def test_backoff_treats_arctic_throttle_422_as_retryable(monkeypatch, fake_http)
     monkeypatch.setattr("time.sleep", lambda s: None)
 
     class ArcticThrottle(FakeClient):
-        def get(self, url, params=None, timeout=None):
+        def get(self, url, params=None, timeout=None, follow_redirects=None):
             return FakeResponse(status=422, content=b'{"error":"Timeout. Maybe slow down a bit"}')
 
     monkeypatch.setattr("harness_fleet.discover.httpx.Client", ArcticThrottle)
@@ -905,7 +909,7 @@ def test_backoff_treats_arctic_throttle_422_as_retryable(monkeypatch, fake_http)
 
 def test_backoff_passes_through_real_422(fake_http):
     class Real422(FakeClient):
-        def get(self, url, params=None, timeout=None):
+        def get(self, url, params=None, timeout=None, follow_redirects=None):
             return FakeResponse(status=422, content=b'{"error":"bad param"}')
 
     with pytest.raises(DiscoverError, match="HTTP 422"):
@@ -928,7 +932,7 @@ ARCTIC_POSTS_PAGE = {"data": [
 
 
 class ArcticFakeClient(FakeClient):
-    def get(self, url, params=None, timeout=None):
+    def get(self, url, params=None, timeout=None, follow_redirects=None):
         url = str(url)
         if "posts/search" in url:
             return FakeResponse(json_data=ARCTIC_POSTS_PAGE)
@@ -1004,7 +1008,7 @@ HN_ITEMS = {
 
 
 class HNFakeClient(FakeClient):
-    def get(self, url, params=None, timeout=None):
+    def get(self, url, params=None, timeout=None, follow_redirects=None):
         item_id = str(url).rstrip(".json").rsplit("/", 1)[-1]
         item = HN_ITEMS.get(item_id)
         if item is None:
@@ -1052,7 +1056,7 @@ def test_run_discovery_uses_smart_urls(monkeypatch):
 
 def test_cli_fetch_subreddit_and_hn(tmp_path, fake_http, capsys, monkeypatch):
     class BothClient(HNFakeClient):
-        def get(self, url, params=None, timeout=None):
+        def get(self, url, params=None, timeout=None, follow_redirects=None):
             if "reddit.com" in str(url):
                 return FakeResponse(content=RSS_SAMPLE.encode())
             return super().get(url, params=params, timeout=timeout)
@@ -1094,7 +1098,7 @@ SE_SEARCH_PAGE = {"items": [dict(SE_QUESTION)], "quota_remaining": 291, "quota_m
 class SEFakeClient(FakeClient):
     last_params: dict = {}
 
-    def get(self, url, params=None, timeout=None):
+    def get(self, url, params=None, timeout=None, follow_redirects=None):
         SEFakeClient.last_params = dict(params or {})
         url = str(url)
         if url.endswith("/search/advanced"):
@@ -1125,7 +1129,7 @@ def test_se_fetch_full_with_answer_and_quota(monkeypatch):
 
 def test_se_api_error_surfaces(monkeypatch):
     class SEError(FakeClient):
-        def get(self, url, params=None, timeout=None):
+        def get(self, url, params=None, timeout=None, follow_redirects=None):
             return FakeResponse(json_data={"error_id": 502, "error_message": "throttle"})
 
     monkeypatch.setattr("harness_fleet.discover.httpx.Client", SEError)
@@ -1138,7 +1142,7 @@ def test_se_backoff_field_honored(monkeypatch):
     monkeypatch.setattr("time.sleep", lambda s: sleeps.append(s))
 
     class SEBackoff(FakeClient):
-        def get(self, url, params=None, timeout=None):
+        def get(self, url, params=None, timeout=None, follow_redirects=None):
             return FakeResponse(json_data={"items": [], "backoff": 5, "quota_remaining": 1})
 
     monkeypatch.setattr("harness_fleet.discover.httpx.Client", SEBackoff)
@@ -1162,7 +1166,7 @@ DISCO_TOPIC = {"title": "Kafka & pain",
 
 
 class DiscoFakeClient(FakeClient):
-    def get(self, url, params=None, timeout=None):
+    def get(self, url, params=None, timeout=None, follow_redirects=None):
         url = str(url)
         if url.endswith("/search.json"):
             return FakeResponse(json_data=DISCO_SEARCH)
@@ -1220,7 +1224,7 @@ LOBSTERS_PAGE = [
 
 
 class LobstersFakeClient(FakeClient):
-    def get(self, url, params=None, timeout=None):
+    def get(self, url, params=None, timeout=None, follow_redirects=None):
         if "lobste.rs" in str(url):
             return FakeResponse(json_data=LOBSTERS_PAGE)
         return FakeResponse(status=404, content=b"no")
@@ -1238,7 +1242,7 @@ def test_lobsters_listing_and_filter(monkeypatch):
 
 def test_lobsters_unknown_tag(monkeypatch):
     class Lobsters404(FakeClient):
-        def get(self, url, params=None, timeout=None):
+        def get(self, url, params=None, timeout=None, follow_redirects=None):
             return FakeResponse(status=404, content=b"no")
 
     monkeypatch.setattr("harness_fleet.discover.httpx.Client", Lobsters404)
@@ -1260,7 +1264,7 @@ LEMMY_PAGE = {"posts": [
 
 
 class LemmyFakeClient(FakeClient):
-    def get(self, url, params=None, timeout=None):
+    def get(self, url, params=None, timeout=None, follow_redirects=None):
         if "/api/v3/search" in str(url):
             return FakeResponse(json_data=LEMMY_PAGE)
         return FakeResponse(status=404, content=b"no")
@@ -1281,7 +1285,7 @@ DEVTO_LIST = [{"id": 5, "title": "Kafka guide", "description": "Learn streams",
 
 
 class DevtoFakeClient(FakeClient):
-    def get(self, url, params=None, timeout=None):
+    def get(self, url, params=None, timeout=None, follow_redirects=None):
         url = str(url)
         if url.endswith("/api/articles"):
             return FakeResponse(json_data=DEVTO_LIST)
@@ -1347,7 +1351,7 @@ def test_cli_fetch_stackexchange(tmp_path, capsys, monkeypatch):
 
 def test_cli_fetch_discourse_lobsters_lemmy_devto(tmp_path, capsys, monkeypatch):
     class QAClient(DiscoFakeClient):
-        def get(self, url, params=None, timeout=None):
+        def get(self, url, params=None, timeout=None, follow_redirects=None):
             url = str(url)
             if "lobste.rs" in url:
                 return FakeResponse(json_data=LOBSTERS_PAGE)
@@ -1461,7 +1465,7 @@ def test_lobsters_uses_backoff(monkeypatch):
     class Twice429(FakeClient):
         calls = 0
 
-        def get(self, url, params=None, timeout=None):
+        def get(self, url, params=None, timeout=None, follow_redirects=None):
             Twice429.calls += 1
             if Twice429.calls < 3:
                 return FakeResponse(status=429, headers={"retry-after": "0"}, content=b"slow")
@@ -1480,7 +1484,7 @@ def test_devto_uses_backoff_for_details(monkeypatch):
     class FlakyDetail(FakeClient):
         detail_calls = 0
 
-        def get(self, url, params=None, timeout=None):
+        def get(self, url, params=None, timeout=None, follow_redirects=None):
             url = str(url)
             if url.endswith("/api/articles"):
                 return FakeResponse(json_data=DEVTO_LIST)

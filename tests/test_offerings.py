@@ -9,7 +9,7 @@ Covers:
 - Input loaders: txt, md, html
 - High-level Python SDK: harness_fleet.process
 - Explicit --free-only policy flag
-- Deprecation notice for harness-fleet invocation
+- No deprecation shim (legacy console-script aliases removed in 0.3.0)
 """
 from __future__ import annotations
 

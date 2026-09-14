@@ -9,7 +9,7 @@ CREATE TABLE IF NOT EXISTS harness_meta (
 CREATE TABLE IF NOT EXISTS task_revisions (
     revision_id TEXT PRIMARY KEY,
     task_name TEXT NOT NULL,
-    format_version TEXT NOT NULL CHECK(format_version IN ('harness_fleet_task_v1', 'harness_fleet_task_v1')),
+    format_version TEXT NOT NULL CHECK(format_version IN ('harness_fleet_task_v1')),
     instructions TEXT NOT NULL,
     batch_size INTEGER NOT NULL CHECK(batch_size > 0),
     max_slice_chars INTEGER NOT NULL CHECK(max_slice_chars >= 300),

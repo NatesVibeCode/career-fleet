@@ -589,6 +589,30 @@ class TaskSpec(ClosedModel):
                         f"{claims.get('score')!r} (expected '{expected}')"
                     )
 
+    def validate_extracted_item(self, item: Any) -> None:
+        """Re-validate a stored ``ExtractedItem`` with the strengths it was derived from.
+
+        The score-consistency branch recomputes the expected total; without the
+        per-quote source weight and recency factors it would reject every
+        legitimately weighted record. Callers that only hold the stored item
+        (batch completion, export, DAG) must route through here rather than
+        calling ``validate_claims`` bare.
+        """
+        if isinstance(item, dict):
+            quotes = item.get("quotes") or []
+            source_uri = item.get("source_uri")
+            captured_at = item.get("captured_at")
+            scored_at = item.get("scored_at")
+            claims = item.get("claims")
+        else:
+            quotes = getattr(item, "quotes", None) or []
+            source_uri = getattr(item, "source_uri", None)
+            captured_at = getattr(item, "captured_at", None)
+            scored_at = getattr(item, "scored_at", None)
+            claims = getattr(item, "claims", None)
+        strengths = self.support_strengths(quotes, source_uri, captured_at, scored_at)
+        self.validate_claims(claims, quotes=quotes, strengths=strengths)  # type: ignore[arg-type]
+
     def render_instructions(self) -> str:
         """Fixed form-fill template plus the task-specific direction.
 

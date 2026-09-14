@@ -307,7 +307,12 @@ class HarnessStore:
                     count=1,
                     flags=re.IGNORECASE,
                 )
-                connection.execute("PRAGMA foreign_keys=OFF")
+                # A transaction is already open (see the legacy bulk_meta DML
+                # above), and SQLite ignores PRAGMA foreign_keys changes while
+                # one is pending. defer_foreign_keys is valid in-transaction:
+                # it moves the runs->task_revisions check to COMMIT, by which
+                # point the rebuilt table exists again.
+                connection.execute("PRAGMA defer_foreign_keys=ON")
                 # SAVEPOINT (not BEGIN: a transaction may already be open) so
                 # the DROP->RENAME window is atomic: any failure below leaves
                 # the live task_revisions untouched.
@@ -341,7 +346,7 @@ class HarnessStore:
                     connection.execute("RELEASE harness_cutover")
                     raise
                 finally:
-                    connection.execute("PRAGMA foreign_keys=ON")
+                    connection.execute("PRAGMA defer_foreign_keys=OFF")
                 # Re-create the append-only triggers dropped with the old table.
                 connection.execute(
                     "CREATE TRIGGER IF NOT EXISTS task_revisions_no_update "
@@ -884,7 +889,7 @@ class HarnessStore:
                 raise ValueError("verified result IDs or order do not match the leased batch")
             task = self._task_from_row(row)
             for result in validated_results:
-                task.validate_claims(result["claims"])
+                task.validate_extracted_item(result)
             self._insert_receipt(connection, receipt, run_id, batch_id)
             completed = now_iso()
             result_id = digest_json({"run_id": run_id, "batch_id": batch_id, "results": validated_results, "receipt_id": receipt.id})
@@ -1559,9 +1564,11 @@ class HarnessStore:
                     global_stats[rid] = g
                 g["provider"] = r["provider"]
                 g["total"] += w
-                if r["status"] == "complete":
-                    g["completed"] += w
                 err = str(r["error"] or "")
+                # Legacy rows can carry status='complete' together with error
+                # text; the single-scan path already excludes those.
+                if r["status"] == "complete" and not err.strip():
+                    g["completed"] += w
                 if "429" in err or "rate limit" in err.lower():
                     g["rate_limits"] += w
                 if r["duration_seconds"] is not None:
@@ -1583,7 +1590,7 @@ class HarnessStore:
                         task_stats[rid] = t
                     t["provider"] = r["provider"]
                     t["total"] += w
-                    if r["status"] == "complete":
+                    if r["status"] == "complete" and not err.strip():
                         t["completed"] += w
                     if "429" in err or "rate limit" in err.lower():
                         t["rate_limits"] += w
@@ -1715,7 +1722,7 @@ class HarnessStore:
                     """SELECT route_id as requested_route, provider, count(*) as attempts,
                               sum(case when outcome='verified' then 1 else 0 end) as verified,
                               sum(case when transport_status='rate_limit' or error_type='rate_limit' then 1 else 0 end) as rate_limits,
-                              avg(case when duration_seconds is not null then duration_seconds else 0 end) as avg_duration,
+                              avg(duration_seconds) as avg_duration,
                               sum(case when cost is not null then cost else 0 end) as total_cost
                        FROM inference_attempts WHERE run_id=? GROUP BY route_id, provider""",
                     (run_id,),
@@ -1725,7 +1732,7 @@ class HarnessStore:
                     """SELECT requested_route, provider, count(*) as attempts,
                               sum(case when status='complete' then 1 else 0 end) as verified,
                               sum(case when error like '%429%' or error like '%rate limit%' then 1 else 0 end) as rate_limits,
-                              avg(case when duration_seconds is not null then duration_seconds else 0 end) as avg_duration,
+                              avg(duration_seconds) as avg_duration,
                               sum(case when cost is not null then cost else 0 end) as total_cost
                        FROM model_runs WHERE run_id=? GROUP BY requested_route, provider""",
                     (run_id,),

@@ -31,6 +31,7 @@ grounding-grade), ``profile`` (directory/ATS structured text, indicator),
 from __future__ import annotations
 
 import csv
+import ipaddress
 import json
 import re
 import time
@@ -39,7 +40,7 @@ from dataclasses import dataclass, field
 from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlparse, urlunparse
+from urllib.parse import urljoin, urlparse, urlunparse
 
 import httpx
 
@@ -777,24 +778,75 @@ def _render_js(url: str, timeout: float = 30.0) -> str:
         raise
     except Exception as exc:
         raise DiscoverError(f"JS render failed for {url}: {exc}") from exc
+_BLOCKED_HOSTS = frozenset({"localhost", "metadata", "metadata.google.internal", "instance-data"})
+_BLOCKED_HOST_SUFFIXES = (".localhost", ".local", ".internal")
+
+
+def _host_is_public(host: str) -> bool:
+    """False for loopback, private, link-local, or cloud-metadata hosts."""
+    host = host.strip().strip("[]").lower().rstrip(".")
+    if not host or host in _BLOCKED_HOSTS or host.endswith(_BLOCKED_HOST_SUFFIXES):
+        return False
+    try:
+        address = ipaddress.ip_address(host)
+    except ValueError:
+        return True  # a DNS name; see _guard_url for the rebinding caveat
+    return not (
+        address.is_private
+        or address.is_loopback
+        or address.is_link_local
+        or address.is_reserved
+        or address.is_multicast
+        or address.is_unspecified
+    )
+
+
+def _guard_url(url: str) -> None:
+    """Refuse to fetch non-http(s) or private/loopback/metadata addresses.
+
+    Discovery fetches URLs chosen by third-party search results, so this is the
+    boundary that keeps a hostile hit from reading cloud metadata or a local
+    service and persisting it as citable evidence. DNS names are not resolved
+    here, so a name that resolves to a private address is out of scope.
+    """
+    parts = urlparse(url)
+    if parts.scheme not in ("http", "https"):
+        raise DiscoverError(f"refusing non-http(s) URL: {url}")
+    if not parts.hostname or not _host_is_public(parts.hostname):
+        raise DiscoverError(f"refusing private or local address: {url}")
+
+
 def _http_get(
     url: str,
     client: httpx.Client,
     timeout: float,
     respect_robots: bool,
 ) -> tuple[str, str, bytes]:
-    """Single polite GET. Returns (final_url, raw_content_type, capped_bytes)."""
-    if respect_robots and not robots_allowed(url, client):
-        raise DiscoverError(f"blocked by robots.txt: {url}")
-    try:
-        resp = client.get(url, timeout=timeout)
-    except Exception as exc:
-        raise DiscoverError(f"fetch failed for {url}: {exc}") from exc
-    if resp.status_code != 200:
-        raise DiscoverError(f"HTTP {resp.status_code} for {url}")
-    raw_header = resp.headers.get("content-type", "") or ""
-    final_url = str(resp.url) if hasattr(resp, "url") else url
-    return final_url, raw_header, resp.content[:MAX_BYTES]
+    """Single polite GET, following redirects manually with a per-hop host guard.
+
+    Returns (final_url, raw_content_type, capped_bytes).
+    """
+    current = url
+    for _ in range(6):
+        _guard_url(current)
+        if respect_robots and not robots_allowed(current, client):
+            raise DiscoverError(f"blocked by robots.txt: {current}")
+        try:
+            resp = client.get(current, timeout=timeout, follow_redirects=False)
+        except Exception as exc:
+            raise DiscoverError(f"fetch failed for {current}: {exc}") from exc
+        if resp.is_redirect:
+            location = resp.headers.get("location")
+            if not location:
+                raise DiscoverError(f"redirect without a location for {current}")
+            current = urljoin(current, location)
+            continue
+        if resp.status_code != 200:
+            raise DiscoverError(f"HTTP {resp.status_code} for {current}")
+        raw_header = resp.headers.get("content-type", "") or ""
+        return current, raw_header, resp.content[:MAX_BYTES]
+    raise DiscoverError(f"too many redirects for {url}")
+
 
 
 def _json_ld_description(html: str) -> str:

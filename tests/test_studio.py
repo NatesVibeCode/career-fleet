@@ -353,3 +353,60 @@ def test_scoring_rejects_boolean_numeric_values(server):
         status, payload = _call(base, "PUT", "/api/tasks/bools/scoring", body)
         assert status == 400, (body, status, payload)
         assert "must be" in payload["error"]
+
+
+def test_task_duplicate_branches_a_tuned_contract(server):
+    base, _ = server
+    _call(base, "POST", "/api/tasks", {"name": "src", "preset": "account-research"})
+    status, _ = _call(base, "PUT", "/api/tasks/src/scoring", {
+        "checklist": [{"item_id": "only", "points": 100, "description": "Only signal", "half_life_days": 5}],
+        "pass_score": 60,
+    })
+    assert status == 200
+
+    status, payload = _call(base, "POST", "/api/tasks/src/duplicate", {"name": "copy"})
+    assert status == 200
+    copy = payload["scoring"]
+    assert copy["task"] == "copy"
+    assert copy["checklist"] == [
+        {"item_id": "only", "points": 100, "description": "Only signal", "half_life_days": 5.0},
+    ]
+    assert copy["pass_score"] == 60
+
+    # The original is untouched, and a name collision is refused.
+    assert _call(base, "GET", "/api/tasks/src/scoring")[1]["scoring"]["checklist"][0]["points"] == 100
+    status, payload = _call(base, "POST", "/api/tasks/src/duplicate", {"name": "copy"})
+    assert status == 409 and "already exists" in payload["error"]
+
+    status, _ = _call(base, "POST", "/api/tasks/missing/duplicate", {"name": "x"})
+    assert status == 404
+    status, payload = _call(base, "POST", "/api/tasks/src/duplicate", {})
+    assert status == 400
+
+
+def test_meta_reports_workspace_and_schema(server):
+    base, workspace = server
+    status, payload = _call(base, "GET", "/api/meta")
+    assert status == 200
+    assert payload["workspace"] == str(workspace)
+    assert payload["database"].endswith("studio.db")
+    assert payload["schema_version"]
+
+
+def test_run_step_rejects_bad_integers_as_client_errors(server):
+    base, _ = server
+    item = [{"item_id": "i1", "text": "We are migrating the legacy billing pipeline to Kafka now."}]
+    for step in (
+        {"preset": "score", "task": "ints-null", "items": item, "routes": ["demo/fake"], "max_per_batch": None},
+        {"preset": "score", "task": "ints-neg", "items": item, "routes": ["demo/fake"], "concurrency": -1},
+        {"preset": "score", "task": "ints-str", "items": item, "routes": ["demo/fake"], "max_attempts": "lots"},
+    ):
+        status, payload = _call(base, "POST", "/api/runs", {"steps": [step]})
+        assert status == 400, (step, status, payload)
+
+
+def test_studio_rejects_an_oversized_body(server):
+    base, _ = server
+    status, payload = _call(base, "POST", "/api/tasks",
+                            {"name": "big", "preset": "score", "pad": "a" * 1_000_100})
+    assert status == 400 and "too large" in payload["error"]
