@@ -38,6 +38,7 @@ def test_init_writes_visible_deterministic_source_plan(tmp_path):
     assert [entry["source"] for entry in config["sources"]] == list(COMMUNITY_SOURCE_TYPES)
     assert all(entry["max_items"] == 10 for entry in config["sources"])
     assert config["sources"][0]["reddit_rss"] is True
+    assert next(entry for entry in config["sources"] if entry["source"] == "lobsters")["target"] == "job"
 
 
 def test_discover_uses_preset_when_target_is_omitted(tmp_path, monkeypatch):

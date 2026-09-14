@@ -59,7 +59,7 @@ DEFAULT_COMMUNITY_SOURCES: tuple[dict[str, Any], ...] = (
     {
         "id": "lobsters-career",
         "source": "lobsters",
-        "target": "newest",
+        "target": "job",
         "max_items": 10,
     },
     {
