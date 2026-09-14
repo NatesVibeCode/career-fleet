@@ -1,3 +1,5 @@
+import json
+
 import pytest
 
 import free_fleet
@@ -77,3 +79,22 @@ def test_demo_provider_ignores_profile_json_before_task_payload():
     assert ok is True
     assert receipt["status"] == "complete"
     assert response is not None and '"items"' in response
+
+
+def test_demo_provider_disambiguates_repeated_quote_with_offsets():
+    source = "Introducing Browserbase Agents: One Prompt, One API Call.\n" * 2
+    task = _task()
+    prompt = (
+        'instructions\n{"input_items": [{"item_id": "one", "sections": '
+        '[{"slice_id": "full", "start": 0, "end": ' + str(len(source)) + ', '
+        '"text": ' + json.dumps(source) + '}], "title": "demo"}], '
+        '"output_schema": {"properties": {"items": {"items": '
+        '{"properties": {"claims": {"type": "object", "properties": '
+        '{"summary": {"type": "string"}}}}}}}}}'
+    )
+    ok, response, receipt = DemoProvider().run_prompt("demo/fake", prompt)
+    assert ok is True
+    assert receipt["status"] == "complete"
+    quote = json.loads(response)["items"][0]["quotes"][0]
+    assert quote["start"] == 0
+    assert quote["end"] == len(quote["text"])

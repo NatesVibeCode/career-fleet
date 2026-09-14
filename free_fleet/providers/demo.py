@@ -130,10 +130,25 @@ class DemoProvider(BaseProvider):
                 else:
                     quote_text = "demo verified value fallback quote"
             claims = _fabricate_claims(claims_schema)
+            quote = {"slice_id": quote_slice_id, "text": quote_text}
+            # A deterministic prefix can occur more than once in a long source
+            # (for example when a page repeats its title).  Include exact
+            # absolute offsets so grounding can disambiguate it instead of
+            # rejecting an otherwise valid offline/demo response.
+            for sec in sections:
+                if sec.get("slice_id", "full") != quote_slice_id:
+                    continue
+                sec_text = sec.get("text", "")
+                rel_start = sec_text.find(quote_text)
+                if rel_start >= 0:
+                    abs_start = int(sec.get("start", 0)) + rel_start
+                    quote["start"] = abs_start
+                    quote["end"] = abs_start + len(quote_text)
+                break
             items_out.append({
                 "item_id": item_id,
                 "claims": claims,
-                "quotes": [{"slice_id": quote_slice_id, "text": quote_text}],
+                "quotes": [quote],
             })
 
         response = json.dumps({"items": items_out}, ensure_ascii=False)
