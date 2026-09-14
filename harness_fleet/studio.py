@@ -292,7 +292,24 @@ class StudioHandler(BaseHTTPRequestHandler):
             path = urlparse(self.path).path
             if path == "/api/routes/refresh":
                 catalog = RouteCatalog(db_path=_store(self).path)
-                _send_json(self, 200, {"refresh": catalog.refresh_all()})
+                body = _read_json(self)
+                provider = str(body.get("provider") or "").strip() if isinstance(body, dict) else ""
+                if not provider:
+                    _send_json(self, 200, {"refresh": catalog.refresh_all()})
+                    return
+                # Per-harness refresh: each harness owns its own model list via
+                # its discovery command, so refresh exactly that one.
+                from .providers.registry import HARNESS_SPECS
+
+                spec_for_harness = next(
+                    (candidate for candidate in HARNESS_SPECS if candidate.name == provider), None
+                )
+                if spec_for_harness is None:
+                    raise ValueError(f"unknown harness: {provider}")
+                try:
+                    _send_json(self, 200, {"refresh": {provider: catalog.refresh_from_harness(spec_for_harness)}})
+                except Exception as exc:
+                    _send_json(self, 200, {"refresh": {f"{provider}_error": str(exc)}})
             elif path == "/api/tasks":
                 body = _read_json(self)
                 name = str(body.get("name") or "").strip()

@@ -37,6 +37,16 @@
   .ok { background: #2a2; } .no { background: #a22; }
   .models { font-size: 0.85rem; columns: 2; }
   .models label { display: block; break-inside: avoid; padding: 2px 0; }
+  .route-group { margin: 2px 0; }
+  .route-group b { font-size: 0.78rem; opacity: 0.75; margin-right: 6px; }
+  .route-group label { margin-right: 10px; font-size: 0.82rem; }
+  .hm { border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; margin: 8px 0; }
+  .hm-head { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .hm-note { font-size: 0.8rem; opacity: 0.78; margin: 6px 0 4px; }
+  .hm .models { margin-top: 4px; }
+  .errors { margin: 6px 0; padding-left: 18px; }
+  .errors li { font-size: 0.82rem; margin: 2px 0; }
+  pre { white-space: pre-wrap; word-break: break-word; font-size: 0.75rem; max-height: 240px; overflow: auto; }
   .badge { font-size: 0.72rem; border: 1px solid var(--line); border-radius: 6px; padding: 0 5px; margin-left: 6px; }
   .pill { font-size: 0.72rem; border: 1px solid var(--line); border-radius: 999px; padding: 1px 8px; opacity: 0.9; }
   .pill.dirty { color: var(--warn); border-color: var(--warn); }
@@ -72,7 +82,12 @@
 <div id="cards"></div>
 
 <h2>2 · Models</h2>
-<div id="modelsBox"><p><button id="refreshBtn" type="button">Refresh catalog</button> <span id="refreshMsg"></span></p><div class="models" id="models"></div></div>
+<div id="modelsBox">
+  <p><button id="refreshBtn" type="button">Refresh all</button> <span id="refreshMsg" class="hint"></span></p>
+  <p class="hint">Each harness lists its own models. <span class="badge">price_observed_zero</span> routes are free-verified and auto-selected; <span class="badge">candidate</span> and <span class="badge">unknown</span> are not, so they stay unchecked until you pick them.</p>
+  <div id="refreshBox"></div>
+  <div id="models"></div>
+</div>
 
 <h2>3 · Scoring contract</h2>
 <div class="panel">
@@ -105,7 +120,7 @@
 
 <script>
 const H = { harnesses: [], routes: [], presets: [], tasks: [], scoring: null, draft: null, meta: null,
-  dirty: false, stale: false, enabled: new Set(), picked: new Set(), steps: [] };
+  refresh: {}, dirty: false, stale: false, enabled: new Set(), picked: new Set(), steps: [] };
 
 async function api(method, path, body, headers) {
   const r = await fetch(path, { method, headers: {"Content-Type": "application/json", ...(headers || {})},
@@ -175,23 +190,106 @@ function renderCards() {
   });
 }
 function offeredRoutes() { return H.routes.filter(r => H.enabled.has(r.provider)); }
+function stripAnsi(s) {
+  return String(s ?? "").replace(/\u001b\[[0-9;]*m/g, "").replace(/[\u0000-\u0008\u000b-\u001f]/g, " ").trim();
+}
+function firstLine(s, limit) {
+  const text = stripAnsi(s).split("\n")[0].trim();
+  return text.length > limit ? text.slice(0, limit) + "…" : text;
+}
 function renderModels() {
   const box = document.getElementById("models"); box.innerHTML = "";
   if (!renderModels._init) {
     renderModels._init = true;
     offeredRoutes().forEach(r => { if (r.price_state === "price_observed_zero" && r.enabled) H.picked.add(r.id); });
   }
+  const byHarness = new Map();
   offeredRoutes().forEach(r => {
-    const lab = document.createElement("label");
-    const cb = document.createElement("input");
-    cb.type = "checkbox"; cb.checked = H.picked.has(r.id);
-    cb.onchange = () => { cb.checked ? H.picked.add(r.id) : H.picked.delete(r.id); renderSteps(); };
-    lab.appendChild(cb);
-    lab.appendChild(document.createTextNode(" " + r.id));
-    const b = document.createElement("span"); b.className = "badge"; b.textContent = r.price_state; lab.appendChild(b);
-    box.appendChild(lab);
+    if (!byHarness.has(r.provider)) byHarness.set(r.provider, []);
+    byHarness.get(r.provider).push(r);
+  });
+  H.harnesses.filter(h => H.enabled.has(h.name)).forEach(h => {
+    const routes = byHarness.get(h.name) || [];
+    const card = document.createElement("div"); card.className = "hm";
+    const head = document.createElement("div"); head.className = "hm-head";
+    const title = document.createElement("b"); title.textContent = h.name; head.appendChild(title);
+    const refresh = document.createElement("button");
+    refresh.type = "button"; refresh.textContent = "refresh models";
+    refresh.onclick = () => refreshHarness(h.name);
+    head.appendChild(refresh);
+    const count = document.createElement("span"); count.className = "badge";
+    count.textContent = routes.length ? `${routes.length} model${routes.length === 1 ? "" : "s"}` : "no models";
+    head.appendChild(count);
+    card.appendChild(head);
+    const note = document.createElement("p"); note.className = "hm-note";
+    if (H.refresh[h.name] !== undefined) note.textContent = H.refresh[h.name];
+    else if (routes.length) note.textContent = "listed by this harness's own models command";
+    else note.textContent = `this harness exposes no models command — add its routes with \`harness-fleet routes add <id> --provider ${h.name}\``;
+    card.appendChild(note);
+    const list = document.createElement("div"); list.className = "models";
+    routes.forEach(r => {
+      const lab = document.createElement("label");
+      const cb = document.createElement("input");
+      cb.type = "checkbox"; cb.checked = H.picked.has(r.id);
+      cb.onchange = () => { cb.checked ? H.picked.add(r.id) : H.picked.delete(r.id); renderSteps(); };
+      lab.appendChild(cb);
+      lab.appendChild(document.createTextNode(" " + r.id));
+      const b = document.createElement("span"); b.className = "badge"; b.textContent = r.price_state; lab.appendChild(b);
+      list.appendChild(lab);
+    });
+    card.appendChild(list);
+    box.appendChild(card);
   });
   renderSteps();
+}
+async function refreshHarness(name) {
+  H.refresh[name] = "refreshing…";
+  renderModels();
+  try {
+    const r = await api("POST", "/api/routes/refresh", {provider: name});
+    const result = r.refresh || {};
+    const errorKey = Object.keys(result).find(k => k.endsWith("_error"));
+    H.refresh[name] = errorKey
+      ? "error: " + firstLine(result[errorKey], 180)
+      : `${result[name] ?? 0} model(s) discovered from this harness`;
+    H.routes = (await api("GET", "/api/routes")).routes;
+  } catch (e) {
+    H.refresh[name] = "error: " + firstLine(e.message, 180);
+  }
+  renderModels();
+}
+async function refreshAll() {
+  const msg = document.getElementById("refreshMsg");
+  msg.textContent = "refreshing every harness…";
+  try {
+    const r = await api("POST", "/api/routes/refresh");
+    const counts = [], errors = [];
+    Object.entries(r.refresh || {}).forEach(([key, value]) => {
+      if (key.endsWith("_error")) errors.push([key.replace(/_error$/, ""), value]);
+      else if (typeof value === "number") counts.push([key, value]);
+    });
+    H.refresh = {};
+    counts.forEach(([key, value]) => { if (H.enabled.has(key)) H.refresh[key] = `${value} model(s) discovered from this harness`; });
+    errors.forEach(([key, value]) => { if (H.enabled.has(key)) H.refresh[key] = "error: " + firstLine(value, 180); });
+    H.routes = (await api("GET", "/api/routes")).routes;
+    const total = counts.reduce((sum, [, value]) => sum + value, 0);
+    msg.textContent = `${total} route(s) reported, ${errors.length} provider error(s)`;
+    renderRefreshSummary(counts, errors);
+  } catch (e) {
+    msg.textContent = "error: " + firstLine(e.message, 180);
+  }
+  renderModels();
+}
+function renderRefreshSummary(counts, errors) {
+  const box = document.getElementById("refreshBox");
+  if (!box) return;
+  const pills = counts.map(([key, value]) => `<span class="pill">${esc(key)} ${value}</span>`).join(" ");
+  const errorList = errors
+    .map(([key, value]) => `<li><b>${esc(key)}</b>: ${esc(firstLine(value, 400))}</li>`)
+    .join("");
+  box.innerHTML = `
+    ${pills ? `<p>${pills}</p>` : ""}
+    ${errors.length ? `<details><summary>${errors.length} provider error(s)</summary><ul class="errors">${errorList}</ul></details>` : ""}`;
 }
 function stepDefaults() {
   return { task: "", preset: "score", itemsText: '[{"item_id": "i1", "text": "paste source text here"}]',
@@ -203,8 +301,16 @@ function renderSteps() {
   const box = document.getElementById("steps"); box.innerHTML = "";
   H.steps.forEach((s, i) => {
     const d = document.createElement("div"); d.className = "step";
-    const routeCbs = offeredRoutes().filter(r => H.picked.has(r.id)).map(r =>
-      `<label><input type="checkbox" data-s="${i}" data-r="${esc(r.id)}" ${s.routes.includes(r.id) ? "checked" : ""}> ${esc(r.id)}</label>`).join("");
+    const pickedRoutes = offeredRoutes().filter(r => H.picked.has(r.id));
+    const routeGroups = new Map();
+    pickedRoutes.forEach(r => {
+      if (!routeGroups.has(r.provider)) routeGroups.set(r.provider, []);
+      routeGroups.get(r.provider).push(r);
+    });
+    const routeCbs = [...routeGroups.entries()].map(([provider, routes]) =>
+      `<div class="route-group"><b>${esc(provider)}</b>` +
+      routes.map(r => `<label><input type="checkbox" data-s="${i}" data-r="${esc(r.id)}" ${s.routes.includes(r.id) ? "checked" : ""}> ${esc(r.id)}</label>`).join("") +
+      `</div>`).join("");
     d.innerHTML = `<b>Step ${i + 1}</b> <button type="button" data-del="${i}">remove</button>
       <div class="row">
         <label>Task name (existing)<input type="text" list="taskNames" data-f="task" data-s="${i}" value="${esc(s.task)}" placeholder="optional if preset"></label>
@@ -464,12 +570,7 @@ document.getElementById("taskDup").onclick = async () => {
 };
 window.addEventListener("beforeunload", e => { if (H.dirty) { e.preventDefault(); e.returnValue = ""; } });
 document.getElementById("addStep").onclick = addStep;
-document.getElementById("refreshBtn").onclick = async () => {
-  const m = document.getElementById("refreshMsg"); m.textContent = "refreshing…";
-  try { const r = await api("POST", "/api/routes/refresh"); m.textContent = JSON.stringify(r.refresh);
-    H.routes = (await api("GET", "/api/routes")).routes; renderModels(); }
-  catch (e) { m.textContent = "error: " + e.message; }
-};
+document.getElementById("refreshBtn").onclick = refreshAll;
 document.getElementById("runBtn").onclick = async () => {
   const msg = document.getElementById("runMsg"), out = document.getElementById("results");
   msg.textContent = "running…"; out.innerHTML = "";

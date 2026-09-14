@@ -410,3 +410,15 @@ def test_studio_rejects_an_oversized_body(server):
     status, payload = _call(base, "POST", "/api/tasks",
                             {"name": "big", "preset": "score", "pad": "a" * 1_000_100})
     assert status == 400 and "too large" in payload["error"]
+
+
+def test_routes_refresh_can_target_one_harness(server):
+    base, _ = server
+    # claude declares no models command, so the harness owns an empty list
+    # without shelling out to a binary the test environment may not have.
+    status, payload = _call(base, "POST", "/api/routes/refresh", {"provider": "claude"})
+    assert status == 200
+    assert payload["refresh"] == {"claude": 0}
+
+    status, payload = _call(base, "POST", "/api/routes/refresh", {"provider": "not-a-harness"})
+    assert status == 400 and "unknown harness" in payload["error"]
