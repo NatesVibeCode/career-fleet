@@ -59,8 +59,8 @@ include = ["harness_fleet*", "career_fleet*"]
 
 [tool.setuptools.package-data]
 career_fleet = [
-    "resources/harness_skill/career-fleet/*.md",
-    "resources/harness_skill/career-fleet/references/*.md",
+    "resources/skill/career-fleet/*.md",
+    "resources/skill/career-fleet/references/*.md",
 ]
 harness_fleet = [
     "migrations/*.sql",
