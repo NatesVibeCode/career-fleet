@@ -3,7 +3,10 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 from copy import deepcopy
+from datetime import datetime, timezone
+from enum import Enum
 from typing import Any, Literal
 
 from jsonschema import Draft202012Validator
@@ -76,6 +79,10 @@ class QuoteRef(ClosedModel):
     start: int = Field(description="Inclusive absolute character offset", ge=0)
     end: int = Field(description="Exclusive absolute character offset", gt=0)
     text: str = Field(description="Exact source substring at start:end", min_length=1)
+    supports: list[str] = Field(
+        default_factory=list,
+        description="Checklist item ids this quote backs",
+    )
 
     @model_validator(mode="after")
     def valid_range(self) -> "QuoteRef":
@@ -89,6 +96,15 @@ class QuoteCandidate(ClosedModel):
     text: str = Field(min_length=1)
     start: int | None = Field(default=None, ge=0)
     end: int | None = Field(default=None, gt=0)
+    candidate_id: int | None = Field(
+        default=None,
+        ge=0,
+        description="Optional evidence-candidate span id from the prompt; verification recomputes the span table",
+    )
+    supports: list[str] = Field(
+        default_factory=list,
+        description="Checklist item ids this quote backs; every true answer needs at least one supporting quote",
+    )
 
     @model_validator(mode="after")
     def complete_optional_range(self) -> "QuoteCandidate":
@@ -106,6 +122,14 @@ class ExtractedItem(ClosedModel):
     content_type: str
     claims: dict[str, JsonValue]
     quotes: list[QuoteRef] = Field(min_length=1)
+    captured_at: str | None = Field(
+        default=None,
+        description="ISO-8601 evidence capture time from input metadata; None means ageless",
+    )
+    scored_at: str | None = Field(
+        default=None,
+        description="ISO-8601 scoring time; fixed at verification so revalidation is stable",
+    )
 
 
 class ModelOutput(ClosedModel):
@@ -145,6 +169,40 @@ DEFAULT_CLAIMS_SCHEMA: dict[str, Any] = {
 }
 
 
+TIER_BY_SCORE: tuple[tuple[int, str], ...] = (
+    (85, "tier_1"),
+    (70, "tier_2"),
+    (50, "tier_3"),
+    (0, "unfit"),
+)
+TIER_SET = frozenset({"tier_1", "tier_2", "tier_3", "unfit"})
+
+
+def score_to_fit_tier(score: Any) -> str:
+    """Derive the deterministic fit tier for a numeric 0-100 score.
+
+    Boundaries follow the scoring-rubric guide: tier_1 85-100, tier_2 70-84,
+    tier_3 50-69, unfit 0-49. Raises ValueError for non-numeric input.
+    """
+    try:
+        value = float(score)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"score {score!r} is not numeric") from exc
+    if value != value or value in (float("inf"), float("-inf")):
+        raise ValueError(f"score {score!r} is not finite")
+    for threshold, tier in TIER_BY_SCORE:
+        if value >= threshold:
+            return tier
+    return "unfit"
+
+
+INSTRUCTION_TEMPLATE = (
+    "Form-fill contract: fill every required claim from the supplied source sections only. "
+    "Attach at least one exact quote per item. Never use outside knowledge. Return JSON only."
+)
+DEFAULT_INSTRUCTIONS = "Extract only facts supported by the supplied source slices."
+
+
 class TaskSpec(ClosedModel):
     model_config = ConfigDict(
         json_schema_extra={
@@ -159,7 +217,7 @@ class TaskSpec(ClosedModel):
     format_version: Literal["free_fleet_task_v1", "bulk_lanes_task_v1"] = "free_fleet_task_v1"
     name: str = Field(description="Stable task name", min_length=1, max_length=128, pattern=ID_PATTERN)
     instructions: str = Field(
-        default="Extract only facts supported by the supplied source slices.",
+        default=DEFAULT_INSTRUCTIONS,
         description="Outcome-specific directions; field structure belongs in claims_schema",
     )
     batch_size: int = Field(default=6, description="Maximum input items per model request", ge=1, le=100)
@@ -169,6 +227,40 @@ class TaskSpec(ClosedModel):
         default_factory=lambda: deepcopy(DEFAULT_CLAIMS_SCHEMA),
         description="Draft 2020-12 object schema; type=object and additionalProperties=false are required",
     )
+    checklist: dict[str, int] | None = Field(
+        default=None,
+        description="Checklist item id to score points; the pipeline derives score from true answers",
+    )
+    pass_score: int | None = Field(
+        default=None,
+        ge=0,
+        le=100,
+        description="Minimum derived score that yields passed=true; the pipeline derives the boolean",
+    )
+    evidence_terms: list[str] = Field(
+        default_factory=list,
+        description="Terms used to rank deterministic evidence-candidate spans per section",
+    )
+    candidate_top_n: int = Field(
+        default=6,
+        ge=1,
+        le=32,
+        description="Maximum evidence-candidate spans exposed per section",
+    )
+    source_weights: dict[str, float] = Field(
+        default_factory=dict,
+        description="Lowercased URI substring to evidentiary weight 0-1; longest match wins, 0 blocks support",
+    )
+    default_source_weight: float = Field(
+        default=1.0,
+        ge=0.0,
+        le=1.0,
+        description="Weight for sources matching no rule; 1 preserves legacy unweighted scoring",
+    )
+    recency_half_lives: dict[str, float] = Field(
+        default_factory=dict,
+        description="Checklist item id to evidence half-life in days; support decays by half each period",
+    )
 
     @model_validator(mode="after")
     def closed_claims_schema(self) -> "TaskSpec":
@@ -177,19 +269,408 @@ class TaskSpec(ClosedModel):
             raise ValueError("claims_schema must describe an object")
         if self.claims_schema.get("additionalProperties") is not False:
             raise ValueError("claims_schema must set additionalProperties to false")
+        if self.checklist is not None:
+            if not self.checklist:
+                raise ValueError("checklist must not be empty")
+            for item_id, points in self.checklist.items():
+                if not isinstance(item_id, str) or not item_id.strip():
+                    raise ValueError("checklist item ids must be non-empty strings")
+                if not isinstance(points, int) or isinstance(points, bool) or points < 1:
+                    raise ValueError(f"checklist points for '{item_id}' must be a positive integer")
+            props = self.claims_schema.get("properties", {})
+            checklist_prop = props.get("checklist") if isinstance(props, dict) else None
+            if not isinstance(checklist_prop, dict) or checklist_prop.get("type") != "object":
+                raise ValueError("a task checklist requires a 'checklist' object property in claims_schema")
+        for term in self.evidence_terms:
+            if not isinstance(term, str) or not term.strip():
+                raise ValueError("evidence_terms must be non-empty strings")
+        for match, weight in self.source_weights.items():
+            if not isinstance(match, str) or not match.strip():
+                raise ValueError("source_weights keys must be non-empty strings")
+            if not isinstance(weight, (int, float)) or isinstance(weight, bool):
+                raise ValueError(f"source weight for '{match}' must be a number 0-1")
+            if not 0.0 <= float(weight) <= 1.0:
+                raise ValueError(f"source weight for '{match}' must be between 0 and 1")
+        for item_id, half_life in self.recency_half_lives.items():
+            if not isinstance(item_id, str) or not item_id.strip():
+                raise ValueError("recency_half_lives keys must be non-empty strings")
+            if not isinstance(half_life, (int, float)) or isinstance(half_life, bool):
+                raise ValueError(f"half-life for '{item_id}' must be a positive number of days")
+            if not math.isfinite(float(half_life)) or float(half_life) <= 0:
+                raise ValueError(f"half-life for '{item_id}' must be a positive number of days")
+            if self.checklist is not None and item_id not in self.checklist:
+                raise ValueError(f"half-life for '{item_id}' names no checklist item")
         return self
 
-    def validate_claims(self, claims: dict[str, JsonValue]) -> None:
+    @staticmethod
+    def _parse_captured_at(value: Any) -> datetime | None:
+        """Parse an ISO-8601 capture timestamp; None when missing or malformed.
+
+        Naive timestamps are read as UTC. Malformed values decay nothing:
+        staleness must be proven by a date, never assumed from its absence.
+        """
+        if not isinstance(value, str) or not value.strip():
+            return None
+        try:
+            parsed = datetime.fromisoformat(value.strip())
+        except ValueError:
+            return None
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed
+
+    def recency_decay(
+        self,
+        item_id: str,
+        captured_at: str | None,
+        scored_at: str | None,
+    ) -> float:
+        """Exponential decay for evidence age: half the support each half-life.
+
+        Hiring signals go stale in weeks while company fundamentals last
+        months; per-item half-lives price that difference. Items without a
+        configured half-life, and evidence without usable dates on both
+        ends, decay nothing. Future-dated captures clamp to full strength.
+        """
+        half_life = self.recency_half_lives.get(item_id)
+        if half_life is None:
+            return 1.0
+        captured = self._parse_captured_at(captured_at)
+        scored = self._parse_captured_at(scored_at)
+        if captured is None or scored is None:
+            return 1.0
+        age_days = max(0.0, (scored - captured).total_seconds() / 86400.0)
+        if age_days <= 0:
+            return 1.0
+        return 0.5 ** (age_days / float(half_life))
+
+    def source_weight(self, source_uri: str | None) -> float:
+        """Evidentiary weight for a source URI: longest matching rule wins.
+
+        Matching is case-insensitive substring on the full URI, so
+        "boards.greenhouse.io" beats "greenhouse.io" by length. Sources
+        with no rule — including a missing URI — take default_source_weight.
+        """
+        if not source_uri or not self.source_weights:
+            return self.default_source_weight
+        lowered = source_uri.casefold()
+        best: str | None = None
+        for match in self.source_weights:
+            if match.casefold() in lowered and (best is None or len(match) > len(best)):
+                best = match
+        return float(self.source_weights[best]) if best is not None else self.default_source_weight
+
+    def support_strengths(
+        self,
+        quotes: list[Any],
+        source_uri: str | None,
+        captured_at: str | None = None,
+        scored_at: str | None = None,
+    ) -> dict[str, float]:
+        """Per-item support strength: source weight scaled by recency decay.
+
+        Quotes name the checklist items they support via `supports`; each
+        item's strength is its strongest backing source times its recency
+        decay at scoring time. Items with no backing quote score 0, so
+        untagged truth cannot inflate. Both timestamps ride in the stored
+        record, so revalidation recomputes identical strengths forever.
+        """
+        weight = self.source_weight(source_uri)
+        strengths: dict[str, float] = {}
+        for quote in quotes:
+            backed = quote.get("supports", []) if isinstance(quote, dict) else getattr(quote, "supports", [])
+            if not isinstance(backed, list):
+                continue
+            for item_id in backed:
+                if isinstance(item_id, str):
+                    strength = weight * self.recency_decay(item_id, captured_at, scored_at)
+                    strengths[item_id] = max(strength, strengths.get(item_id, 0.0))
+        return strengths
+
+    def derive_checklist_score(
+        self,
+        answers: dict[str, Any],
+        strengths: dict[str, float] | None = None,
+    ) -> int:
+        """Compute the 0-100 score for evidence-bound checklist answers.
+
+        Each true answer contributes its configured points scaled by its
+        support strength (source weight of its strongest backing quote).
+        strengths=None preserves legacy unweighted scoring; an explicit
+        mapping (even empty) prices untagged truth at zero, so omitting
+        supports tags cannot inflate. Missing answers count as false,
+        halves round up, and the total caps at 100. Answers must be strict
+        booleans and keys must be configured items: anything else is a
+        worker error, not a judgment call.
+        """
+        if self.checklist is None:
+            raise ValueError("task defines no checklist")
+        if not isinstance(answers, dict):
+            raise ValueError("checklist answers must be an object")
+        unknown = [key for key in answers if key not in self.checklist]
+        if unknown:
+            raise ValueError(f"unknown checklist items: {sorted(str(key) for key in unknown)}")
+        total = 0.0
+        for item_id, value in answers.items():
+            if value is True:
+                strength = 1.0 if strengths is None else float(strengths.get(item_id, 0.0))
+                total += self.checklist[item_id] * strength
+            elif value is not False:
+                raise ValueError(f"checklist item '{item_id}' must be true or false")
+        return min(100, math.floor(total + 0.5))
+
+    def revision_payload(self) -> dict[str, Any]:
+        """Canonical digest input: full spec minus defaulted calibration.
+
+        The revision id is behavior identity: default calibration behaves
+        exactly like a task created before calibration existed, so legacy
+        stored revisions keep validating after upgrade.
+        """
+        """Canonical digest input: full spec minus defaulted calibration."""
+        payload = self.model_dump(mode="json", by_alias=True)
+        if self.checklist is None:
+            payload.pop("checklist", None)
+        if self.pass_score is None:
+            payload.pop("pass_score", None)
+        if not self.evidence_terms:
+            payload.pop("evidence_terms", None)
+        if self.candidate_top_n == TaskSpec.model_fields["candidate_top_n"].default:
+            payload.pop("candidate_top_n", None)
+        if not self.source_weights:
+            payload.pop("source_weights", None)
+        if self.default_source_weight == TaskSpec.model_fields["default_source_weight"].default:
+            payload.pop("default_source_weight", None)
+        if not self.recency_half_lives:
+            payload.pop("recency_half_lives", None)
+        return payload
+
+    def derive_passed(self, score: Any) -> bool:
+        """Derive the pass boolean for a numeric score and pass_score."""
+        if self.pass_score is None:
+            raise ValueError("task defines no pass_score")
+        try:
+            value = float(score)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"score {score!r} is not numeric") from exc
+        if value != value or value in (float("inf"), float("-inf")):
+            raise ValueError(f"score {score!r} is not finite")
+        return value >= self.pass_score
+
+    def with_derived_claims(
+        self,
+        claims: dict[str, JsonValue],
+        strengths: dict[str, float] | None = None,
+    ) -> dict[str, JsonValue]:
+        """Fill computed score, fit_tier, and passed claims the worker omitted.
+
+        The worker answers the checklist; calibration stays in code. Fields
+        the worker did supply are never overwritten (validate_claims rejects
+        mismatches instead). Raises ValueError for non-numeric supplied
+        scores that derivation depends on.
+        """
+        if not isinstance(claims, dict):
+            raise ValueError("claims must be an object")
+        props = self.claims_schema.get("properties", {}) if isinstance(self.claims_schema, dict) else {}
+        derived = dict(claims)
+        if (
+            self.checklist is not None
+            and isinstance(derived.get("checklist"), dict)
+            and "score" in props
+            and "score" not in derived
+        ):
+            derived["score"] = self.derive_checklist_score(derived["checklist"], strengths)
+        if "score" in derived and "fit_tier" in props and "fit_tier" not in derived:
+            derived["fit_tier"] = score_to_fit_tier(derived["score"])
+        if (
+            self.pass_score is not None
+            and "score" in derived
+            and "passed" in props
+            and "passed" not in derived
+        ):
+            derived["passed"] = self.derive_passed(derived["score"])
+        return derived
+
+    @staticmethod
+    def _backed_items(quotes: list[Any] | None) -> set[str]:
+        """Checklist item ids named in any quote's supports list."""
+        backed: set[str] = set()
+        for quote in quotes or []:
+            if isinstance(quote, dict):
+                names = quote.get("supports", [])
+            else:
+                names = getattr(quote, "supports", [])
+            if isinstance(names, list):
+                backed.update(name for name in names if isinstance(name, str))
+        return backed
+
+    def validate_claims(
+        self,
+        claims: dict[str, JsonValue],
+        quotes: list[Any] | None = None,
+        strengths: dict[str, float] | None = None,
+    ) -> None:
         errors = sorted(
             Draft202012Validator(self.claims_schema).iter_errors(claims),
             key=lambda error: tuple(str(part) for part in error.absolute_path),
         )
         if errors:
             raise ValueError(errors[0].message)
+        if not isinstance(claims, dict):
+            return
+        props = self.claims_schema.get("properties", {}) if isinstance(self.claims_schema, dict) else {}
+        # Deterministic checklist/score consistency: when a task configures a
+        # checklist, a supplied score must equal the derived total. The score
+        # is computed, not judged; with_derived_claims fills it when omitted.
+        if self.checklist is not None and "checklist" in claims:
+            answers = claims.get("checklist")
+            if isinstance(answers, dict):
+                if any(key not in self.checklist for key in answers):
+                    raise ValueError("claims contain unknown checklist items")
+                # Linkage checks apply once any quote names support. Records
+                # written before supports existed carry empty tags and keep
+                # validating unweighted; untagged true answers score nothing
+                # through strengths, so dodging the tags cannot inflate.
+                backed = self._backed_items(quotes) if quotes else set()
+                if backed:
+                    unknown_links = [name for name in backed if name not in self.checklist]
+                    if unknown_links:
+                        raise ValueError(f"quotes support unknown checklist items: {sorted(unknown_links)}")
+                    unsupported = sorted(
+                        item_id
+                        for item_id, value in answers.items()
+                        if value is True and item_id not in backed
+                    )
+                    if unsupported:
+                        raise ValueError(
+                            f"true checklist items lack a supporting quote: {unsupported}"
+                        )
+                if "score" in claims and "score" in props:
+                    try:
+                        expected_score: Any = self.derive_checklist_score(
+                            answers, strengths if backed else None
+                        )
+                    except ValueError:
+                        expected_score = None
+                    if expected_score is not None and claims.get("score") != expected_score:
+                        raise ValueError(
+                            f"score {claims.get('score')!r} is inconsistent with the checklist "
+                            f"(expected {expected_score})"
+                        )
+        # Deterministic score/passed consistency: a supplied boolean must
+        # equal the pass_score derivation.
+        if (
+            self.pass_score is not None
+            and "passed" in claims
+            and "passed" in props
+            and "score" in claims
+            and isinstance(claims.get("passed"), bool)
+        ):
+            try:
+                expected_passed: Any = self.derive_passed(claims.get("score"))
+            except ValueError:
+                expected_passed = None
+            if expected_passed is not None and claims.get("passed") is not expected_passed:
+                raise ValueError(
+                    f"passed {claims.get('passed')!r} is inconsistent with score "
+                    f"{claims.get('score')!r} (expected {expected_passed})"
+                )
+        # Deterministic score/tier consistency: when a task collects both a
+        # numeric score and a fit_tier, the tier must equal
+        # score_to_fit_tier(score). The tier is derived, not judged twice.
+        if isinstance(claims, dict) and "score" in claims and "fit_tier" in claims:
+            tier = claims.get("fit_tier")
+            if isinstance(tier, str) and tier in TIER_SET:
+                try:
+                    expected = score_to_fit_tier(claims.get("score"))
+                except ValueError:
+                    expected = None
+                if expected is not None and tier != expected:
+                    raise ValueError(
+                        f"fit_tier '{tier}' is inconsistent with score "
+                        f"{claims.get('score')!r} (expected '{expected}')"
+                    )
+
+    def render_instructions(self) -> str:
+        """Fixed form-fill template plus the task-specific direction.
+
+        Workers never interpret free-form rule prose: the template carries
+        the invariant contract and instructions names only the outcome.
+        """
+        note = (self.instructions or "").strip()
+        if note and note != DEFAULT_INSTRUCTIONS:
+            return f"{INSTRUCTION_TEMPLATE}\nTask direction: {note}"
+        return INSTRUCTION_TEMPLATE
+
+    def render_worker_guide(self) -> str:
+        """Deterministic field-filling rules for worker models, derived from this spec.
+
+        Mechanical checks (quote length, offset requirements, score/tier
+        consistency) live in code; this renders the exact words the worker
+        sees so it does not have to guess numbers the verifier already knows.
+        Keep it brace-free prose: providers locate the task payload by
+        scanning for JSON objects.
+        """
+        lines = [
+            "FIELD RULES - verified mechanically; violations rotate to the next route:",
+            f"- Quote exactly: copy character-exact text from ONE named slice, at least {self.min_quote_chars} characters.",
+            "- Offsets: if the quote text occurs exactly once in that slice, start/end may be omitted. "
+            "If it occurs more than once, exact start/end are REQUIRED.",
+        ]
+        props = self.claims_schema.get("properties", {}) if isinstance(self.claims_schema, dict) else {}
+        if self.checklist:
+            points = ", ".join(f"{item_id} {pts}pts" for item_id, pts in sorted(self.checklist.items()))
+            lines.append(
+                "- Checklist decides the score: answer every item true or false. "
+                "Tag each quote with supports naming the items it backs; every true item "
+                "needs at least one supporting quote. Points: "
+                f"{points}. The pipeline sums true-item points for the 0-100 score, "
+                "scaled by source weight."
+            )
+            if self.recency_half_lives:
+                decaying = ", ".join(
+                    f"{item_id} {hl:g}d" for item_id, hl in sorted(self.recency_half_lives.items())
+                )
+                lines.append(
+                    "- Evidence decays: support halves every half-life, so cite the freshest "
+                    f"quotes. Half-lives in days: {decaying}."
+                )
+            computed = [name for name in ("score", "fit_tier", "passed") if name in props]
+            if computed:
+                lines.append(
+                    f"Computed in the pipeline, never judged - omit: {', '.join(computed)}."
+                )
+        if self.evidence_terms:
+            lines.append(
+                "- Evidence candidates: sections list numbered candidate spans ranked by term overlap. "
+                "Cite candidate_id and copy the span text exactly; offsets may then be omitted. "
+                "Sections with no candidates need free quotes with offsets only when repeated."
+            )
+        if "score" in props and "fit_tier" in props:
+            lines.append(
+                "- Tiers are derived from score, not judged separately: tier_1 for 85-100, "
+                "tier_2 for 70-84, tier_3 for 50-69, unfit below 50. "
+                "fit_tier must equal the score band."
+            )
+        field_notes = [
+            f"{name} - {spec['description']}"
+            for name, spec in props.items()
+            if isinstance(spec, dict) and spec.get("description")
+        ]
+        if field_notes:
+            lines.append("FIELDS: " + " | ".join(field_notes))
+        lines.append("Return JSON only.")
+        return "\n".join(lines)
 
     def render_prompt(self, items: list[dict[str, Any]]) -> str:
         import json
 
+        from .candidates import attach_candidates
+
+        prompt_items = (
+            attach_candidates(items, self.evidence_terms, self.candidate_top_n)
+            if self.evidence_terms
+            else items
+        )
         contract = {
             "type": "object",
             "additionalProperties": False,
@@ -215,6 +696,8 @@ class TaskSpec(ClosedModel):
                                         "slice_id": {"type": "string"},
                                         "start": {"type": "integer", "minimum": 0},
                                         "end": {"type": "integer", "minimum": 1},
+                                        "candidate_id": {"type": "integer", "minimum": 0},
+                                        "supports": {"type": "array", "items": {"type": "string"}},
                                         "text": {"type": "string"},
                                     },
                                 },
@@ -224,8 +707,8 @@ class TaskSpec(ClosedModel):
                 },
             },
         }
-        payload = {"output_schema": contract, "input_items": items}
-        return f"{self.instructions}\nReturn JSON only. Copy exact quote text from one named slice; offsets are optional.\n{json.dumps(payload, ensure_ascii=False)}"
+        payload = {"output_schema": contract, "input_items": prompt_items}
+        return f"{self.render_instructions()}\n{self.render_worker_guide()}\n{json.dumps(payload, ensure_ascii=False)}"
 
 
 class RoutePolicy(ClosedModel):
@@ -319,7 +802,7 @@ class CleanPacket(ClosedModel):
     def consistent_record_count(self) -> "CleanPacket":
         if self.total_verified_records != len(self.records):
             raise ValueError("total_verified_records does not match records")
-        task_payload = self.task.model_dump(mode="json", by_alias=True)
+        task_payload = self.task.revision_payload()
         task_digest = hashlib.sha256(
             json.dumps(task_payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()
         ).hexdigest()
@@ -329,7 +812,16 @@ class CleanPacket(ClosedModel):
         if len(item_ids) != len(set(item_ids)):
             raise ValueError("records contain duplicate item_id values")
         for record in self.records:
-            self.task.validate_claims(record.claims)
+            self.task.validate_claims(
+                record.claims,
+                quotes=record.quotes,
+                strengths=self.task.support_strengths(
+                    record.quotes,
+                    record.source_uri,
+                    record.captured_at,
+                    record.scored_at,
+                ),
+            )
         return self
 
 
@@ -366,6 +858,8 @@ class WorkerSessionRecord(ClosedModel):
     tokens_used: int = Field(ge=0)
     reported_cost: float = Field(ge=0)
     errors: list[str]
+    error_count: int = Field(default=0, ge=0)
+    route_history: list[str] = Field(default_factory=list)
 
 
 class BatchTestResult(ClosedModel):
@@ -421,6 +915,47 @@ class DoctorReport(ClosedModel):
     ready: bool
     database: str
     checks: list[DoctorCheck]
+
+
+class ScoreHistoryRound(ClosedModel):
+    run_id: str
+    item_id: str
+    entity: str
+    score: float
+    created_at: str
+    parent_run_id: str | None = None
+
+
+class EntityHistoryReport(ClosedModel):
+    entity: str
+    rounds: list[ScoreHistoryRound] = Field(default_factory=list)
+
+
+class ErrorSummary(ClosedModel):
+    mse: float
+    mae: float
+
+
+class CalibrationReport(ClosedModel):
+    task: str
+    route: str
+    scored_at: str
+    params: list[str] = Field(default_factory=list)
+    sweeps: int = Field(ge=0)
+    n_train: int = Field(ge=0)
+    n_holdout: int = Field(ge=0)
+    n_skipped: int = Field(ge=0)
+    skipped: dict[str, int] = Field(default_factory=dict)
+    baseline: ErrorSummary
+    fitted_train: ErrorSummary
+    fitted_holdout: ErrorSummary | None = None
+    points: dict[str, int] = Field(default_factory=dict)
+    points_float: dict[str, float] = Field(default_factory=dict)
+    weights: dict[str, float] = Field(default_factory=dict)
+    default_source_weight: float = 1.0
+    halves: dict[str, float] = Field(default_factory=dict)
+    applied: bool = False
+    new_revision: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
 
 
 class SchemaResult(ClosedModel):
@@ -523,3 +1058,59 @@ class CooldownsReport(ClosedModel):
     cooldowns: list[CooldownDetail] = Field(default_factory=list)
     cleared: int | None = None
     route_id: str | None = None
+
+
+CLAIM_KEY_PATTERN = r"^[A-Za-z_][A-Za-z0-9_.]*$"
+
+FilterScalar = str | int | float | bool | None
+
+
+class FilterOp(str, Enum):
+    """Typed comparison operators. Serializes as its symbol (``==``, ``in``)."""
+
+    EQ = "=="
+    NE = "!="
+    GTE = ">="
+    LTE = "<="
+    GT = ">"
+    LT = "<"
+    IN = "in"
+    NOT_IN = "not_in"
+
+
+class FilterClause(ClosedModel):
+    """One typed predicate on a claim field. ``IN``/``NOT_IN`` take a list value."""
+
+    field: str = Field(pattern=CLAIM_KEY_PATTERN)
+    op: FilterOp = FilterOp.EQ
+    value: FilterScalar | list[FilterScalar] = None
+
+    @model_validator(mode="after")
+    def check_value_shape(self) -> "FilterClause":
+        if self.op in (FilterOp.IN, FilterOp.NOT_IN):
+            if not isinstance(self.value, list) or not self.value:
+                raise ValueError(f"filter op '{self.op.value}' needs a non-empty list value")
+        elif isinstance(self.value, list):
+            raise ValueError(f"filter op '{self.op.value}' needs a scalar value, not a list")
+        return self
+
+
+class ClaimFilter(ClosedModel):
+    """Typed replacement for the ``filter_expr`` mini-language.
+
+    Disjunctive normal form with an optional top-level AND-group: a record
+    matches when every clause in ``all`` passes AND (``any`` is empty OR at
+    least one branch passes). The string parser maps each ``||`` branch to
+    one nested ``ClaimFilter(all=[...])`` entry in ``any``, so parsed and
+    hand-built filters share identical semantics.
+    """
+
+    all: list[FilterClause] = Field(default_factory=list)
+    any: list[ClaimFilter] = Field(default_factory=list)
+
+
+class SortSpec(ClosedModel):
+    """Typed replacement for ``sort_by`` + ``descending``."""
+
+    field: str = Field(pattern=CLAIM_KEY_PATTERN)
+    descending: bool = True

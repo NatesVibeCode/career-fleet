@@ -35,7 +35,7 @@ from free_fleet.engine import Engine
 from free_fleet.export import export_clean_packet
 from free_fleet.grounding import normalize_grounding, verify_grounding
 from free_fleet.input_data import load_input_items
-from free_fleet.models import CandidateExtractedItem, InputItem, QuoteCandidate, RoutePolicy, TaskSpec
+from free_fleet.models import CandidateExtractedItem, InputItem, QuoteCandidate, RoutePolicy, SortSpec, TaskSpec
 from free_fleet.packer import pack_items
 from free_fleet.store import FreeFleetStore
 from free_fleet.task import create_task_from_preset, load_task_spec
@@ -349,8 +349,7 @@ def test_account_research_pipeline(tmp_path: Path):
         snapshot,
         ranked_csv,
         export_format="csv",
-        sort_by="score",
-        descending=True,
+        sort=SortSpec(field="score"),
         top=5,
         rank=True,
     )

@@ -67,17 +67,17 @@ To filter 1,000 accounts down to 25 without running monolithic prompts:
 # Layer 1: Firmographic fit screening (1,000 -> 600)
 free-fleet init l1-filter --preset filter
 free-fleet run l1-filter --input homepages.csv --run-id l1-run
-free-fleet export l1-run --format csv --filter "passed=true" --output l1_survivors.csv
+free-fleet export l1-run --format csv --filter '{"all": [{"field": "passed", "value": true}]}' --output l1_survivors.csv
 
 # Layer 2: Tech stack & architecture screening (600 -> 150)
 free-fleet init l2-filter --preset filter
 free-fleet run l2-filter --input tech_docs.csv --only-ids l1_survivors.csv --run-id l2-run
-free-fleet export l2-run --format csv --filter "passed=true" --output l2_survivors.csv
+free-fleet export l2-run --format csv --filter '{"all": [{"field": "passed", "value": true}]}' --output l2_survivors.csv
 
 # Layer 3: Hiring & budget signals (150 -> 50)
 free-fleet init l3-filter --preset filter
 free-fleet run l3-filter --input job_posts.csv --only-ids l2_survivors.csv --run-id l3-run
-free-fleet export l3-run --format csv --filter "passed=true" --output l3_survivors.csv
+free-fleet export l3-run --format csv --filter '{"all": [{"field": "passed", "value": true}]}' --output l3_survivors.csv
 
 # Layer 4: ICP scoring & verbatim evidence (50 -> 25)
 free-fleet init l4-scoring --preset score

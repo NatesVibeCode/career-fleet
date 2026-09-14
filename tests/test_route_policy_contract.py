@@ -1,7 +1,7 @@
 from free_fleet.catalog import RouteCatalog
 from free_fleet.engine import Engine
 from free_fleet.export import _evaluate_filter
-from free_fleet.models import RoutePolicy, TaskSpec
+from free_fleet.models import ClaimFilter, FilterClause, FilterOp, RoutePolicy, TaskSpec
 from free_fleet.packer import pack_items
 from free_fleet.sessions import SessionPool
 from free_fleet.slicer import slice_document
@@ -133,9 +133,12 @@ def test_shared_input_guards_remain_enabled():
 
 
 def test_shared_export_and_slicing_edges_remain_stable():
-    assert _evaluate_filter({"status": None}, "status==null") is True
-    assert _evaluate_filter({"status": "ready"}, "status!=null") is True
-    assert _evaluate_filter({"score": 80}, "score==80") is True
+    def _f(field, op, value):
+        return ClaimFilter(all=[FilterClause(field=field, op=FilterOp(op), value=value)])
+
+    assert _evaluate_filter({"status": None}, _f("status", "==", None)) is True
+    assert _evaluate_filter({"status": "ready"}, _f("status", "!=", None)) is True
+    assert _evaluate_filter({"score": 80}, _f("score", "==", 80)) is True
 
     sections = slice_document("abcdef", max_chars=2)
     assert all(section["end"] > section["start"] for section in sections)

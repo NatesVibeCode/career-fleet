@@ -35,7 +35,7 @@ free-fleet run my-task --input data.csv --id-column id --text-column body --run-
 free-fleet run my-task --input doc.html --run-id my-run
 free-fleet run my-task --input paper.pdf --run-id my-run
 ```
-`validate` is offline and warns when `max_slice_chars` triggers tri-window slicing (head/mid/tail, `partial:true`). `test` performs one real inference batch. `run` stores its exact task revision, input digest, typed batches, leases, attempts, sessions, receipts, and inference attempts in SQLite. Long docs beyond `max_slice_chars` are tri-window sliced; quotes must lie within one window.
+`validate` is offline and warns when `max_slice_chars` triggers sliding-window slicing (lossless overlapping windows, `partial:true`). `test` performs one real inference batch. `run` stores its exact task revision, input digest, typed batches, leases, attempts, sessions, receipts, and inference attempts in SQLite. Long docs beyond `max_slice_chars` are sliding-window sliced with sentence-snapped overlapping windows; quotes must lie within one window.
 
 ## Real-time status and benchmark eval
 
@@ -59,13 +59,54 @@ free-fleet routes add ollama/llama3.2:latest --provider ollama --free
 free-fleet sessions my-run --json
 free-fleet status my-run --json
 free-fleet resume my-run --json
+free-fleet rescore my-run --input round2.jsonl --run-id my-run-r2 --json
+free-fleet history acme --json
 free-fleet export my-run --format csv --output results.csv
 free-fleet export my-run --format jsonl --output results.jsonl
 free-fleet export my-run --format json --output packet.json
 free-fleet db backup ./backup.db --json
 ```
 
+Filters and sorts are typed JSON, validated before anything runs:
+
+```bash
+free-fleet export my-run --format csv --output top.csv \
+  --filter '{"all": [{"field": "score", "op": ">=", "value": 80}]}' \
+  --sort-by score --desc --top 25 --rank
+```
+
+`--filter` takes a ClaimFilter document: `all` clauses AND together, `any` holds OR branches, each clause is `{"field", "op", "value"}` with ops `==, !=, >=, <=, >, <, in, not_in` (`in`/`not_in` take a list value). DAG `filter`/`export` nodes take the same shape as `filter`/`sort` mappings.
+
 Resume normally needs only the run ID; free routes remain the default. A paid route approved for an earlier session must be requested again with `--route <route-id>`. SQLite already holds the batch payloads. Do not reconstruct a run from the original files.
+
+## Calibration fitting
+
+Checklist points, source weights, and half-lives start as rubric judgment. Fit them against labeled samples (metadata carries the expected numeric score) with one pinned rater route:
+
+```bash
+free-fleet calibrate research-demo --input labeled.jsonl --expected score --route judge/route --json
+```
+
+The fit is deterministic coordinate descent (fixed order, no random init) with train/holdout errors reported; points stay on the simplex (non-negative, sum to 100) so tier bands keep their meaning. Relative importance is fitted here; absolute rater level stays in per-route bias correction at export. Dry run by default; `--apply` registers the recalibrated task revision. Restrict with `--params points,weights,halves` and `--max-sweeps 50`.
+
+## Workflows as DAGs
+
+Multi-step flows are typed node kinds, not scripts: `run`, `rescore` (fresh evidence linked to a parent run), `calibrate` (fit + optional register), `filter` (ID sets), `export`. Refs are validated at parse time — `from_run` must name a run/rescore node, `task_from` a calibrate node that applied — and `rescore`/`calibrate` CLI commands are one-node specs over the same runner. A calibrate-then-score funnel in one spec:
+
+```json
+{"name": "fit-then-score", "nodes": [
+  {"kind": "calibrate", "id": "cal", "task": "score-demo", "input": "labeled.jsonl",
+   "route": "judge/route", "params": ["points"], "apply": true},
+  {"kind": "run", "id": "scored", "task_from": "cal", "input": "candidates.jsonl"},
+  {"kind": "export", "id": "out", "from_run": "scored", "format": "csv", "output": "ranked.csv"}
+]}
+```
+
+```bash
+free-fleet dag --spec funnel.json --dag-id fit1 --json
+```
+
+Node run ids are deterministic (`{dag-id}-{node-id}`), so re-running resumes: completed run/rescore nodes are reused and marked `cached`, calibrate nodes reuse their saved report.
 
 Packaged routes are disabled hints, not current price evidence. `routes --refresh` contacts providers and appends observations. Use it only when that mutation is in scope.
 
@@ -94,7 +135,7 @@ variable wins).
 free-fleet schema database
 ```
 
-The queue uses WAL, foreign keys, busy timeout, and atomic `BEGIN IMMEDIATE` leases. Attempt and model-run evidence is retained. Schema version is `"4"`. Account runs can also retain the exact immutable Ideal Company Profile revision used for the campaign.
+The queue uses WAL, foreign keys, busy timeout, and atomic `BEGIN IMMEDIATE` leases. Attempt and model-run evidence is retained. Schema version is `"4"`.
 
 ## MCP
 
@@ -129,7 +170,7 @@ The MCP server exposes 13 structured tools:
 8. `free_fleet_resume`: Resume pending batches from existing run.
 9. `free_fleet_status`: Real-time batch progress and per-route reliability metrics.
 10. `free_fleet_eval`: Benchmark routes against sample inputs and update ranking priors (`concurrency`).
-11. `free_fleet_export`: Export clean packet (`format="json"|"csv"|"jsonl"`).
+11. `free_fleet_export`: Export clean packet (`format="json"|"csv"|"jsonl"`, typed `claim_filter`/`sort` JSON).
 12. `free_fleet_schema`: View JSON Schemas or SQLite database schema.
 13. `free_fleet_doctor`: Check workspace health and provider readiness.
 

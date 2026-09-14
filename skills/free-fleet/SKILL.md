@@ -31,18 +31,19 @@ Start with `command -v free-fleet`. On a fresh system, run `free-fleet setup --w
 8. For MCP, set one absolute `--workspace-root`. Keep its SQLite database and every file path below that root.
 9. Read exported packets through `read_packet`; it checks the embedded TaskSpec digest and revalidates every record's claims. Do not bypass `free_fleet_v2` validation.
 10. Model selection uses Bayesian-smoothed historical scoring. Every intermediate attempt failure, schema error, ungrounded quote, rate limit, and latency is recorded immutably in `inference_attempts`.
+11. Mechanical discovery enforces a 70% source-capture floor by default. Its report includes per-backend hit/capture counts, and fetched records retain the backend, query, and originating URL.
 
 ## Workflow
 
 1. Run `free-fleet doctor --json`, then inspect `free-fleet routes --json`. Refresh only when requested or needed; refresh contacts providers and appends route evidence.
 2. For a zero-key proof, run `free-fleet quickstart --demo --run-id demo --json` (writes `runs/demo/clean_packet.json` + `.csv` via `demo/fake`).
 3. For local or private models (Ollama, vLLM, LM Studio), add the route with `free-fleet routes add <id> --provider <provider> --free`.
-4. Create or select a task (`--preset score|filter|classify|extract|triage|summarize` or `--from-example labels.csv`), then run `free-fleet validate TASK --input FILE [--only-ids FILE] --json` before inference. Long documents are tri-window sliced (head/mid/tail) with `partial:true` and exact offsets; `validate` warns when truncation occurs.
+4. Create or select a task (`--preset score|filter|classify|extract|triage|summarize` or `--from-example labels.csv`), then run `free-fleet validate TASK --input FILE [--only-ids FILE] --json` before inference. Long documents are sliding-window sliced (lossless overlapping windows, sentence-snapped, `partial:true`) with exact offsets; `validate` warns when truncation occurs.
 5. Run one batch with `free-fleet test TASK --input FILE --json`.
 6. Optionally benchmark candidate routes with `free-fleet eval TASK --input FILE --concurrency 4 --json` to update Bayesian ranking priors (now parallelized per-sample/per-route).
 7. Start the bounded campaign with an explicit run ID, session count, attempt ceiling, and optional policy (`--free-only` for verified zero-cost, `--zdr`, `--provider`, `--exclude-provider`, `--max-request-cost`, `--only-ids` for multi-stage compounding filters).
 8. Monitor progress in real time with `free-fleet status RUN_ID --watch` or machine-readable `free-fleet status RUN_ID --json` (stream-friendly).
 9. On interruption, inspect the stored run and call `free-fleet resume RUN_ID`; do not reconstruct or restart its batches from input files.
-10. Export and validate the packet with `free-fleet export RUN_ID [--format json|csv|jsonl] [--sort-by CLAIM] [--desc] [--top N] [--rank] [--filter EXPR]`. Use `free-fleet db backup <path>` for safe SQLite copies. Report database path, run ID, packet path, verified/failed counts, attempts, and route/cost evidence.
+10. Export and validate the packet with `free-fleet export RUN_ID [--format json|csv|jsonl] [--sort-by CLAIM] [--desc] [--top N] [--rank] [--filter CLAIMFILTER_JSON]`. Use `free-fleet db backup <path>` for safe SQLite copies. Report database path, run ID, packet path, verified/failed counts, attempts, and route/cost evidence.
 
 Never call a worker session an independent coding-agent session. `--sessions` is bounded batch concurrency inside one free-fleet campaign.

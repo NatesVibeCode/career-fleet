@@ -4,62 +4,73 @@ import json
 import time
 from pathlib import Path
 from typing import Any
-from .models import CleanPacket, ExtractedItem, ProviderReceipt, RoutePolicy, TaskSpec
+from .models import (
+    ClaimFilter,
+    CleanPacket,
+    ExtractedItem,
+    FilterClause,
+    FilterOp,
+    ProviderReceipt,
+    RoutePolicy,
+    SortSpec,
+    TaskSpec,
+)
 
 
-def _evaluate_filter(claims: dict[str, Any], filter_expr: str) -> bool:
-    expr = filter_expr.strip()
-    op = None
-    for candidate in (">=", "<=", "!=", "==", "=", ">", "<"):
-        if candidate in expr:
-            op = candidate
-            break
-    if not op:
-        raise ValueError(f"invalid filter expression '{filter_expr}'; must contain ==, =, !=, >=, <=, >, or <")
-
-    key, val_str = [p.strip() for p in expr.split(op, 1)]
-    val_str = val_str.strip("'\"")
-    if key not in claims:
+def _values_equal(actual: Any, expected: Any) -> bool:
+    if expected is None:
+        return actual is None
+    if actual is None:
         return False
+    return actual == expected or str(actual).lower() == str(expected).lower()
+
+
+def _clause_matches(claims: dict[str, Any], clause: FilterClause) -> bool:
+    key, op, expected = clause.field, clause.op, clause.value
+    if op in (FilterOp.IN, FilterOp.NOT_IN):
+        options = expected if isinstance(expected, list) else [expected]
+        hit = key in claims and any(_values_equal(claims[key], opt) for opt in options)
+        return not hit if op == FilterOp.NOT_IN else hit
+    if key not in claims:
+        # Fail closed: missing keys match nothing, except negations which
+        # treat absence as non-membership (mirrors != on missing keys).
+        return op == FilterOp.NE
     actual = claims[key]
 
-    if val_str.lower() in ("true", "false"):
-        expected: Any = (val_str.lower() == "true")
-    elif val_str.lower() in ("null", "none"):
-        expected = None
-    else:
-        try:
-            if "." in val_str:
-                expected = float(val_str)
-            else:
-                expected = int(val_str)
-        except ValueError:
-            expected = val_str
-
     try:
-        if op in ("=", "=="):
-            if expected is None:
-                return actual is None
-            if actual is None:
-                return False
-            return actual == expected or str(actual).lower() == str(expected).lower()
-        elif op == "!=":
+        if op == FilterOp.EQ:
+            return _values_equal(actual, expected)
+        elif op == FilterOp.NE:
             if expected is None:
                 return actual is not None
             if actual is None:
                 return True
-            return actual != expected and str(actual).lower() != str(expected).lower()
-        elif op == ">=":
+            return not _values_equal(actual, expected)
+        elif op == FilterOp.GTE:
             return float(actual) >= float(expected)
-        elif op == "<=":
+        elif op == FilterOp.LTE:
             return float(actual) <= float(expected)
-        elif op == ">":
+        elif op == FilterOp.GT:
             return float(actual) > float(expected)
-        elif op == "<":
+        elif op == FilterOp.LT:
             return float(actual) < float(expected)
     except (ValueError, TypeError):
         return False
     return False
+
+
+def _evaluate_filter(claims: dict[str, Any], claim_filter: ClaimFilter) -> bool:
+    """Evaluate a typed ClaimFilter: ``all`` clauses must pass AND at least one
+    ``any`` branch (when present) must pass.
+
+    String comparison is case-insensitive; missing keys match nothing except
+    under ``!=`` / ``NOT IN``; type errors fail closed to False.
+    """
+    if not all(_clause_matches(claims, clause) for clause in claim_filter.all):
+        return False
+    return not claim_filter.any or any(
+        _evaluate_filter(claims, branch) for branch in claim_filter.any
+    )
 
 
 def adjust_claim_score(raw: Any, bias: float = 0.0, low: float = 0.0, high: float = 100.0) -> float | None:
@@ -91,23 +102,47 @@ def _build_item_route_map(run_data: dict) -> dict[str, str]:
     return mapping
 
 
+def verified_records_from_snapshot(run_data: dict) -> tuple[list[ExtractedItem], TaskSpec]:
+    """Collect verified records from a run snapshot, revalidating claims.
+
+    Shared by packet/CSV exporters and DAG filter nodes so every consumer
+    sees the same record set: only verified batches, claims revalidated
+    against the run's task.
+    """
+    task = TaskSpec.model_validate(run_data["task"])
+    verified_records: list[ExtractedItem] = []
+    for b in run_data.get("batches", {}).values():
+        if b.get("status") == "verified" and b.get("result"):
+            results = b["result"]
+            if isinstance(results, list):
+                validated = [ExtractedItem.model_validate(item) for item in results]
+            elif isinstance(results, dict) and "items" in results:
+                validated = [ExtractedItem.model_validate(item) for item in results["items"]]
+            else:
+                raise ValueError("verified batch result has an invalid shape")
+            for item in validated:
+                task.validate_claims(item.claims)
+            verified_records.extend(validated)
+    return verified_records, task
+
+
 def _filter_and_sort_records(
     records: list[ExtractedItem],
-    sort_by: str | None = None,
-    descending: bool = True,
+    sort: SortSpec | None = None,
     top: int | None = None,
-    filter_expr: str | None = None,
+    claim_filter: ClaimFilter | None = None,
     bias_map: dict[str, float] | None = None,
     score_field: str | None = None,
     item_route_map: dict[str, str] | None = None,
 ) -> list[ExtractedItem]:
-    """Filter/sort records. When bias_map+score_field are given and sort_by==score_field,
+    """Filter/sort records. When bias_map+score_field are given and sort.field==score_field,
     ranking uses bias-adjusted scores (raw - route bias) so mixed-rater CSVs stay comparable.
     Raw claims are never mutated; only the sort key changes."""
     res = list(records)
-    if filter_expr:
-        res = [r for r in res if _evaluate_filter(r.claims, filter_expr)]
-    if sort_by:
+    if claim_filter is not None:
+        res = [r for r in res if _evaluate_filter(r.claims, claim_filter)]
+    if sort is not None:
+        sort_by, descending = sort.field, sort.descending
         def sort_key(rec: ExtractedItem):
             v = rec.claims.get(sort_by)
             if v is None:
@@ -134,40 +169,24 @@ def _filter_and_sort_records(
 def export_clean_csv(
     run_data: dict,
     output_path: Path,
-    sort_by: str | None = None,
-    descending: bool = True,
+    sort: SortSpec | None = None,
     top: int | None = None,
     rank: bool = False,
-    filter_expr: str | None = None,
+    claim_filter: ClaimFilter | None = None,
     bias_map: dict[str, float] | None = None,
     score_field: str | None = None,
 ) -> Path:
     """Project verified records into a frictionless tabular CSV format."""
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    
-    verified_records: list[ExtractedItem] = []
-    task = TaskSpec.model_validate(run_data["task"])
 
-    for b in run_data.get("batches", {}).values():
-        if b.get("status") == "verified" and b.get("result"):
-            results = b["result"]
-            if isinstance(results, list):
-                validated = [ExtractedItem.model_validate(item) for item in results]
-            elif isinstance(results, dict) and "items" in results:
-                validated = [ExtractedItem.model_validate(item) for item in results["items"]]
-            else:
-                raise ValueError("verified batch result has an invalid shape")
-            for item in validated:
-                task.validate_claims(item.claims)
-            verified_records.extend(validated)
+    verified_records, task = verified_records_from_snapshot(run_data)
 
     item_route_map = _build_item_route_map(run_data) if bias_map and score_field else None
     verified_records = _filter_and_sort_records(
         verified_records,
-        sort_by=sort_by,
-        descending=descending,
+        sort=sort,
         top=top,
-        filter_expr=filter_expr,
+        claim_filter=claim_filter,
         bias_map=bias_map,
         score_field=score_field,
         item_route_map=item_route_map,
@@ -222,41 +241,25 @@ def export_clean_packet(
     run_data: dict,
     output_path: Path,
     export_format: str = "json",
-    sort_by: str | None = None,
-    descending: bool = True,
+    sort: SortSpec | None = None,
     top: int | None = None,
     rank: bool = False,
-    filter_expr: str | None = None,
+    claim_filter: ClaimFilter | None = None,
     bias_map: dict[str, float] | None = None,
     score_field: str | None = None,
 ) -> dict:
     """Validate and serialize verified records into a closed packet or CSV."""
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    
-    verified_records: list[ExtractedItem] = []
-    receipts: list[ProviderReceipt] = []
-    task = TaskSpec.model_validate(run_data["task"])
 
-    for b in run_data.get("batches", {}).values():
-        if b.get("status") == "verified" and b.get("result"):
-            results = b["result"]
-            if isinstance(results, list):
-                validated = [ExtractedItem.model_validate(item) for item in results]
-            elif isinstance(results, dict) and "items" in results:
-                validated = [ExtractedItem.model_validate(item) for item in results["items"]]
-            else:
-                raise ValueError("verified batch result has an invalid shape")
-            for item in validated:
-                task.validate_claims(item.claims)
-            verified_records.extend(validated)
+    verified_records, task = verified_records_from_snapshot(run_data)
+    receipts: list[ProviderReceipt] = []
 
     item_route_map = _build_item_route_map(run_data) if bias_map and score_field else None
     verified_records = _filter_and_sort_records(
         verified_records,
-        sort_by=sort_by,
-        descending=descending,
+        sort=sort,
         top=top,
-        filter_expr=filter_expr,
+        claim_filter=claim_filter,
         bias_map=bias_map,
         score_field=score_field,
         item_route_map=item_route_map,
@@ -308,11 +311,10 @@ def export_clean_packet(
         export_clean_csv(
             run_data,
             output_path,
-            sort_by=sort_by,
-            descending=descending,
+            sort=sort,
             top=top,
             rank=rank,
-            filter_expr=filter_expr,
+            claim_filter=claim_filter,
             bias_map=bias_map,
             score_field=score_field,
         )

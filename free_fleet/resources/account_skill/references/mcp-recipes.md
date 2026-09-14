@@ -76,8 +76,7 @@ Via MCP tool `free_fleet_export` (or CLI `account-fleet export`):
 {
   "run_id": "db-campaign-01",
   "export_format": "csv",
-  "sort_by": "score",
-  "descending": true,
+  "sort": {"field": "score", "descending": true},
   "top_n": 25,
   "rank": true,
   "output_path": "top_25_ranked_accounts.csv"
@@ -96,15 +95,15 @@ When processing large input lists (e.g. 1,000 accounts from an Apollo or confere
 ```bash
 # Layer 1: Firmographic Filter (1,000 -> 600)
 account-fleet run l1-filter --input raw_1000.csv --run-id l1-pass
-account-fleet export l1-pass --format csv --filter "passed=true" --output l1_survivors.csv
+account-fleet export l1-pass --format csv --filter '{"all": [{"field": "passed", "value": true}]}' --output l1_survivors.csv
 
 # Layer 2: Architecture Stack Screen (600 -> 150)
 account-fleet run l2-stack --input tech_docs.csv --only-ids l1_survivors.csv --run-id l2-pass
-account-fleet export l2-pass --format csv --filter "passed=true" --output l2_survivors.csv
+account-fleet export l2-pass --format csv --filter '{"all": [{"field": "passed", "value": true}]}' --output l2_survivors.csv
 
 # Layer 3: Hiring & Urgency Signals (150 -> 50)
 account-fleet run l3-hiring --input job_posts.csv --only-ids l2_survivors.csv --run-id l3-pass
-account-fleet export l3-pass --format csv --filter "passed=true" --output l3_survivors.csv
+account-fleet export l3-pass --format csv --filter '{"all": [{"field": "passed", "value": true}]}' --output l3_survivors.csv
 
 # Layer 4: Deep Scoring & Verbatim Proof (50 -> Top 25)
 account-fleet run l4-scoring --input verified_sources.csv --only-ids l3_survivors.csv --run-id l4-final

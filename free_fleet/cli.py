@@ -40,17 +40,20 @@ from .discover import (
     write_items_csv,
     write_items_jsonl,
 )
+from .calibrate import PARAM_KINDS
 from .engine import Engine
 from .export import export_clean_packet
 from .input_data import iter_input_items, load_input_items
 from .models import (
     CandidateModelOutput,
+    ClaimFilter,
     CleanPacket,
     DoctorCheck,
     DoctorReport,
     InputItem,
     ModelOutput,
     RoutePolicy,
+    SortSpec,
     TaskSpec,
     ValidationReport,
 )
@@ -58,7 +61,7 @@ from .packer import iter_packed_batches, pack_items
 from .profile import IdealCompanyProfile
 from .store import BulkLanesStore, SCHEMA_SQL, SCHEMA_VERSION, default_db_path
 from .setup import installed_skill_matches, setup_workspace, skill_destination
-from .task import create_task_from_preset, load_task_spec, PRESETS
+from .task import create_task_from_preset, load_task_spec, parse_half_life, parse_source_weight, PRESETS
 
 
 def _positive_int(value: str) -> int:
@@ -142,6 +145,7 @@ def _input_source(args: argparse.Namespace) -> tuple[Path, dict[str, Any]]:
         "title_column": getattr(args, "title_column", None),
         "uri_column": getattr(args, "uri_column", None),
         "only_ids": only_ids,
+        "fuzzy_ids": getattr(args, "only_ids_fuzzy", False),
     }
 
 
@@ -418,7 +422,21 @@ def cmd_init(args: argparse.Namespace) -> None:
             claims_schema=claims_schema,
         )
     else:
-        spec = create_task_from_preset(args.name, preset_name=args.preset, batch_size=args.batch_size)
+        weight_rules = {}
+        for raw in getattr(args, "source_weight", None) or []:
+            match, weight = parse_source_weight(raw)
+            weight_rules[match] = weight
+        half_lives = {}
+        for raw in getattr(args, "half_life", None) or []:
+            item_id, days = parse_half_life(raw)
+            half_lives[item_id] = days
+        spec = create_task_from_preset(
+            args.name,
+            preset_name=args.preset,
+            batch_size=args.batch_size,
+            source_weights=weight_rules,
+            recency_half_lives=half_lives,
+        )
         preset_name = args.preset
     store = _store(args)
     revision = store.register_task(spec)
@@ -531,6 +549,126 @@ def cmd_run(args: argparse.Namespace) -> None:
     )
 
 
+def cmd_rescore(args: argparse.Namespace) -> None:
+    """Score fresh evidence as a new run linked to its parent run.
+
+    Each rescore round stands on its own evidence: new sources arrive as new
+    items (grouped by metadata.entity), the worker re-answers the checklist,
+    and score_history records the trajectory per entity across the lineage.
+    The flow is a one-node DAG spec executed by run_dag, not inline steps.
+    """
+    from .dag import DagSpec, RescoreNode, run_dag
+
+    store = _store(args)
+    workspace = getattr(args, "workspace_root", ".")
+    parent = store.run_snapshot(args.parent_run)
+    task_ref = getattr(args, "task", None)
+    if task_ref:
+        task_name = _resolve_task(task_ref, store, workspace).name
+    else:
+        task_name = store.get_run_task(args.parent_run).name
+    run_id = args.run_id or f"{task_name}-rescore-{time.time_ns()}-{uuid.uuid4().hex[:8]}"
+    input_path, input_options = _input_source(args)
+    options = dict(input_options)
+    options.pop("only_ids", None)
+    options.pop("only_ids_fuzzy", None)
+    policy = _extract_policy(args)
+    spec = DagSpec(name=f"rescore-{args.parent_run}", nodes=[RescoreNode(
+        id="rescore",
+        parent_run=args.parent_run,
+        task=task_ref,
+        input=str(input_path),
+        run_id=run_id,
+        output=args.output,
+        sessions=args.sessions,
+        max_attempts=args.max_attempts,
+        policy=policy.model_dump(mode="json") if policy else None,
+        id_column=options.get("id_column"),
+        text_column=options.get("text_column"),
+        title_column=options.get("title_column"),
+        uri_column=options.get("uri_column"),
+        profile=getattr(args, "profile", None),
+        use_active_profile=getattr(args, "use_active_profile", False),
+    )])
+    state = run_dag(spec, store, workspace_root=workspace, dag_id=run_id)
+    node = state["nodes"]["rescore"]
+    output = _workspace_path(args.output or f"runs/{run_id}/clean_packet.json", workspace)
+    result = {
+        "run_id": run_id,
+        "status": store.run_snapshot(run_id)["status"],
+        "total_verified_records": node["verified"],
+        "output_path": str(output),
+    }
+    cached = " (cached)" if node.get("cached") else ""
+    _emit(
+        {"run_id": run_id, "parent_run": args.parent_run, "packet": str(output), "result": result},
+        args.json,
+        f"Rescore '{run_id}' of '{args.parent_run}' ({parent['status']}) {result['status']}{cached}.\nPacket: {output}\nVerified records: {result['total_verified_records']}",
+    )
+
+
+def cmd_history(args: argparse.Namespace) -> None:
+    store = _store(args)
+    rows = store.get_entity_history(args.entity)
+    if args.json:
+        _emit({"entity": args.entity, "rounds": rows}, True, "")
+        return
+    if not rows:
+        print(f"No score history for entity '{args.entity}'.")
+        return
+    print(f"Score trajectory for '{args.entity}' ({len(rows)} rounds):")
+    for row in rows:
+        parent = f" (child of {row['parent_run_id']})" if row.get("parent_run_id") else ""
+        print(f"  {row['created_at']}  run={row['run_id']} item={row['item_id']} score={row['score']}{parent}")
+
+
+def cmd_calibrate(args: argparse.Namespace) -> None:
+    """Fit scoring calibration against labeled samples; dry-run unless --apply.
+
+    The flow is a one-node DAG spec executed by run_dag, not inline steps.
+    """
+    from .dag import CalibrateNode, DagSpec, run_dag
+
+    store = _store(args)
+    workspace = getattr(args, "workspace_root", ".")
+    route_id = getattr(args, "route", None)
+    if not route_id:
+        raise ValueError("calibrate pins a single rater route: pass --route ROUTE_ID")
+    input_path, input_options = _input_source(args)
+    options = dict(input_options)
+    options.pop("only_ids", None)
+    options.pop("only_ids_fuzzy", None)
+    params = [part.strip() for part in (getattr(args, "params", "") or ",".join(PARAM_KINDS)).split(",") if part.strip()]
+    spec = DagSpec(name=f"calibrate-{args.task}", nodes=[CalibrateNode(
+        id="calibrate",
+        task=args.task,
+        input=str(input_path),
+        expected=getattr(args, "expected", None) or "score",
+        route=route_id,
+        params=params,
+        max_sweeps=int(getattr(args, "max_sweeps", 50)),
+        apply=bool(getattr(args, "apply", False)),
+        id_column=options.get("id_column"),
+        text_column=options.get("text_column"),
+        title_column=options.get("title_column"),
+        uri_column=options.get("uri_column"),
+    )])
+    state = run_dag(spec, store, workspace_root=workspace)
+    report = state["nodes"]["calibrate"]["report"]
+    base_mae, fit_mae = report["baseline"]["mae"], report["fitted_train"]["mae"]
+    holdout = report["n_holdout"]
+    cached = " (cached)" if state["nodes"]["calibrate"].get("cached") else ""
+    summary = (
+        f"Calibration for '{report['task']}' on {report['n_train']} train"
+        f"{f' + {holdout} holdout' if holdout else ''} samples via {route_id}: "
+        f"train MAE {base_mae:.2f} -> {fit_mae:.2f}."
+        + (f" Holdout MAE {report['fitted_holdout']['mae']:.2f}." if report["fitted_holdout"] else "")
+        + (f" Registered revision {report['new_revision']}." if report["applied"] else " Dry run; pass --apply to register.")
+        + cached
+    )
+    _emit(report, args.json, summary)
+
+
 def cmd_resume(args: argparse.Namespace) -> None:
     store = _store(args)
     task = store.get_run_task(args.run_id)
@@ -606,6 +744,37 @@ def cmd_eval(args: argparse.Namespace) -> None:
         ui.print_eval_table(report)
 
 
+def cmd_dag(args: argparse.Namespace) -> None:
+    from .dag import DagError, DagSpec, run_dag
+
+    try:
+        spec = DagSpec.model_validate_json(Path(args.spec).read_text(encoding="utf-8"))
+    except Exception as exc:
+        raise DagError(f"invalid DAG spec '{args.spec}': {exc}") from exc
+    order = spec.topo_order()
+    if getattr(args, "dry_run", False):
+        _emit(
+            {"name": spec.name, "order": order, "nodes": [n.id for n in spec.nodes]},
+            args.json,
+            f"DAG '{spec.name}' is valid. Execution order: {' -> '.join(order)}.",
+        )
+        return
+    store = _store(args)
+    state = run_dag(
+        spec,
+        store,
+        workspace_root=getattr(args, "workspace_root", "."),
+        dag_id=getattr(args, "dag_id", None),
+        resume=not getattr(args, "no_resume", False),
+    )
+    _emit(
+        state,
+        args.json,
+        f"DAG '{spec.name}' complete ({state['dag_id']}). "
+        + ", ".join(f"{nid}: {info.get('kind')}" for nid, info in state["nodes"].items()),
+    )
+
+
 def cmd_export(args: argparse.Namespace) -> None:
     store = _store(args)
     snapshot = store.run_snapshot(args.run_id)
@@ -621,15 +790,18 @@ def cmd_export(args: argparse.Namespace) -> None:
             bias_map = {v["route_id"]: v["bias"] for v in raw_bias.values()}
         except Exception:
             bias_map = None
+    sort_by = getattr(args, "sort_by", None)
+    sort = SortSpec(field=sort_by, descending=bool(getattr(args, "desc", True))) if sort_by else None
+    filter_arg = getattr(args, "filter", None)
+    claim_filter = ClaimFilter.model_validate_json(filter_arg) if filter_arg else None
     packet = export_clean_packet(
         snapshot,
         output,
         export_format=fmt,
-        sort_by=getattr(args, "sort_by", None),
-        descending=bool(getattr(args, "desc", True)),
+        sort=sort,
         top=getattr(args, "top", None),
         rank=bool(getattr(args, "rank", False)),
-        filter_expr=getattr(args, "filter_expr", None),
+        claim_filter=claim_filter,
         bias_map=bias_map,
         score_field=score_field,
     )
@@ -1222,6 +1394,7 @@ def _input_options(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--title-column", help="Optional CSV column for item title")
     parser.add_argument("--uri-column", help="Optional CSV column for source URI")
     parser.add_argument("--only-ids", help="Optional file (CSV, JSONL, TXT) or comma-separated list of IDs to restrict input items to")
+    parser.add_argument("--only-ids-fuzzy", action="store_true", help="Allow legacy underscore/space ID equivalence (default: exact ID match)")
 
 
 def _policy_options(parser: argparse.ArgumentParser) -> None:
@@ -1293,6 +1466,10 @@ def build_parser() -> argparse.ArgumentParser:
     init.add_argument("--from-example", dest="from_example", help="Infer draft claims_schema from a labeled CSV/JSONL (e.g. labels.csv)")
     init.add_argument("--label-column", help="Column containing labels in --from-example (auto-detected if omitted)")
     init.add_argument("--batch-size", type=int, default=4)
+    init.add_argument("--source-weight", action="append", default=[], metavar="MATCH=WEIGHT",
+                      help="Repeatable source-evidence weight 0-1, longest URI-substring match wins")
+    init.add_argument("--half-life", action="append", default=[], metavar="ITEM=DAYS",
+                      help="Repeatable evidence half-life in days per checklist item; refines preset defaults")
     init.add_argument("--sample", help="Sample input path")
     init.add_argument("--workspace-root", default=".", help="Workspace root for relative paths")
     _common(init)
@@ -1352,6 +1529,38 @@ def build_parser() -> argparse.ArgumentParser:
     _policy_options(resume)
     _common(resume)
 
+    rescore = commands.add_parser("rescore", help="Score fresh evidence as a new run linked to a parent run")
+    rescore.add_argument("parent_run", help="Existing run this round builds on (lineage only; evidence comes from --input)")
+    rescore.add_argument("--task", help="Registered task name or TaskSpec JSON path (default: the parent run's task; override to rescore under recalibrated weights)")
+    rescore.add_argument("--input", required=True)
+    rescore.add_argument("--sessions", type=_positive_int, default=4)
+    rescore.add_argument("--max-attempts", type=_positive_int, default=300)
+    rescore.add_argument("--run-id")
+    rescore.add_argument("--output")
+    rescore.add_argument("--profile", help="Optional Ideal Company Profile JSON; persist and attach its revision to this run")
+    rescore.add_argument("--use-active-profile", action="store_true", help="Explicitly attach the active Ideal Company Profile from SQLite")
+    rescore.add_argument("--workspace-root", default=".", help="Workspace root for relative paths")
+    _input_options(rescore)
+    _policy_options(rescore)
+    _common(rescore)
+
+    history = commands.add_parser("history", help="Show an entity's score trajectory across rescore rounds")
+    history.add_argument("entity", help="Entity key (InputItem metadata.entity, else the item_id)")
+    _common(history)
+
+
+    calibrate = commands.add_parser("calibrate", help="Fit checklist points, source weights, and half-lives against labeled samples (dry-run unless --apply)")
+    calibrate.add_argument("task", help="Registered task name or TaskSpec JSON path (must carry a checklist)")
+    calibrate.add_argument("--input", required=True, help="Labeled samples; metadata holds the expected score")
+    calibrate.add_argument("--expected", default="score", help="Metadata key holding the expected numeric score")
+    calibrate.add_argument("--route", required=True, help="Single rater route for observation collection")
+    calibrate.add_argument("--params", default=",".join(PARAM_KINDS), help="Comma-separated subset of points,weights,halves to fit")
+    calibrate.add_argument("--max-sweeps", type=int, default=50)
+    calibrate.add_argument("--apply", action="store_true", help="Register the recalibrated task revision (default: dry-run report only)")
+    calibrate.add_argument("--workspace-root", default=".", help="Workspace root for relative paths")
+    _input_options(calibrate)
+    _common(calibrate)
+
     status = commands.add_parser("status", help="Show real-time progress, attempts, and route stats for a run")
     status.add_argument("run_id")
     status.add_argument("--watch", action="store_true", help="Live monitor run progress until completion")
@@ -1380,7 +1589,7 @@ def build_parser() -> argparse.ArgumentParser:
     export.add_argument("--asc", action="store_false", dest="desc", help="Sort ascending")
     export.add_argument("--top", type=int, help="Limit export to top N records after sorting")
     export.add_argument("--rank", action="store_true", help="Include 1-indexed rank column in CSV export")
-    export.add_argument("--filter", dest="filter_expr", help="Filter records by claim (e.g. 'passed=true', 'score>=80', 'fit_tier=tier_1')")
+    export.add_argument("--filter", dest="filter", help="ClaimFilter JSON")
     export.add_argument("--adjust-scores", action="store_true", help="Rank by bias-adjusted scores (raw - per-route bias from eval goldens). Recommended when Phase-A used multiple raters; prefer single-judge Phase-B for final ranking.")
     export.add_argument("--score-field", default="score", help="Numeric claim field bias applies to (default: score)")
     _common(export)
@@ -1468,6 +1677,14 @@ def build_parser() -> argparse.ArgumentParser:
     fetch.add_argument("--format", choices=["csv", "jsonl"], default="csv", help="Output format (default: csv)")
     fetch.add_argument("--json", action="store_true", help="Emit machine-readable JSON")
 
+    dag = commands.add_parser("dag", help="Run a declarative DAG workflow (typed nodes, lossless edges)")
+    dag.add_argument("--spec", required=True, help="DAG spec JSON file")
+    dag.add_argument("--dag-id", help="Workflow ID (default: <name>-<spec digest>)")
+    dag.add_argument("--dry-run", action="store_true", help="Validate the spec and print execution order without running")
+    dag.add_argument("--no-resume", action="store_true", help="Re-execute completed run nodes instead of resuming them")
+    dag.add_argument("--workspace-root", default=".", help="Workspace root for relative paths")
+    _common(dag)
+
     return parser
 
 
@@ -1508,6 +1725,9 @@ def main() -> None:
         "test": cmd_test,
         "run": cmd_run,
         "resume": cmd_resume,
+        "rescore": cmd_rescore,
+        "history": cmd_history,
+        "calibrate": cmd_calibrate,
         "status": cmd_status,
         "eval": cmd_eval,
         "sessions": cmd_sessions,
@@ -1518,6 +1738,7 @@ def main() -> None:
         "quickstart": cmd_quickstart,
         "discover": cmd_discover,
         "fetch": cmd_fetch,
+        "dag": cmd_dag,
     }
     try:
         handlers[args.command](args)

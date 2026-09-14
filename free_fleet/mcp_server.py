@@ -16,11 +16,13 @@ from .input_data import iter_input_items
 from .models import (
     BatchTestResult,
     CandidateModelOutput,
+    ClaimFilter,
     CleanPacket,
     CooldownDetail,
     CooldownsReport,
     DoctorCheck,
     DoctorReport,
+    EntityHistoryReport,
     InputItem,
     ID_PATTERN,
     ModelOutput,
@@ -30,6 +32,7 @@ from .models import (
     RoutesResult,
     RunStatusReport,
     SchemaResult,
+    SortSpec,
     TaskSpec,
     TaskRegistrationResult,
     TasksResult,
@@ -223,6 +226,7 @@ def create_mcp_server(workspace_root: str | Path, db_path: str | Path | None = N
         policy: Annotated[RoutePolicy | None, Field(description="Optional RoutePolicy with privacy, transport, or cost bounds")] = None,
         profile_path: Annotated[str | None, Field(description="Optional workspace-relative Ideal Company Profile JSON to persist and attach to this run")] = None,
         use_active_profile: Annotated[bool, Field(description="Explicitly attach the active Ideal Company Profile from SQLite")] = False,
+        parent_run_id: Annotated[str | None, Field(description="Optional parent run for rescore lineage")] = None,
     ) -> CleanPacket:
         """Create and execute a bounded, resumable SQLite-backed bulk campaign."""
         task_spec = resolve_task(task)
@@ -264,6 +268,7 @@ def create_mcp_server(workspace_root: str | Path, db_path: str | Path | None = N
             profile_revision_id=profile_revision_id,
             profile=profile,
             raw_items_factory=input_factory,
+            parent_run_id=parent_run_id,
         )
         return CleanPacket.model_validate(packet)
 
@@ -290,6 +295,18 @@ def create_mcp_server(workspace_root: str | Path, db_path: str | Path | None = N
         return store.get_run_status(run_id)
 
     @server.tool(structured_output=True)
+    def free_fleet_history(
+        entity: Annotated[str, Field(description="Entity key (InputItem metadata.entity, else the item_id)")],
+    ) -> EntityHistoryReport:
+        """Show an entity's score trajectory across rescore rounds, oldest first."""
+        from .models import ScoreHistoryRound
+
+        return EntityHistoryReport(
+            entity=entity,
+            rounds=[ScoreHistoryRound.model_validate(row) for row in store.get_entity_history(entity)],
+        )
+
+    @server.tool(structured_output=True)
     def free_fleet_eval(
         task: Annotated[str, Field(description="Registered task name or workspace-relative TaskSpec JSON")],
         input_path: Annotated[str, Field(description="Evaluation dataset (CSV, JSONL, or JSON)")],
@@ -313,11 +330,10 @@ def create_mcp_server(workspace_root: str | Path, db_path: str | Path | None = N
         run_id: Annotated[str, Field(description="Existing SQLite run identifier")],
         output_path: Annotated[str | None, Field(description="Optional workspace-relative export path")] = None,
         export_format: Annotated[str, Field(description="Export format: json, csv, or jsonl")] = "json",
-        sort_by: Annotated[str | None, Field(description="Optional claim field to sort by (e.g. score)")] = None,
-        descending: Annotated[bool, Field(description="Sort in descending order")] = True,
+        sort: Annotated[dict | None, Field(description="SortSpec JSON (e.g. {\"field\": \"score\", \"descending\": true})")] = None,
         top_n: Annotated[int | None, Field(description="Limit output to top N records")] = None,
         rank: Annotated[bool, Field(description="Prepend a 1-indexed rank column in CSV export")] = False,
-        filter_expr: Annotated[str | None, Field(description="Filter records by condition (e.g. 'passed=true', 'score>=80')")] = None,
+        claim_filter: Annotated[dict | None, Field(description="ClaimFilter JSON (e.g. {\"all\": [{\"field\": \"score\", \"op\": \">=\", \"value\": 80}]}); \"any\" holds OR branches")] = None,
         adjust_scores: Annotated[bool, Field(description="Rank by bias-adjusted scores when multiple raters produced the run")] = False,
         score_field: Annotated[str, Field(description="Numeric claim field bias applies to")] = "score",
     ) -> CleanPacket:
@@ -337,11 +353,10 @@ def create_mcp_server(workspace_root: str | Path, db_path: str | Path | None = N
             snapshot,
             destination,
             export_format=export_format,
-            sort_by=sort_by,
-            descending=descending,
+            sort=SortSpec.model_validate(sort) if sort else None,
             top=top_n,
             rank=rank,
-            filter_expr=filter_expr,
+            claim_filter=ClaimFilter.model_validate(claim_filter) if claim_filter else None,
             bias_map=bias_map,
             score_field=score_field,
         )
