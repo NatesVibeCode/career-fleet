@@ -258,7 +258,7 @@ function persistSelection() {
 function renderCommand() {
   const el = document.getElementById("cmdLine");
   if (!el) return;
-  el.textContent = H.selected.size && selectedRouteIds().length
+  el.textContent = H.selected.size && selectedRoutes().length
     ? "harness-fleet run TASK --input FILE --from-studio"
     : "";
 }
@@ -298,6 +298,13 @@ async function load() {
   H.harnesses = (await api("GET", "/api/harnesses")).harnesses;
   H.routes = (await api("GET", "/api/routes")).routes;
   H.meta = await api("GET", "/api/meta").catch(() => null);
+  // Restore what was picked last time.
+  const saved = (await api("GET", "/api/settings").catch(() => null))?.settings;
+  if (saved) {
+    (saved.providers || []).forEach(p => H.selected.add(p));
+    (saved.routes || []).forEach(r => H.picked.add(r));
+    if (saved.mode) H.mode = saved.mode;
+  }
   renderMeta();
   watchBuild();
   renderAll();
