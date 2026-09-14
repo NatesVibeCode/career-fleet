@@ -1,8 +1,9 @@
 import json
-from free_fleet.cli import main
-from free_fleet.engine import Engine
-from free_fleet.models import TaskSpec
-from free_fleet.store import BulkLanesStore
+
+from harness_fleet.cli import main
+from harness_fleet.engine import Engine
+from harness_fleet.models import TaskSpec
+from harness_fleet.store import HarnessStore
 
 
 class MockProvider:
@@ -29,9 +30,9 @@ class MockProvider:
 
 def test_status_report_and_cli(tmp_path, monkeypatch, capsys):
     db_path = tmp_path / "test.db"
-    store = BulkLanesStore(db_path)
+    store = HarnessStore(db_path)
 
-    from free_fleet.catalog import RouteCatalog
+    from harness_fleet.catalog import RouteCatalog
     catalog = RouteCatalog(config_path=tmp_path / "routes.json", db_path=db_path)
     catalog.data = {
         "revision": 2,
@@ -74,7 +75,7 @@ def test_status_report_and_cli(tmp_path, monkeypatch, capsys):
     assert status.routes[0].verified == 1
 
     # Test CLI invocation
-    monkeypatch.setattr("sys.argv", ["free-fleet", "status", run_id, "--db", str(db_path), "--json"])
+    monkeypatch.setattr("sys.argv", ["harness-fleet", "status", run_id, "--db", str(db_path), "--json"])
     main()
     captured = capsys.readouterr()
     cli_out = json.loads(captured.out)

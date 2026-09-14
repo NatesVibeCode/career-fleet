@@ -44,7 +44,7 @@ hyper_ai,"...hitting latency limits at 50k QPS on Postgres cluster...","https://
 ```
 
 #### Step 3: Initialize the Account Task Contract
-Via MCP tool `free_fleet_init` (or CLI `account-fleet init`):
+Via MCP tool `harness_fleet_init` (or CLI `account-fleet init`):
 ```json
 {
   "task_name": "db-monitoring-qualification",
@@ -54,7 +54,7 @@ Via MCP tool `free_fleet_init` (or CLI `account-fleet init`):
 ```
 
 #### Step 4: Run the Campaign with Free Routes
-Via MCP tool `free_fleet_run` (or CLI `account-fleet run`):
+Via MCP tool `harness_fleet_run` (or CLI `account-fleet run`):
 ```json
 {
   "task": "db-monitoring-qualification",
@@ -71,7 +71,7 @@ Via MCP tool `free_fleet_run` (or CLI `account-fleet run`):
 ```
 
 #### Step 5: Export the Top 25 Ranked CSV
-Via MCP tool `free_fleet_export` (or CLI `account-fleet export`):
+Via MCP tool `harness_fleet_export` (or CLI `account-fleet export`):
 ```json
 {
   "run_id": "db-campaign-01",

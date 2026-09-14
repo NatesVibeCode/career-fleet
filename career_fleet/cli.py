@@ -17,18 +17,15 @@ from career_fleet.community_sources import (
     load_community_config,
     write_default_community_config,
 )
-from career_fleet.profile import IdealEmployerProfile
-from career_fleet.setup import install_skill
-from career_fleet.store import CareerStore
 from career_fleet.lanes import (
     run_lane1_sourcing,
     run_lane2_triage,
     run_lane3_systems,
     run_lane4_culture,
 )
-
-
-from typing import Optional
+from career_fleet.profile import IdealEmployerProfile
+from career_fleet.setup import install_skill
+from career_fleet.store import CareerStore
 
 # Reconfigure stdout/stderr on platforms (like Windows cp1252) where console encoding fails on unicode
 if sys.stdout and hasattr(sys.stdout, "reconfigure"):
@@ -77,7 +74,7 @@ def _workspace_path(value: str | Path, workspace_root: str | Path = ".") -> Path
 
 
 def get_profile(
-    path: Optional[str] = None,
+    path: str | None = None,
     store: CareerStore | None = None,
     workspace_root: str | Path = ".",
 ) -> IdealEmployerProfile:
@@ -171,16 +168,16 @@ def cmd_profile(args):
     print("==========================================================================================")
     print(f"                      IDEAL EMPLOYER PROFILE: {prof.profile_name} (v{prof.version})")
     print("==========================================================================================")
-    print(f"Capabilities:")
+    print("Capabilities:")
     for c in prof.wedge_capabilities:
         print(f"  {_bullet()} {c}")
-    print(f"\nRequired Stack:")
+    print("\nRequired Stack:")
     for s in prof.required_stack:
         print(f"  {_bullet()} {s}")
-    print(f"\nNegative Stack:")
+    print("\nNegative Stack:")
     for s in prof.negative_stack:
         print(f"  {_bullet()} {s}")
-    print(f"\nHard Dealbreakers:")
+    print("\nHard Dealbreakers:")
     print(f"  {_bullet()} Max Headcount: {prof.dealbreakers.max_headcount}")
     print(f"  {_bullet()} Verified Headcount: {prof.dealbreakers.require_verified_headcount}")
     print(f"  {_bullet()} Policy:        {prof.dealbreakers.policy}")
@@ -189,10 +186,10 @@ def cmd_profile(args):
     print(f"  {_bullet()} Reject Quota:  {prof.dealbreakers.reject_pure_quota}")
     print(f"  {_bullet()} Candidate TZ:  {prof.dealbreakers.candidate_timezone or '-'}")
     print(f"  {_bullet()} TZ Overlap:    {prof.dealbreakers.min_timezone_overlap_hours}h")
-    print(f"\nHiring Catalysts:")
+    print("\nHiring Catalysts:")
     for c in prof.hiring_catalysts:
         print(f"  {_bullet()} {c}")
-    print(f"\nTarget Leadership:")
+    print("\nTarget Leadership:")
     for leader in prof.target_leadership:
         print(f"  {_bullet()} {leader}")
     print(f"\nAnchor Exemplars:  {', '.join(prof.anchor_companies)}")

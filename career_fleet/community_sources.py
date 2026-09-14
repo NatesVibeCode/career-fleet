@@ -6,7 +6,6 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
-
 COMMUNITY_SOURCE_TYPES = (
     "reddit",
     "hn",

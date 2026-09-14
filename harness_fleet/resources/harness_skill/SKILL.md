@@ -1,0 +1,49 @@
+---
+name: harness-fleet
+description: Run repeatable bulk classification, extraction, summarization, and triage across free and local LLM workers with closed fields, exact quote offsets, SQLite checkpoints, bounded attempts, and explicit route-price evidence. Use when every returned claim must be typed and traceable to its source; do not use for open-ended agent delegation.
+---
+
+# Harness Fleet
+
+Deliver a validated `harness_fleet_v2` packet from typed input while SQLite retains the exact task revision, queue state, attempts, verified results, routes, and receipts.
+
+Start with `command -v harness-fleet`. On a fresh system, run `harness-fleet setup --workspace-root "$PWD" --refresh-routes --json`, then execute its typed `next_commands` in order.
+
+## Choose the operation
+
+- To define or change extraction fields, read [references/task-contracts.md](references/task-contracts.md).
+- To test, run, resume, monitor status, evaluate routes, export, inspect routes, or configure MCP, read [references/operations.md](references/operations.md).
+- For tabular data, use CSV input (`--id-column`, `--text-column`) and export (`--format csv|jsonl`). HTML, PDF, TXT, and MD are also accepted as single-item inputs.
+- For status queries, run `harness-fleet status <run_id>` or use MCP `harness_fleet_status`; do not resume or start runs for monitoring.
+- To benchmark routes against task samples before large runs, use `harness-fleet eval TASK --input FILE --concurrency 4` or MCP `harness_fleet_eval`.
+- For a zero-key proof in 30s, run `harness-fleet quickstart --demo` (deterministic `demo/fake` provider, no API keys).
+- For schema bootstrapping from labels, use `harness-fleet init NAME --from-example labels.csv [--label-column label]`.
+
+## Invariants
+
+1. SQLite is the system of record. JSON, JSONL, and CSV are typed import/export formats.
+2. Use registered task names. Import declarative `TaskSpec` JSON only when a file is explicitly supplied; never load Python task plugins.
+3. Require `claims_schema.type: object` and `additionalProperties: false`.
+4. Treat model output as untrusted until candidate-output, claims-schema, deterministic quote normalization, and canonical `ModelOutput` checks pass.
+5. The model may omit quote offsets only when its exact quote text occurs once in the named slice. Repeated text requires explicit offsets.
+6. A route name containing `free` proves nothing. Zero-price runs use only `price_observed_zero` routes. Local endpoints (`localhost`/`127.0.0.1`) default to zero cost; external OpenAI-compatible endpoints require explicit pricing or are treated as unknown cost.
+7. Every harness runs tool-less JSON prompts through its own normally installed CLI. Use task-local lockdown where the harness documents one (OpenCode deny-all config with no task MCP servers and sharing disabled; Cursor `--sandbox enabled`); otherwise prompt-level JSON-only. Approval-bypass flags never appear, and continue/resume commands are never executed: the engine fresh-runs every prompt.
+8. For MCP, set one absolute `--workspace-root`. Keep its SQLite database and every file path below that root.
+9. Read exported packets through `read_packet`; it checks the embedded TaskSpec digest and revalidates every record's claims. Do not bypass `harness_fleet_v2` validation.
+10. Model selection uses Bayesian-smoothed historical scoring. Every intermediate attempt failure, schema error, ungrounded quote, rate limit, and latency is recorded immutably in `inference_attempts`.
+11. Mechanical discovery enforces a 70% source-capture floor by default. Its report includes per-backend hit/capture counts, and fetched records retain the backend, query, and originating URL.
+
+## Workflow
+
+1. Run `harness-fleet doctor --json`, then inspect `harness-fleet routes --json`. Refresh only when requested or needed; refresh contacts providers and appends route evidence.
+2. For a zero-key proof, run `harness-fleet quickstart --demo --run-id demo --json` (writes `runs/demo/clean_packet.json` + `.csv` via `demo/fake`).
+3. For local or private models (Ollama, vLLM, LM Studio), add the route with `harness-fleet routes add <id> --provider <provider> --free`.
+4. Create or select a task (`--preset score|filter|classify|extract|triage|summarize` or `--from-example labels.csv`), then run `harness-fleet validate TASK --input FILE [--only-ids FILE] --json` before inference. Long documents are sliding-window sliced (lossless overlapping windows, sentence-snapped, `partial:true`) with exact offsets; `validate` warns when truncation occurs.
+5. Run one batch with `harness-fleet test TASK --input FILE --json`.
+6. Optionally benchmark candidate routes with `harness-fleet eval TASK --input FILE --concurrency 4 --json` to update Bayesian ranking priors (now parallelized per-sample/per-route).
+7. Start the bounded campaign with an explicit run ID, session count, attempt ceiling, and optional policy (`--free-only` for verified zero-cost, `--zdr`, `--provider`, `--exclude-provider`, `--max-request-cost`, `--only-ids` for multi-stage compounding filters).
+8. Monitor progress in real time with `harness-fleet status RUN_ID --watch` or machine-readable `harness-fleet status RUN_ID --json` (stream-friendly).
+9. On interruption, inspect the stored run and call `harness-fleet resume RUN_ID`; do not reconstruct or restart its batches from input files.
+10. Export and validate the packet with `harness-fleet export RUN_ID [--format json|csv|jsonl] [--sort-by CLAIM] [--desc] [--top N] [--rank] [--filter CLAIMFILTER_JSON]`. Use `harness-fleet db backup <path>` for safe SQLite copies. Report database path, run ID, packet path, verified/failed counts, attempts, and route/cost evidence.
+
+Never call a worker session an independent coding-agent session. `--sessions` is bounded batch concurrency inside one harness-fleet campaign.

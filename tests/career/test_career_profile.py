@@ -1,8 +1,10 @@
 import tempfile
 import unittest
 from pathlib import Path
+
 from pydantic import ValidationError
-from career_fleet.profile import IdealEmployerProfile, Dealbreakers
+
+from career_fleet.profile import IdealEmployerProfile
 
 
 class TestProfile(unittest.TestCase):

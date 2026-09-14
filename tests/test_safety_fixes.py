@@ -2,12 +2,12 @@ import json
 
 import pytest
 
-import free_fleet
-from free_fleet import cli
-from free_fleet.models import InputItem, TaskSpec
-from free_fleet.profile import IdealCompanyProfile
-from free_fleet.providers.demo import DemoProvider
-from free_fleet.store import FreeFleetStore
+import harness_fleet
+from harness_fleet import cli
+from harness_fleet.models import InputItem, TaskSpec
+from harness_fleet.profile import IdealCompanyProfile
+from harness_fleet.providers.demo import DemoProvider
+from harness_fleet.store import HarnessStore
 
 
 def _task():
@@ -32,7 +32,7 @@ def test_cli_rejects_non_positive_run_limits():
 
 def test_sdk_profile_is_opt_in(tmp_path, monkeypatch):
     db_path = tmp_path / "profile.db"
-    store = FreeFleetStore(db_path)
+    store = HarnessStore(db_path)
     store.save_profile(IdealCompanyProfile(profile_name="Only when selected"))
     captured = []
 
@@ -43,11 +43,11 @@ def test_sdk_profile_is_opt_in(tmp_path, monkeypatch):
         def run_campaign(self, **kwargs):
             return {"ok": True}
 
-    monkeypatch.setattr(free_fleet, "Engine", SpyEngine)
+    monkeypatch.setattr(harness_fleet, "Engine", SpyEngine)
     item = [InputItem(item_id="one", text="source text")]
-    free_fleet.process(_task(), item, run_id="without-profile", db=db_path)
+    harness_fleet.process(_task(), item, run_id="without-profile", db=db_path)
     assert captured[-1] is None
-    free_fleet.process(_task(), item, run_id="with-profile", db=db_path, use_active_profile=True)
+    harness_fleet.process(_task(), item, run_id="with-profile", db=db_path, use_active_profile=True)
     assert captured[-1] is not None
 
 
@@ -62,9 +62,9 @@ def test_sdk_accepts_one_shot_iterables_without_materializing(tmp_path, monkeypa
             captured["raw_items"] = kwargs["raw_items"]
             return {"ok": True}
 
-    monkeypatch.setattr(free_fleet, "Engine", SpyEngine)
+    monkeypatch.setattr(harness_fleet, "Engine", SpyEngine)
     source = (item for item in [{"item_id": "one", "text": "source text"}])
-    free_fleet.process(_task(), source, run_id="generator-input", db=tmp_path / "generator.db")
+    harness_fleet.process(_task(), source, run_id="generator-input", db=tmp_path / "generator.db")
     assert captured["raw_items"] is source
 
 
@@ -77,13 +77,12 @@ def test_demo_provider_ignores_profile_json_before_task_payload():
     prompt = f"{profile.to_prompt_context()}\n\n{task.render_prompt([{'item_id': 'one', 'sections': [{'slice_id': 'full', 'text': 'A sufficiently long source quote.'}]}])}"
     ok, response, receipt = DemoProvider().run_prompt("demo/fake", prompt)
     assert ok is True
-    assert receipt["status"] == "complete"
+    assert receipt.status == "complete"
     assert response is not None and '"items"' in response
 
 
 def test_demo_provider_disambiguates_repeated_quote_with_offsets():
     source = "Introducing Browserbase Agents: One Prompt, One API Call.\n" * 2
-    task = _task()
     prompt = (
         'instructions\n{"input_items": [{"item_id": "one", "sections": '
         '[{"slice_id": "full", "start": 0, "end": ' + str(len(source)) + ', '
@@ -94,7 +93,7 @@ def test_demo_provider_disambiguates_repeated_quote_with_offsets():
     )
     ok, response, receipt = DemoProvider().run_prompt("demo/fake", prompt)
     assert ok is True
-    assert receipt["status"] == "complete"
+    assert receipt.status == "complete"
     quote = json.loads(response)["items"][0]["quotes"][0]
     assert quote["start"] == 0
     assert quote["end"] == len(quote["text"])

@@ -1,20 +1,17 @@
 {
-  "$id": "https://raw.githubusercontent.com/NatesVibeCode/free-fleet/master/schemas/task-v1.schema.json",
+  "$id": "https://raw.githubusercontent.com/NatesVibeCode/harness-fleet/master/schemas/task-v1.schema.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
   "properties": {
     "$schema": {
-      "const": "https://raw.githubusercontent.com/NatesVibeCode/free-fleet/master/schemas/task-v1.schema.json",
-      "default": "https://raw.githubusercontent.com/NatesVibeCode/free-fleet/master/schemas/task-v1.schema.json",
+      "const": "https://raw.githubusercontent.com/NatesVibeCode/harness-fleet/master/schemas/task-v1.schema.json",
+      "default": "https://raw.githubusercontent.com/NatesVibeCode/harness-fleet/master/schemas/task-v1.schema.json",
       "title": "$Schema",
       "type": "string"
     },
     "format_version": {
-      "default": "free_fleet_task_v1",
-      "enum": [
-        "free_fleet_task_v1",
-        "bulk_lanes_task_v1"
-      ],
+      "const": "harness_fleet_task_v1",
+      "default": "harness_fleet_task_v1",
       "title": "Format Version",
       "type": "string"
     },
@@ -60,6 +57,77 @@
       "additionalProperties": true,
       "description": "Draft 2020-12 object schema; type=object and additionalProperties=false are required",
       "title": "Claims Schema",
+      "type": "object"
+    },
+    "checklist": {
+      "anyOf": [
+        {
+          "additionalProperties": {
+            "type": "integer"
+          },
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Checklist item id to score points; the pipeline derives score from true answers",
+      "title": "Checklist"
+    },
+    "pass_score": {
+      "anyOf": [
+        {
+          "maximum": 100,
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Minimum derived score that yields passed=true; the pipeline derives the boolean",
+      "title": "Pass Score"
+    },
+    "evidence_terms": {
+      "description": "Terms used to rank deterministic evidence-candidate spans per section",
+      "items": {
+        "type": "string"
+      },
+      "title": "Evidence Terms",
+      "type": "array"
+    },
+    "candidate_top_n": {
+      "default": 6,
+      "description": "Maximum evidence-candidate spans exposed per section",
+      "maximum": 32,
+      "minimum": 1,
+      "title": "Candidate Top N",
+      "type": "integer"
+    },
+    "source_weights": {
+      "additionalProperties": {
+        "type": "number"
+      },
+      "description": "Lowercased URI substring to evidentiary weight 0-1; longest match wins, 0 blocks support",
+      "title": "Source Weights",
+      "type": "object"
+    },
+    "default_source_weight": {
+      "default": 1.0,
+      "description": "Weight for sources matching no rule; 1 preserves legacy unweighted scoring",
+      "maximum": 1.0,
+      "minimum": 0.0,
+      "title": "Default Source Weight",
+      "type": "number"
+    },
+    "recency_half_lives": {
+      "additionalProperties": {
+        "type": "number"
+      },
+      "description": "Checklist item id to evidence half-life in days; support decays by half each period",
+      "title": "Recency Half Lives",
       "type": "object"
     }
   },

@@ -43,6 +43,32 @@
           "minItems": 1,
           "title": "Quotes",
           "type": "array"
+        },
+        "captured_at": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "ISO-8601 evidence capture time from input metadata; None means ageless",
+          "title": "Captured At"
+        },
+        "scored_at": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "ISO-8601 scoring time; fixed at verification so revalidation is stable",
+          "title": "Scored At"
         }
       },
       "required": [
@@ -279,6 +305,14 @@
           "minLength": 1,
           "title": "Text",
           "type": "string"
+        },
+        "supports": {
+          "description": "Checklist item ids this quote backs",
+          "items": {
+            "type": "string"
+          },
+          "title": "Supports",
+          "type": "array"
         }
       },
       "required": [
@@ -306,11 +340,11 @@
             }
           ],
           "default": null,
-          "description": "Optional allowlist of free-fleet transport names",
+          "description": "Optional allowlist of harness-fleet transport names",
           "title": "Allowed Transports"
         },
         "excluded_transports": {
-          "description": "Blocklist of free-fleet transport names",
+          "description": "Blocklist of harness-fleet transport names",
           "items": {
             "type": "string"
           },
@@ -411,6 +445,19 @@
           "title": "Free Only",
           "type": "boolean"
         },
+        "note": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Operator-recorded reason for a routing choice (e.g. trust basis for an approved paid route)",
+          "title": "Note"
+        },
         "openrouter_providers": {
           "anyOf": [
             {
@@ -462,22 +509,19 @@
       "type": "object"
     },
     "TaskSpec": {
-      "$id": "https://raw.githubusercontent.com/NatesVibeCode/free-fleet/master/schemas/task-v1.schema.json",
+      "$id": "https://raw.githubusercontent.com/NatesVibeCode/harness-fleet/master/schemas/task-v1.schema.json",
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "additionalProperties": false,
       "properties": {
         "$schema": {
-          "const": "https://raw.githubusercontent.com/NatesVibeCode/free-fleet/master/schemas/task-v1.schema.json",
-          "default": "https://raw.githubusercontent.com/NatesVibeCode/free-fleet/master/schemas/task-v1.schema.json",
+          "const": "https://raw.githubusercontent.com/NatesVibeCode/harness-fleet/master/schemas/task-v1.schema.json",
+          "default": "https://raw.githubusercontent.com/NatesVibeCode/harness-fleet/master/schemas/task-v1.schema.json",
           "title": "$Schema",
           "type": "string"
         },
         "format_version": {
-          "default": "free_fleet_task_v1",
-          "enum": [
-            "free_fleet_task_v1",
-            "bulk_lanes_task_v1"
-          ],
+          "const": "harness_fleet_task_v1",
+          "default": "harness_fleet_task_v1",
           "title": "Format Version",
           "type": "string"
         },
@@ -524,6 +568,77 @@
           "description": "Draft 2020-12 object schema; type=object and additionalProperties=false are required",
           "title": "Claims Schema",
           "type": "object"
+        },
+        "checklist": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "type": "integer"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Checklist item id to score points; the pipeline derives score from true answers",
+          "title": "Checklist"
+        },
+        "pass_score": {
+          "anyOf": [
+            {
+              "maximum": 100,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Minimum derived score that yields passed=true; the pipeline derives the boolean",
+          "title": "Pass Score"
+        },
+        "evidence_terms": {
+          "description": "Terms used to rank deterministic evidence-candidate spans per section",
+          "items": {
+            "type": "string"
+          },
+          "title": "Evidence Terms",
+          "type": "array"
+        },
+        "candidate_top_n": {
+          "default": 6,
+          "description": "Maximum evidence-candidate spans exposed per section",
+          "maximum": 32,
+          "minimum": 1,
+          "title": "Candidate Top N",
+          "type": "integer"
+        },
+        "source_weights": {
+          "additionalProperties": {
+            "type": "number"
+          },
+          "description": "Lowercased URI substring to evidentiary weight 0-1; longest match wins, 0 blocks support",
+          "title": "Source Weights",
+          "type": "object"
+        },
+        "default_source_weight": {
+          "default": 1.0,
+          "description": "Weight for sources matching no rule; 1 preserves legacy unweighted scoring",
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Default Source Weight",
+          "type": "number"
+        },
+        "recency_half_lives": {
+          "additionalProperties": {
+            "type": "number"
+          },
+          "description": "Checklist item id to evidence half-life in days; support decays by half each period",
+          "title": "Recency Half Lives",
+          "type": "object"
         }
       },
       "required": [
@@ -533,22 +648,19 @@
       "type": "object"
     }
   },
-  "$id": "https://raw.githubusercontent.com/NatesVibeCode/free-fleet/master/schemas/packet-v2.schema.json",
+  "$id": "https://raw.githubusercontent.com/NatesVibeCode/harness-fleet/master/schemas/packet-v2.schema.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
   "properties": {
     "$schema": {
-      "const": "https://raw.githubusercontent.com/NatesVibeCode/free-fleet/master/schemas/packet-v2.schema.json",
-      "default": "https://raw.githubusercontent.com/NatesVibeCode/free-fleet/master/schemas/packet-v2.schema.json",
+      "const": "https://raw.githubusercontent.com/NatesVibeCode/harness-fleet/master/schemas/packet-v2.schema.json",
+      "default": "https://raw.githubusercontent.com/NatesVibeCode/harness-fleet/master/schemas/packet-v2.schema.json",
       "title": "$Schema",
       "type": "string"
     },
     "format_version": {
-      "default": "free_fleet_v2",
-      "enum": [
-        "free_fleet_v2",
-        "bulk_lanes_v2"
-      ],
+      "const": "harness_fleet_v2",
+      "default": "harness_fleet_v2",
       "title": "Format Version",
       "type": "string"
     },

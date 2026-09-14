@@ -1,11 +1,10 @@
 import json
 
-from free_fleet.catalog import RouteCatalog
-from free_fleet.engine import Engine
-from free_fleet.models import RoutePolicy, TaskSpec
-from free_fleet.packer import pack_items
-from free_fleet.profile import IdealCompanyProfile
-from free_fleet.store import FreeFleetStore
+from harness_fleet.catalog import RouteCatalog
+from harness_fleet.engine import Engine
+from harness_fleet.models import RoutePolicy, TaskSpec
+from harness_fleet.packer import pack_items
+from harness_fleet.store import HarnessStore
 
 
 class ProviderStub:
@@ -13,9 +12,8 @@ class ProviderStub:
         self.payload = payload
         self.calls = 0
 
-    def run_prompt(self, route_id, prompt, system_prompt=None, timeout_sec=120, session_id=None):
+    def run_prompt(self, route_id, prompt, system_prompt=None, timeout_sec=120, session_id=None, policy=None):
         self.calls += 1
-        self.last_prompt = prompt
         receipt = {
             "id": "receipt-1",
             "session_id": session_id,
@@ -47,8 +45,27 @@ def _engine(tmp_path, payload):
         },
     )
     engine = Engine(task, catalog=catalog)
-    engine.opencode_prov = ProviderStub(payload)
+    engine.set_provider("stub", ProviderStub(payload))
     return engine
+
+
+def test_zero_attempt_limit_means_zero_attempts(tmp_path):
+    payload = {
+        "items": [{
+            "item_id": "i1",
+            "claims": {"summary": "supported"},
+            "quotes": [{"slice_id": "full", "text": "supported source text"}],
+        }]
+    }
+    engine = _engine(tmp_path, payload)
+    stub = engine.registry.resolve("stub")
+    ok, _, _, error = engine.execute_batch(
+        pack_items([{"item_id": "i1", "text": "supported source text"}])[0],
+        route_attempt_limit=0,
+    )
+    assert ok is False
+    assert "No attempts made" in error
+    assert stub.calls == 0
 
 
 def test_engine_rejects_extra_model_fields(tmp_path):
@@ -78,7 +95,10 @@ def test_engine_exports_only_validated_shape(tmp_path):
     assert error is None
     assert results[0]["item_id"] == "i1"
     assert results[0]["claims"] == payload["items"][0]["claims"]
-    assert results[0]["quotes"] == payload["items"][0]["quotes"]
+    # Stored quotes carry the canonical supports linkage (empty when untagged).
+    assert results[0]["quotes"] == [
+        {**payload["items"][0]["quotes"][0], "supports": []}
+    ]
     assert results[0]["content_type"] == "text/plain"
     assert len(results[0]["source_digest"]) == 64
 
@@ -110,40 +130,9 @@ def test_campaign_state_and_receipts_live_in_sqlite(tmp_path):
     assert engine.store.run_snapshot("run-1")["status"] == "completed"
     assert engine.store.model_run_count("run-1") == 1
 
-    calls = engine.opencode_prov.calls
+    calls = engine.get_provider("stub").calls
     engine.resume_campaign("run-1", concurrency=2, output_packet_path=output)
-    assert engine.opencode_prov.calls == calls
-
-
-def test_profile_context_is_used_and_revision_survives_resume(tmp_path):
-    engine = _engine(tmp_path, {
-        "items": [{
-            "item_id": "i1",
-            "claims": {"summary": "supported"},
-            "quotes": [{"slice_id": "full", "text": "supported source text"}],
-        }]
-    })
-    profile = IdealCompanyProfile(
-        profile_name="Database Buyers",
-        required_stack=["PostgreSQL"],
-    )
-    output = tmp_path / "profile-packet.json"
-    packet = engine.run_campaign(
-        raw_items=[{"item_id": "i1", "text": "supported source text"}],
-        run_id="profile-context-run",
-        input_path="input.jsonl",
-        max_attempts=3,
-        output_packet_path=output,
-        profile=profile,
-    )
-
-    revision = engine.store.active_profile_revision_id()
-    assert revision
-    assert engine.store.run_snapshot("profile-context-run")["profile_revision_id"] == revision
-    assert "IDEAL COMPANY PROFILE: Database Buyers" in engine.opencode_prov.last_prompt
-    assert packet["total_verified_records"] == 1
-    engine.resume_campaign("profile-context-run", output_packet_path=output)
-    assert engine.profile.profile_name == "Database Buyers"
+    assert engine.get_provider("stub").calls == calls
 
 
 def test_inference_attempts_recorded_in_sqlite_on_failure_and_success(tmp_path):
@@ -236,7 +225,7 @@ def test_inference_attempts_recorded_in_sqlite_on_failure_and_success(tmp_path):
 
 
 def test_new_resume_session_does_not_reactivate_stored_paid_approval(tmp_path):
-    store = FreeFleetStore(tmp_path / "state.db")
+    store = HarnessStore(tmp_path / "state.db")
     catalog = RouteCatalog(db_path=store.path)
     catalog.add_route(
         "paid/model",

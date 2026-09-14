@@ -1,8 +1,15 @@
 import pytest
 from pydantic import ValidationError
 
-from free_fleet.models import CleanPacket, InputItem, ModelOutput, ProviderReceipt, SCHEMA_BASE, TaskSpec
-from free_fleet.store import digest_json
+from harness_fleet.models import (
+    SCHEMA_BASE,
+    CleanPacket,
+    InputItem,
+    ModelOutput,
+    ProviderReceipt,
+    TaskSpec,
+)
+from harness_fleet.store import digest_json
 
 
 def test_model_output_is_closed():
@@ -66,11 +73,11 @@ def test_packet_binds_and_revalidates_embedded_task():
         },
     )
     payload = {
-        "format_version": "free_fleet_v2",
+        "format_version": "harness_fleet_v2",
         "exported_at": "2026-09-09T00:00:00Z",
         "run_id": "run-1",
         "task": task,
-        "task_revision": digest_json(task.model_dump(mode="json", by_alias=True)),
+        "task_revision": digest_json(task.revision_payload()),
         "input_digest": "b" * 64,
         "total_verified_records": 1,
         "audit": {

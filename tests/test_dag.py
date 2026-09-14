@@ -3,11 +3,10 @@ import csv
 import json
 
 import pytest
-
 from pydantic import ValidationError
 
-from free_fleet.dag import DagError, DagSpec, run_dag
-from free_fleet.store import BulkLanesStore
+from harness_fleet.dag import DagError, DagSpec, run_dag
+from harness_fleet.store import HarnessStore
 
 
 def _spec(**kwargs):
@@ -100,11 +99,11 @@ def _funnel_spec():
 
 
 def _setup_workspace(tmp_path):
-    from free_fleet.catalog import PriceState, RouteCatalog
-    from free_fleet.task import create_task_from_preset
+    from harness_fleet.catalog import PriceState, RouteCatalog
+    from harness_fleet.task import create_task_from_preset
 
     db = tmp_path / "t.db"
-    store = BulkLanesStore(db)
+    store = HarnessStore(db)
     RouteCatalog(db_path=store.path).add_route(
         route_id="demo/fake", provider="demo",
         cost_per_1k_input=0.0, cost_per_1k_output=0.0, enabled=True,
@@ -154,7 +153,8 @@ def test_resume_reuses_completed_run_nodes(tmp_path, monkeypatch):
 
 def test_cli_dry_run_validates(tmp_path, capsys):
     from argparse import Namespace
-    from free_fleet import cli
+
+    from harness_fleet import cli
 
     spec_path = tmp_path / "f.json"
     spec_path.write_text(json.dumps(_funnel_spec()))
@@ -228,11 +228,11 @@ def _write_jsonl(path, rows):
 
 
 def _score_workspace(tmp_path):
-    from free_fleet.catalog import PriceState, RouteCatalog
-    from free_fleet.task import create_task_from_preset
+    from harness_fleet.catalog import PriceState, RouteCatalog
+    from harness_fleet.task import create_task_from_preset
 
     db = tmp_path / "t.db"
-    store = BulkLanesStore(db)
+    store = HarnessStore(db)
     RouteCatalog(db_path=store.path).add_route(
         route_id="demo/fake", provider="demo",
         cost_per_1k_input=0.0, cost_per_1k_output=0.0, enabled=True,
@@ -301,7 +301,7 @@ def test_calibrate_apply_threads_revision_into_run(tmp_path, monkeypatch):
     revision = state["nodes"]["cal"]["revision"]
     assert revision and report["new_revision"] == revision
     assert state["nodes"]["scored"]["verified"] == 6
-    from free_fleet.store import digest_json
+    from harness_fleet.store import digest_json
 
     scored_task = store.get_run_task("g2-scored")
     assert digest_json(scored_task.revision_payload()) == revision

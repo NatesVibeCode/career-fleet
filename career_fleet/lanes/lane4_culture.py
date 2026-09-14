@@ -5,10 +5,10 @@ and communication culture.
 from __future__ import annotations
 
 import re
-from typing import Any, Dict, List
+from typing import Any
+
 from career_fleet.profile import IdealEmployerProfile
 from career_fleet.store import CareerStore
-
 
 CULTURE_POSITIVES = [
     (re.compile(r"\b(?:technical founder|engineer-led|builder-first)\b", re.I), "Engineering-Led Leadership"),
@@ -36,7 +36,7 @@ def _phrase_pattern(phrase: str) -> re.Pattern[str] | None:
 def score_culture_and_team(
     text: str,
     profile: IdealEmployerProfile,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Score operational culture, founder traits, and distribution."""
     if not text or not text.strip():
         return {
@@ -71,8 +71,8 @@ def score_culture_and_team(
     # Allow a generic user's leadership profile to add evidence without
     # requiring changes to the scorer's built-in vocabulary.
     for phrase in profile.target_leadership:
-        pattern = _phrase_pattern(phrase)
-        match = pattern.search(text) if pattern else None
+        leadership_pattern = _phrase_pattern(phrase)
+        match = leadership_pattern.search(text) if leadership_pattern else None
         if match:
             positives.append(f"Profile leadership: {phrase}")
             start = max(0, match.start() - 25)
@@ -96,7 +96,7 @@ def score_culture_and_team(
 def run_lane4_culture(
     store: CareerStore,
     profile: IdealEmployerProfile,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Execute Lane 4 Culture & Leadership evaluation on qualified targets."""
     profile_revision_id = store.save_profile(profile)
     qualified = []

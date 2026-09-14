@@ -1,10 +1,11 @@
 import tempfile
 import unittest
 from pathlib import Path
+
+from career_fleet.lanes.lane2_triage import check_dealbreakers
+from career_fleet.lanes.lane3_systems import score_technical_wedge
 from career_fleet.profile import IdealEmployerProfile
 from career_fleet.store import CareerStore
-from career_fleet.lanes.lane2_triage import check_dealbreakers, run_lane2_triage
-from career_fleet.lanes.lane3_systems import score_technical_wedge, run_lane3_systems
 
 
 class TestLanes(unittest.TestCase):

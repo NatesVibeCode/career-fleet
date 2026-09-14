@@ -1,6 +1,6 @@
 {
-  "$schema": "https://raw.githubusercontent.com/NatesVibeCode/free-fleet/master/schemas/task-v1.schema.json",
-  "format_version": "free_fleet_task_v1",
+  "$schema": "https://raw.githubusercontent.com/NatesVibeCode/harness-fleet/master/schemas/task-v1.schema.json",
+  "format_version": "harness_fleet_task_v1",
   "name": "saas_intelligence",
   "instructions": "Extract product pricing, API support, SDKs, and value proposition from the supplied source spans.",
   "batch_size": 4,
@@ -9,12 +9,37 @@
   "claims_schema": {
     "type": "object",
     "properties": {
-      "pricing_type": {"enum": ["free_tier", "usage_based", "enterprise_only", "unknown"]},
-      "has_api": {"type": "boolean"},
-      "supported_sdks": {"type": "array", "items": {"type": "string"}},
-      "core_value_prop": {"type": "string"}
+      "pricing_type": {
+        "enum": [
+          "free_tier",
+          "usage_based",
+          "enterprise_only",
+          "unknown"
+        ],
+        "description": "How the product is priced, stated explicitly in the source; unknown when pricing is not mentioned."
+      },
+      "has_api": {
+        "type": "boolean",
+        "description": "True only when the source documents a public API with cited evidence."
+      },
+      "supported_sdks": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "description": "SDKs or client libraries named verbatim in the source, never inferred."
+      },
+      "core_value_prop": {
+        "type": "string",
+        "description": "The product's core value proposition in one sentence supported only by the cited quotes."
+      }
     },
-    "required": ["pricing_type", "has_api", "supported_sdks", "core_value_prop"],
+    "required": [
+      "pricing_type",
+      "has_api",
+      "supported_sdks",
+      "core_value_prop"
+    ],
     "additionalProperties": false
   }
 }

@@ -1,34 +1,35 @@
 """Lane 1: Sourcing & Ingestion.
-Discovers and onboards target companies and source records using free_fleet.discover primitives.
+Discovers and onboards target companies and source records using harness_fleet.discover primitives.
 """
 from __future__ import annotations
 
-import logging
 import hashlib
 import json
+import logging
 import re
-from typing import Any, Dict
+from typing import Any, cast
 from urllib.parse import urlparse
+
 from career_fleet.community_sources import COMMUNITY_SOURCE_TYPES
 from career_fleet.store import CareerStore
 
 logger = logging.getLogger("career_fleet.lane1")
 
 try:
-    from free_fleet.discover import (
-        fetch_ashby_org,
-        fetch_greenhouse_board,
-        fetch_lever_org,
-        fetch_yc_companies,
+    from harness_fleet.discover import (
         crawl_site,
         domain_of,
+        fetch_ashby_org,
+        fetch_devto_tag,
+        fetch_discourse_search,
+        fetch_greenhouse_board,
+        fetch_lemmy,
+        fetch_lever_org,
+        fetch_lobsters,
         fetch_reddit_posts,
         fetch_reddit_rss,
         fetch_stackexchange_questions,
-        fetch_discourse_search,
-        fetch_lobsters,
-        fetch_lemmy,
-        fetch_devto_tag,
+        fetch_yc_companies,
         run_discovery,
         slugify_id,
     )
@@ -415,7 +416,7 @@ def run_lane1_sourcing(
     include_low_signal: bool = False,
     delay: float = 0.2,
     timeout: float = 20.0,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Discover companies or postings and record them in the store.
 
     Company/job sources use their existing targets. Community sources use
@@ -424,7 +425,7 @@ def run_lane1_sourcing(
     domain can be identified.
     """
     if not HAS_DISCOVER:
-        raise RuntimeError("free_fleet.discover is required. Install with pip install 'career-fleet[discover]'.")
+        raise RuntimeError("harness_fleet.discover is required. Install with pip install 'career-fleet[discover]'.")
     if max_items < 1:
         raise ValueError("max_items must be at least 1")
 
@@ -450,7 +451,7 @@ def run_lane1_sourcing(
             snapshots: dict[str, list[dict[str, Any]]] = {}
             for it in items:
                 source_record_id = it.item_id
-                cid = source_record_id
+                cid = cast(str, source_record_id)
                 name = it.title or cid
                 website = _item_metadata(it, "website") or it.source_uri
                 cid = store.upsert_company(

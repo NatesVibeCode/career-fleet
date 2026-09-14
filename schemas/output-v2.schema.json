@@ -43,6 +43,32 @@
           "minItems": 1,
           "title": "Quotes",
           "type": "array"
+        },
+        "captured_at": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "ISO-8601 evidence capture time from input metadata; None means ageless",
+          "title": "Captured At"
+        },
+        "scored_at": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "ISO-8601 scoring time; fixed at verification so revalidation is stable",
+          "title": "Scored At"
         }
       },
       "required": [
@@ -82,6 +108,14 @@
           "minLength": 1,
           "title": "Text",
           "type": "string"
+        },
+        "supports": {
+          "description": "Checklist item ids this quote backs",
+          "items": {
+            "type": "string"
+          },
+          "title": "Supports",
+          "type": "array"
         }
       },
       "required": [
@@ -94,7 +128,7 @@
       "type": "object"
     }
   },
-  "$id": "https://raw.githubusercontent.com/NatesVibeCode/free-fleet/master/schemas/output-v2.schema.json",
+  "$id": "https://raw.githubusercontent.com/NatesVibeCode/harness-fleet/master/schemas/output-v2.schema.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
   "properties": {

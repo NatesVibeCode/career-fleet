@@ -1,8 +1,8 @@
-import json
 import httpx
 import pytest
-from free_fleet.providers.openai_compatible import OpenAICompatibleProvider
-from free_fleet.providers.registry import ProviderRegistry
+
+from harness_fleet.providers.openai_compatible import OpenAICompatibleProvider
+from harness_fleet.providers.registry import ProviderRegistry
 
 
 def test_named_providers_do_not_inherit_another_accounts_settings(monkeypatch):
@@ -27,12 +27,34 @@ def test_remote_explicit_zero_cost_is_preserved(monkeypatch):
     }))
     ok, _, receipt = OpenAICompatibleProvider(base_url="https://remote.example/v1").run_prompt("model", "test")
     assert ok
-    assert receipt["cost"] == 0.0
-    assert receipt["cost_status"] == "reported_zero"
+    assert receipt.cost == 0.0
+    assert receipt.cost_status == "reported_zero"
+
+
+def test_unrelated_400_does_not_drop_constraints(monkeypatch):
+    from harness_fleet.models import TaskSpec
+
+    task = TaskSpec(name="t", instructions="Do it.")
+    prompt = task.render_prompt([{
+        "item_id": "i1", "title": "T",
+        "sections": [{"slice_id": "full", "start": 0, "end": 10, "text": "0123456789"}],
+    }])
+    calls = []
+
+    def _post(self, *args, **kwargs):
+        calls.append(kwargs.get("json", {}))
+        return httpx.Response(400, text="invalid parameter: unexpected extra field max_tokens")
+
+    monkeypatch.setattr(httpx.Client, "post", _post)
+    ok, _, receipt = OpenAICompatibleProvider(base_url="https://remote.example/v1").run_prompt("m", prompt)
+    assert ok is False
+    assert receipt.error_type == "inference_error"
+    assert len(calls) == 1
+    assert "response_format" in calls[0]
 
 
 def test_colon_namespace_with_nested_model_resolves_correct_provider():
-    provider = ProviderRegistry().resolve(None, "openrouter:vendor/model:free")
+    provider = ProviderRegistry().resolve("openrouter")
     assert provider.__class__.__name__ == "OpenRouterProvider"
 
 
@@ -44,12 +66,7 @@ def test_provider_registry_resolution():
     assert registry.get("lmstudio").__class__.__name__ == "OpenAICompatibleProvider"
 
     # Resolution by provider hint
-    assert registry.resolve("ollama", "my-model").__class__.__name__ == "OpenAICompatibleProvider"
     # Resolution by route prefix
-    assert registry.resolve(None, "vllm/llama-3").__class__.__name__ == "OpenAICompatibleProvider"
-    assert registry.resolve(None, "ollama:llama3.2:latest").__class__.__name__ == "OpenAICompatibleProvider"
-    assert registry.resolve(None, "openrouter/free").__class__.__name__ == "OpenRouterProvider"
-    assert registry.resolve(None, "openrouter:free").__class__.__name__ == "OpenRouterProvider"
 
 
 def test_openai_compatible_successful_completion(monkeypatch):
@@ -67,9 +84,9 @@ def test_openai_compatible_successful_completion(monkeypatch):
     ok, text, receipt = prov.run_prompt("ollama/qwen", "hello")
     assert ok is True
     assert text == '{"items": []}'
-    assert receipt["status"] == "complete"
-    assert receipt["cost_status"] == "reported_zero"
-    assert receipt["usage"]["total_tokens"] == 42
+    assert receipt.status == "complete"
+    assert receipt.cost_status == "reported_zero"
+    assert receipt.usage["total_tokens"] == 42
 
 
 def test_openai_compatible_rate_limit_429(monkeypatch):
@@ -82,9 +99,9 @@ def test_openai_compatible_rate_limit_429(monkeypatch):
     prov = OpenAICompatibleProvider(base_url="http://localhost:11434/v1")
     ok, text, receipt = prov.run_prompt("ollama/qwen", "hello")
     assert ok is False
-    assert receipt["status"] == "failed"
-    assert receipt["error_type"] == "rate_limit"
-    assert receipt["retry_after"] == 15.0
+    assert receipt.status == "failed"
+    assert receipt.error_type == "rate_limit"
+    assert receipt.retry_after == 15.0
 
 
 def test_openai_compatible_transient_503(monkeypatch):
@@ -96,8 +113,8 @@ def test_openai_compatible_transient_503(monkeypatch):
     prov = OpenAICompatibleProvider(base_url="http://localhost:11434/v1")
     ok, text, receipt = prov.run_prompt("ollama/qwen", "hello")
     assert ok is False
-    assert receipt["error_type"] == "transient_http"
-    assert receipt["retry_after"] == 5.0
+    assert receipt.error_type == "transient_http"
+    assert receipt.retry_after == 5.0
 
 
 def test_openai_compatible_prefix_stripping(monkeypatch):

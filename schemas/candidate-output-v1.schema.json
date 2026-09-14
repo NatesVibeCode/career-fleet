@@ -71,6 +71,28 @@
           ],
           "default": null,
           "title": "End"
+        },
+        "candidate_id": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional evidence-candidate span id from the prompt; verification recomputes the span table",
+          "title": "Candidate Id"
+        },
+        "supports": {
+          "description": "Checklist item ids this quote backs; every true answer needs at least one supporting quote",
+          "items": {
+            "type": "string"
+          },
+          "title": "Supports",
+          "type": "array"
         }
       },
       "required": [
@@ -81,7 +103,7 @@
       "type": "object"
     }
   },
-  "$id": "https://raw.githubusercontent.com/NatesVibeCode/free-fleet/master/schemas/candidate-output-v1.schema.json",
+  "$id": "https://raw.githubusercontent.com/NatesVibeCode/harness-fleet/master/schemas/candidate-output-v1.schema.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
   "properties": {

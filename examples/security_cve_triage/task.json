@@ -1,6 +1,6 @@
 {
-  "$schema": "https://raw.githubusercontent.com/NatesVibeCode/free-fleet/master/schemas/task-v1.schema.json",
-  "format_version": "free_fleet_task_v1",
+  "$schema": "https://raw.githubusercontent.com/NatesVibeCode/harness-fleet/master/schemas/task-v1.schema.json",
+  "format_version": "harness_fleet_task_v1",
   "name": "security_cve_triage",
   "instructions": "Extract vulnerability facts from the supplied advisory spans.",
   "batch_size": 3,
@@ -9,12 +9,39 @@
   "claims_schema": {
     "type": "object",
     "properties": {
-      "attack_vector": {"enum": ["network", "local", "physical", "adjacent"]},
-      "severity": {"enum": ["critical", "high", "medium", "low"]},
-      "has_patch": {"type": "boolean"},
-      "summary": {"type": "string"}
+      "attack_vector": {
+        "enum": [
+          "network",
+          "local",
+          "physical",
+          "adjacent"
+        ],
+        "description": "How the vulnerability is exploited, as stated in the source; choose exactly one listed value."
+      },
+      "severity": {
+        "enum": [
+          "critical",
+          "high",
+          "medium",
+          "low"
+        ],
+        "description": "Severity grounded in the source impact statement: critical only for explicit remote code execution or active exploitation without mitigations."
+      },
+      "has_patch": {
+        "type": "boolean",
+        "description": "True only when the source names an available patch, fix version, or mitigation with cited evidence."
+      },
+      "summary": {
+        "type": "string",
+        "description": "One or two sentences supported only by the cited source quotes, no outside knowledge."
+      }
     },
-    "required": ["attack_vector", "severity", "has_patch", "summary"],
+    "required": [
+      "attack_vector",
+      "severity",
+      "has_patch",
+      "summary"
+    ],
     "additionalProperties": false
   }
 }

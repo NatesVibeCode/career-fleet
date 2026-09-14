@@ -1,11 +1,17 @@
-from free_fleet.catalog import RouteCatalog
-from free_fleet.engine import Engine
-from free_fleet.export import _evaluate_filter
-from free_fleet.models import ClaimFilter, FilterClause, FilterOp, RoutePolicy, TaskSpec
-from free_fleet.packer import pack_items
-from free_fleet.sessions import SessionPool
-from free_fleet.slicer import slice_document
-from free_fleet.store import FreeFleetStore
+from harness_fleet.catalog import RouteCatalog
+from harness_fleet.engine import Engine
+from harness_fleet.export import _evaluate_filter
+from harness_fleet.models import (
+    ClaimFilter,
+    FilterClause,
+    FilterOp,
+    RoutePolicy,
+    TaskSpec,
+)
+from harness_fleet.packer import pack_items
+from harness_fleet.sessions import SessionPool
+from harness_fleet.slicer import slice_document
+from harness_fleet.store import HarnessStore
 
 
 def _catalog(tmp_path):
@@ -69,7 +75,7 @@ def test_zero_receipt_does_not_reclassify_a_paid_lane(tmp_path):
 
 
 def test_new_resume_session_does_not_reuse_paid_approval(tmp_path):
-    store = FreeFleetStore(tmp_path / "state.db")
+    store = HarnessStore(tmp_path / "state.db")
     catalog = RouteCatalog(db_path=store.path)
     catalog.add_route(
         "paid/model",

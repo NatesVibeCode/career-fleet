@@ -1,6 +1,6 @@
 flowchart TD
     %% =========================================================================
-    %% free-fleet: Compounding B2B Prospecting & Deep Enrichment Funnel
+    %% harness-fleet: Compounding B2B Prospecting & Deep Enrichment Funnel
     %% =========================================================================
 
     %% Theme Styling (Optimized for Dark-Mode Infographics / LinkedIn)
@@ -17,7 +17,7 @@ flowchart TD
     %% -------------------------------------------------------------------------
     subgraph S0 ["1. Account List Generation (Broad TAM)"]
         UNIVERSE["Raw Account Universe: 50,000 Target Domains\n(CSV import, directory dump, public company lists)"]:::universe
-        DEF_LANES["Define Target Attributes in free-fleet Lanes\n(Industry, B2B/B2C, Business Model, Pricing Tier, Scale)"]:::lane
+        DEF_LANES["Define Target Attributes in harness-fleet Lanes\n(Industry, B2B/B2C, Business Model, Pricing Tier, Scale)"]:::lane
         UNIVERSE --> DEF_LANES
     end
 
@@ -26,7 +26,7 @@ flowchart TD
     %% -------------------------------------------------------------------------
     subgraph S1 ["2. Layer 1: Firmographic Scraping & Dynamic Scoring"]
         SCRAPE_1["Scrape: Homepage, Pricing, Meta Tags, About Us"]:::lane
-        FLEET_1["free-fleet Lane 1: classify & triage\n(Free/Local Fleet: Qwen 2.5 72B / Llama 3.3 70B)"]:::lane
+        FLEET_1["harness-fleet Lane 1: classify & triage\n(Free/Local Fleet: Qwen 2.5 72B / Llama 3.3 70B)"]:::lane
         SCORE_1["Compute Dynamic Score #1: ICP Fit Score (0-100)\n+ Verbatim Grounded Quote from Homepage"]:::evidence
         GATE_1{"Threshold Gate #1\nFit Score >= 70?"}:::gate
         DROP_1["Drop 40,000 Unqualified Accounts\n(B2C, wrong tier, no ICP match)"]:::drop
@@ -45,7 +45,7 @@ flowchart TD
     %% -------------------------------------------------------------------------
     subgraph S2 ["3. Layer 2: Tech Stack & Architecture Pain (Enrich & Rescore)"]
         SCRAPE_2["Scrape: Developer Docs, API Specs, Changelogs, Integrations"]:::lane
-        FLEET_2["free-fleet Lane 2: extract\n(Deterministic Quote Grounding)"]:::lane
+        FLEET_2["harness-fleet Lane 2: extract\n(Deterministic Quote Grounding)"]:::lane
         SCORE_2["Compute Dynamic Score #2: Migration Pain / Tech Vulnerability\n+ Exact Verbatim Quote of Competitor Tech in Docs"]:::evidence
         GATE_2{"Threshold Gate #2\nTech Pain Score >= 75?"}:::gate
         DROP_2["Drop 7,500 Stable Accounts\n(No competitor tooling, locked legacy stack)"]:::drop
@@ -64,7 +64,7 @@ flowchart TD
     %% -------------------------------------------------------------------------
     subgraph S3 ["4. Layer 3: Job Openings & Hiring Intent Signals (Enrich & Rescore)"]
         SCRAPE_3["Scrape: Active Job Boards (Greenhouse, Lever, Careers Pages)"]:::lane
-        FLEET_3["free-fleet Lane 3: extract\n(Keyword Search: 'Migration', 'Lead Architect', Tool Names)"]:::lane
+        FLEET_3["harness-fleet Lane 3: extract\n(Keyword Search: 'Migration', 'Lead Architect', Tool Names)"]:::lane
         SCORE_3["Compute Dynamic Score #3: Active Budget & Urgency Score\n+ Exact Verbatim Quote from Open Job Spec"]:::evidence
         GATE_3{"Threshold Gate #3\nActive Hiring Intent >= 80?"}:::gate
         DROP_3["Drop 2,000 Inactive Accounts\n(Hiring freeze, no relevant technical reqs)"]:::drop
@@ -83,7 +83,7 @@ flowchart TD
     %% -------------------------------------------------------------------------
     subgraph S4 ["5. Layer 4: Social Posts & Founder Language (Final Sniper Tier)"]
         SCRAPE_4["Scrape: Founder/Exec LinkedIn Posts, Podcasts, Keynotes, Interviews"]:::lane
-        FLEET_4["free-fleet Lane 4: summarize & triage\n(Extract Strategic Priorities & Executive Vocabulary)"]:::lane
+        FLEET_4["harness-fleet Lane 4: summarize & triage\n(Extract Strategic Priorities & Executive Vocabulary)"]:::lane
         SCORE_4["Compute Final Compound Score: Executive Alignment (90-100)\n+ Verbatim Quote of Founder Describing Current Bottleneck"]:::evidence
         GATE_4{"Final Gate #4\nCompound Score >= 90?"}:::gate
         DROP_4["Deprioritize 350 Accounts\n(No recent executive narrative trigger)"]:::drop
@@ -101,7 +101,7 @@ flowchart TD
     %% OUTCOME: Hyper-Personalized & Verifiable Outbound
     %% -------------------------------------------------------------------------
     subgraph S5 ["6. Compounded Output: Zero-Hallucination Outbound"]
-        EXPORT["free-fleet export --format csv | jsonl\n(Full Audit Trail + Exact Character-Offset Proofs)"]:::winner
+        EXPORT["harness-fleet export --format csv | jsonl\n(Full Audit Trail + Exact Character-Offset Proofs)"]:::winner
         PAYLOAD["Hyper-Personalized Outbound Hook Payload:\n• Hook 1: Exact founder quote on strategic pain point\n• Hook 2: Exact quote from open job spec proving budget\n• Hook 3: Exact quote from docs showing competitor tech in use\n• 100% Verifiable Evidence — Zero Hallucinations"]:::winner
         ZERO_COST["Total API Cost: $0.00\n(Free Cloud APIs + Local Ollama/vLLM Workers via SQLite Queue)\nZero Clay Credit Burn | Zero Subscription Bloat"]:::evidence
 

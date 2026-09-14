@@ -1,6 +1,6 @@
-from free_fleet.models import TaskSpec
-from free_fleet.packer import iter_packed_batches
-from free_fleet.store import FreeFleetStore
+from harness_fleet.models import TaskSpec
+from harness_fleet.packer import iter_packed_batches
+from harness_fleet.store import HarnessStore
 
 
 def _task():
@@ -17,7 +17,7 @@ def _task():
 
 
 def test_rate_limits_leave_counting_attempts_available(tmp_path):
-    store = FreeFleetStore(tmp_path / "retry.db")
+    store = HarnessStore(tmp_path / "retry.db")
     revision = store.register_task(_task())
     store.create_run(
         "retry-run", revision, "input", "a" * 64, 1, 20, 1, "output"

@@ -25,10 +25,12 @@ career-fleet setup --workspace-root .
 # Run test suite
 python3 -m pytest -v
 
-# Check the shared free-fleet contract across the local sibling checkouts
-python3 scripts/check_fleet_drift.py
+# Check the shared harness-fleet contract across the local sibling checkouts
+python3 scripts/check_harness_drift.py
 ```
 
 Do not include credentials, private candidate data, provider responses containing private data, or local machine paths in issues, fixtures, or commits.
 
 When changing a lane, add a test that exercises the store-backed path as well as any pure scoring helper.
+
+Install one fleet per environment: each distribution ships its own console script (`uv tool install .` then `<cli> --help`).

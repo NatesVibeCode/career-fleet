@@ -1,7 +1,8 @@
+import sqlite3
 import tempfile
 import unittest
-import sqlite3
 from pathlib import Path
+
 from career_fleet.profile import IdealEmployerProfile
 from career_fleet.store import CareerStore
 

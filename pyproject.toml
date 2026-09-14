@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "career-fleet"
-version = "0.2.2"
+version = "0.3.0"
 description = "Deterministic career and employer screening engine with multi-lane checks and exact quote verification."
 readme = "README.md"
 license = "MIT"
@@ -54,24 +54,21 @@ js = [
 [project.scripts]
 career-fleet = "career_fleet.cli:main"
 career-lanes = "career_fleet.cli:main"
-account-fleet = "free_fleet.cli:main"
-free-fleet = "free_fleet.cli:main"
-bulk-lanes = "free_fleet.cli:main"
 
 [tool.setuptools.packages.find]
-include = ["free_fleet*", "career_fleet*"]
+include = ["harness_fleet*", "career_fleet*"]
 
 [tool.setuptools.package-data]
 career_fleet = [
-    "resources/skill/career-fleet/*.md",
-    "resources/skill/career-fleet/references/*.md",
+    "resources/harness_skill/career-fleet/*.md",
+    "resources/harness_skill/career-fleet/references/*.md",
 ]
-free_fleet = [
+harness_fleet = [
     "migrations/*.sql",
     "data/*.json",
-    "resources/skill/*.md",
-    "resources/skill/references/*.md",
-    "resources/skill/agents/*.yaml",
+    "resources/harness_skill/*.md",
+    "resources/harness_skill/references/*.md",
+    "resources/harness_skill/agents/*.yaml",
     "resources/account_skill/*.md",
     "resources/account_skill/references/*.md",
     "resources/examples/account_research/*.json",
@@ -79,9 +76,33 @@ free_fleet = [
 ]
 
 [tool.setuptools.data-files]
-"share/free-fleet/schemas" = ["schemas/*.json"]
+"share/harness-fleet/schemas" = ["schemas/*.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = "test_*.py"
 pythonpath = ["."]
+
+[tool.ruff]
+target-version = "py310"
+
+[tool.ruff.lint]
+# Curated: no S/BLE/TRY/SIM churn, no line-length. E731/N/B905 findings are
+# fixed, not waived; PLR0124 marks only the two intentional NaN checks.
+select = ["E", "F", "I", "N", "UP", "B", "PLR0124"]
+ignore = ["E501"]
+
+[tool.mypy]
+python_version = "3.10"
+warn_unused_ignores = true
+
+[[tool.mypy.overrides]]
+module = ["ddgs.*", "pdfminer.*", "pypdf", "jsonschema"]
+ignore_missing_imports = true
+
+# calibrate's nested-sweep nonlocal bindings are runtime-proven (the module
+# compiles, so the bindings exist); mypy's scope analysis false-positives
+# here, and inline ignores are invalid on nonlocal statements.
+[[tool.mypy.overrides]]
+module = "harness_fleet.calibrate"
+disable_error_code = ["misc"]

@@ -7,8 +7,8 @@ from argparse import Namespace
 
 import pytest
 
-from free_fleet import cli, discover
-from free_fleet.discover import (
+from harness_fleet import cli, discover
+from harness_fleet.discover import (
     DiscoverError,
     RawRecord,
     SearchHit,
@@ -29,8 +29,8 @@ from free_fleet.discover import (
     write_items_csv,
     write_items_jsonl,
 )
-from free_fleet.input_data import load_input_items
-from free_fleet.models import ID_PATTERN
+from harness_fleet.input_data import load_input_items
+from harness_fleet.models import ID_PATTERN
 
 
 @pytest.fixture(autouse=True)
@@ -98,7 +98,7 @@ class FakeClient:
 @pytest.fixture()
 def fake_http(monkeypatch):
     FakeClient.routes = {}
-    monkeypatch.setattr("free_fleet.discover.httpx.Client", FakeClient)
+    monkeypatch.setattr("harness_fleet.discover.httpx.Client", FakeClient)
     return FakeClient
 
 
@@ -380,7 +380,7 @@ def test_run_discovery_fetch_failures_are_skipped(monkeypatch):
 # --- CLI ---------------------------------------------------------------------
 
 def test_cli_discover_writes_file(tmp_path, monkeypatch, capsys):
-    from free_fleet.discover import to_input_items as _to_items
+    from harness_fleet.discover import to_input_items as _to_items
 
     def fake_run(**kwargs):
         assert kwargs["queries"] == ["kafka hiring"]
@@ -630,14 +630,14 @@ class YCFakeClient(FakeClient):
 
 
 def test_search_yc_matches_and_paginates(monkeypatch):
-    monkeypatch.setattr("free_fleet.discover.httpx.Client", YCFakeClient)
+    monkeypatch.setattr("harness_fleet.discover.httpx.Client", YCFakeClient)
     hits = discover.search_yc("kafka", max_results=5)
     assert [h.url for h in hits] == ["https://kafkaops.example"]
     assert hits[0].backend == "yc" and "W24" in hits[0].title
 
 
 def test_fetch_yc_filters_and_grades_profiles(monkeypatch):
-    monkeypatch.setattr("free_fleet.discover.httpx.Client", YCFakeClient)
+    monkeypatch.setattr("harness_fleet.discover.httpx.Client", YCFakeClient)
     recs = discover.fetch_yc_companies(batch="W24")
     assert len(recs) == 1 and recs[0].item_id == "yc-kafkaops"
     assert recs[0].metadata["evidence"] == "profile"
@@ -798,7 +798,7 @@ def test_js_render_success_path(monkeypatch, fake_http):
 
 
 def test_cli_discover_snippets_only_warns(tmp_path, monkeypatch, capsys):
-    from free_fleet.discover import to_input_items as _to_items
+    from harness_fleet.discover import to_input_items as _to_items
 
     def fake_run(**kwargs):
         return _to_items([RawRecord(text="t", source_uri="https://a.example/")]), {
@@ -812,7 +812,7 @@ def test_cli_discover_snippets_only_warns(tmp_path, monkeypatch, capsys):
 
 
 def test_cli_fetch_yc_and_sitemap(tmp_path, fake_http, capsys, monkeypatch):
-    monkeypatch.setattr("free_fleet.discover.httpx.Client", YCFakeClient)
+    monkeypatch.setattr("harness_fleet.discover.httpx.Client", YCFakeClient)
     out = tmp_path / "yc.csv"
     cli.cmd_fetch(Namespace(url=None, url_file=None, sitemap=None, site=None, greenhouse_board=None,
                             ashby_org=None, lever_org=None, yc=True, yc_query="kafka", yc_batch=None,
@@ -855,7 +855,7 @@ class ThrottleThenOkClient(FakeClient):
 def test_backoff_retries_then_succeeds(monkeypatch, fake_http):
     sleeps = []
     monkeypatch.setattr("time.sleep", lambda s: sleeps.append(s))
-    monkeypatch.setattr("free_fleet.discover.httpx.Client", ThrottleThenOkClient)
+    monkeypatch.setattr("harness_fleet.discover.httpx.Client", ThrottleThenOkClient)
     ThrottleThenOkClient.calls = 0
     resp = discover._get_with_backoff(ThrottleThenOkClient(), "https://x.example/api")
     assert resp.status_code == 200 and ThrottleThenOkClient.calls == 3 and len(sleeps) == 2
@@ -868,7 +868,7 @@ def test_backoff_gives_up_with_reason(monkeypatch, fake_http):
         def get(self, url, params=None, timeout=None):
             return FakeResponse(status=429, content=b"slow")
 
-    monkeypatch.setattr("free_fleet.discover.httpx.Client", Always429)
+    monkeypatch.setattr("harness_fleet.discover.httpx.Client", Always429)
     with pytest.raises(DiscoverError, match="after 4 attempts"):
         discover._get_with_backoff(Always429(), "https://x.example/api")
 
@@ -880,7 +880,7 @@ def test_backoff_treats_arctic_throttle_422_as_retryable(monkeypatch, fake_http)
         def get(self, url, params=None, timeout=None):
             return FakeResponse(status=422, content=b'{"error":"Timeout. Maybe slow down a bit"}')
 
-    monkeypatch.setattr("free_fleet.discover.httpx.Client", ArcticThrottle)
+    monkeypatch.setattr("harness_fleet.discover.httpx.Client", ArcticThrottle)
     with pytest.raises(DiscoverError, match="throttled"):
         discover._get_with_backoff(ArcticThrottle(), "https://x.example/api")
 
@@ -927,14 +927,14 @@ class ArcticFakeClient(FakeClient):
 
 
 def test_search_reddit_hits_and_filters(monkeypatch):
-    monkeypatch.setattr("free_fleet.discover.httpx.Client", ArcticFakeClient)
+    monkeypatch.setattr("harness_fleet.discover.httpx.Client", ArcticFakeClient)
     hits = discover.search_reddit("kafka", subreddits=["dataengineering"], max_results=10)
     assert len(hits) == 2  # full post + title-only removed post; nsfw excluded
     assert hits[0].backend == "reddit" and "50k QPS" in hits[0].snippet
 
 
 def test_fetch_reddit_posts_complete_records(monkeypatch):
-    monkeypatch.setattr("free_fleet.discover.httpx.Client", ArcticFakeClient)
+    monkeypatch.setattr("harness_fleet.discover.httpx.Client", ArcticFakeClient)
     recs = discover.fetch_reddit_posts("kafka", subreddits=["dataengineering"])
     assert [r.item_id for r in recs] == ["reddit-abc123", "reddit-dead1"]
     assert recs[0].metadata["evidence"] == "profile" and recs[0].metadata["score"] == 42
@@ -965,7 +965,7 @@ def test_fetch_reddit_rss_rejects_sort():
 
 
 def test_fetch_reddit_thread_sorts_and_skips_deleted(monkeypatch):
-    monkeypatch.setattr("free_fleet.discover.httpx.Client", ArcticFakeClient)
+    monkeypatch.setattr("harness_fleet.discover.httpx.Client", ArcticFakeClient)
     rec = discover.fetch_reddit_thread("https://www.reddit.com/r/dataengineering/comments/abc123/x/")
     assert rec.item_id == "reddit-thread-abc123"
     assert "[deleted]" not in rec.text
@@ -995,7 +995,7 @@ class HNFakeClient(FakeClient):
 
 
 def test_fetch_hn_thread_full_walk(monkeypatch):
-    monkeypatch.setattr("free_fleet.discover.httpx.Client", HNFakeClient)
+    monkeypatch.setattr("harness_fleet.discover.httpx.Client", HNFakeClient)
     rec = discover.fetch_hn_thread("https://news.ycombinator.com/item?id=100")
     assert rec.item_id == "hn-100" and rec.metadata["evidence"] == "profile"
     assert "Kafka at scale" in rec.text and "https://kafka.example" in rec.text
@@ -1007,13 +1007,13 @@ def test_fetch_hn_thread_full_walk(monkeypatch):
 
 
 def test_fetch_hn_thread_missing_item(monkeypatch):
-    monkeypatch.setattr("free_fleet.discover.httpx.Client", HNFakeClient)
+    monkeypatch.setattr("harness_fleet.discover.httpx.Client", HNFakeClient)
     with pytest.raises(DiscoverError, match="not found"):
         discover.fetch_hn_thread("999")
 
 
 def test_smart_url_routing(monkeypatch):
-    monkeypatch.setattr("free_fleet.discover.httpx.Client", HNFakeClient)
+    monkeypatch.setattr("harness_fleet.discover.httpx.Client", HNFakeClient)
     rec = discover.fetch_smart_url("https://news.ycombinator.com/item?id=100")
     assert rec.item_id == "hn-100"
     assert discover._hn_item_id_from_url("https://example.com/") is None
@@ -1025,7 +1025,7 @@ def test_run_discovery_uses_smart_urls(monkeypatch):
     monkeypatch.setattr(discover, "search_hn", lambda q, max_results=10, client=None: [
         SearchHit(url="https://news.ycombinator.com/item?id=100", title="t", snippet="s", backend="hn"),
     ])
-    monkeypatch.setattr("free_fleet.discover.httpx.Client", HNFakeClient)
+    monkeypatch.setattr("harness_fleet.discover.httpx.Client", HNFakeClient)
     items, report = discover.run_discovery(["q"], backends=["hn"], delay=0)
     assert items[0].item_id == "hn-100" and report["hits"] == 1
 
@@ -1039,7 +1039,7 @@ def test_cli_fetch_subreddit_and_hn(tmp_path, fake_http, capsys, monkeypatch):
                 return FakeResponse(content=RSS_SAMPLE.encode())
             return super().get(url, params=params, timeout=timeout)
 
-    monkeypatch.setattr("free_fleet.discover.httpx.Client", BothClient)
+    monkeypatch.setattr("harness_fleet.discover.httpx.Client", BothClient)
     out = tmp_path / "c.csv"
     cli.cmd_fetch(Namespace(url=None, url_file=None, sitemap=None, site=None, subreddit=["test"],
                             subreddit_sort="new", hn=["100"], greenhouse_board=None, ashby_org=None,
@@ -1088,14 +1088,14 @@ class SEFakeClient(FakeClient):
 
 
 def test_se_search_hits_and_tagged_param(monkeypatch):
-    monkeypatch.setattr("free_fleet.discover.httpx.Client", SEFakeClient)
+    monkeypatch.setattr("harness_fleet.discover.httpx.Client", SEFakeClient)
     hits = discover.search_stackexchange("kafka", tagged=["apache-kafka"])
     assert SEFakeClient.last_params.get("tagged") == "apache-kafka"
     assert hits[0].backend == "stackexchange" and "Kafka pain" in hits[0].title
 
 
 def test_se_fetch_full_with_answer_and_quota(monkeypatch):
-    monkeypatch.setattr("free_fleet.discover.httpx.Client", SEFakeClient)
+    monkeypatch.setattr("harness_fleet.discover.httpx.Client", SEFakeClient)
     recs = discover.fetch_stackexchange_questions("kafka", include_answers=True)
     assert len(recs) == 1 and recs[0].item_id == "se-stackoverflow-1"
     assert "50k QPS" in recs[0].text and "Use partitions" in recs[0].text
@@ -1110,7 +1110,7 @@ def test_se_api_error_surfaces(monkeypatch):
         def get(self, url, params=None, timeout=None):
             return FakeResponse(json_data={"error_id": 502, "error_message": "throttle"})
 
-    monkeypatch.setattr("free_fleet.discover.httpx.Client", SEError)
+    monkeypatch.setattr("harness_fleet.discover.httpx.Client", SEError)
     with pytest.raises(DiscoverError, match="throttle"):
         discover.search_stackexchange("kafka")
 
@@ -1123,7 +1123,7 @@ def test_se_backoff_field_honored(monkeypatch):
         def get(self, url, params=None, timeout=None):
             return FakeResponse(json_data={"items": [], "backoff": 5, "quota_remaining": 1})
 
-    monkeypatch.setattr("free_fleet.discover.httpx.Client", SEBackoff)
+    monkeypatch.setattr("harness_fleet.discover.httpx.Client", SEBackoff)
     assert discover.search_stackexchange("kafka") == [] and sleeps == [5]
 
 
@@ -1159,14 +1159,14 @@ class DiscoFakeClient(FakeClient):
 
 
 def test_disco_search_dedupes_topics_and_unescapes(monkeypatch):
-    monkeypatch.setattr("free_fleet.discover.httpx.Client", DiscoFakeClient)
+    monkeypatch.setattr("harness_fleet.discover.httpx.Client", DiscoFakeClient)
     hits = discover.search_discourse("kafka", base_url="https://forum.example")
     assert [h.url for h in hits] == ["https://forum.example/t/7", "https://forum.example/t/8"]
     assert hits[0].title == "Kafka & pain" and hits[0].backend == "discourse"
 
 
 def test_disco_topic_skips_non_posts(monkeypatch):
-    monkeypatch.setattr("free_fleet.discover.httpx.Client", DiscoFakeClient)
+    monkeypatch.setattr("harness_fleet.discover.httpx.Client", DiscoFakeClient)
     rec = discover.fetch_discourse_topic("forum.example", 7)
     assert rec.item_id == "discourse-forum.example-7"
     assert "OP body" in rec.text and "Reply body" in rec.text
@@ -1175,14 +1175,14 @@ def test_disco_topic_skips_non_posts(monkeypatch):
 
 
 def test_disco_search_fetch_latest_fallback(monkeypatch):
-    monkeypatch.setattr("free_fleet.discover.httpx.Client", DiscoFakeClient)
+    monkeypatch.setattr("harness_fleet.discover.httpx.Client", DiscoFakeClient)
     records, skipped = discover.fetch_discourse_search("https://forum.example", None, max_topics=2)
     assert [r.item_id for r in records] == ["discourse-forum.example-9", "discourse-forum.example-7"]
     assert skipped == []
 
 
 def test_disco_missing_topic_errors(monkeypatch):
-    monkeypatch.setattr("free_fleet.discover.httpx.Client", DiscoFakeClient)
+    monkeypatch.setattr("harness_fleet.discover.httpx.Client", DiscoFakeClient)
     with pytest.raises(DiscoverError, match="not found"):
         discover.fetch_discourse_topic("https://forum.example", 404)
 
@@ -1209,7 +1209,7 @@ class LobstersFakeClient(FakeClient):
 
 
 def test_lobsters_listing_and_filter(monkeypatch):
-    monkeypatch.setattr("free_fleet.discover.httpx.Client", LobstersFakeClient)
+    monkeypatch.setattr("harness_fleet.discover.httpx.Client", LobstersFakeClient)
     recs = discover.fetch_lobsters()
     assert [r.item_id for r in recs] == ["lobsters-a1", "lobsters-b2"]
     assert recs[0].source_uri == "https://lobste.rs/s/a1/x"
@@ -1223,7 +1223,7 @@ def test_lobsters_unknown_tag(monkeypatch):
         def get(self, url, params=None, timeout=None):
             return FakeResponse(status=404, content=b"no")
 
-    monkeypatch.setattr("free_fleet.discover.httpx.Client", Lobsters404)
+    monkeypatch.setattr("harness_fleet.discover.httpx.Client", Lobsters404)
     with pytest.raises(DiscoverError, match="unknown Lobsters tag"):
         discover.fetch_lobsters(tag="nope")
 
@@ -1249,7 +1249,7 @@ class LemmyFakeClient(FakeClient):
 
 
 def test_lemmy_posts_comments_and_filters(monkeypatch):
-    monkeypatch.setattr("free_fleet.discover.httpx.Client", LemmyFakeClient)
+    monkeypatch.setattr("harness_fleet.discover.httpx.Client", LemmyFakeClient)
     recs = discover.fetch_lemmy("kafka")
     assert [r.item_id for r in recs] == ["lemmy-11", "lemmy-c-21"]
     assert "Stuck at scale" in recs[0].text and recs[0].metadata["evidence"] == "profile"
@@ -1273,7 +1273,7 @@ class DevtoFakeClient(FakeClient):
 
 
 def test_devto_full_and_indicator_grades(monkeypatch):
-    monkeypatch.setattr("free_fleet.discover.httpx.Client", DevtoFakeClient)
+    monkeypatch.setattr("harness_fleet.discover.httpx.Client", DevtoFakeClient)
     recs = discover.fetch_devto_tag("kafka")
     assert recs[0].item_id == "devto-5" and "Full body here" in recs[0].text
     assert recs[0].metadata["evidence"] == "profile"
@@ -1320,7 +1320,7 @@ def test_run_discovery_reports_zero_hit_queries(monkeypatch):
 
 
 def test_cli_fetch_stackexchange(tmp_path, capsys, monkeypatch):
-    monkeypatch.setattr("free_fleet.discover.httpx.Client", SEFakeClient)
+    monkeypatch.setattr("harness_fleet.discover.httpx.Client", SEFakeClient)
     cli.cmd_fetch(_qa_namespace(tmp_path, stackexchange_query="kafka", se_tag=["apache-kafka"]))
     payload = json.loads(capsys.readouterr().out)
     assert payload["items"] == 1
@@ -1341,7 +1341,7 @@ def test_cli_fetch_discourse_lobsters_lemmy_devto(tmp_path, capsys, monkeypatch)
                 return FakeResponse(json_data={"body_markdown": "body"})
             return super().get(url, params=params, timeout=timeout)
 
-    monkeypatch.setattr("free_fleet.discover.httpx.Client", QAClient)
+    monkeypatch.setattr("harness_fleet.discover.httpx.Client", QAClient)
     cli.cmd_fetch(_qa_namespace(tmp_path, discourse="https://forum.example", discourse_query="kafka",
                                 lobsters_tag="", lemmy_query="kafka", devto_tag="kafka"))
     payload = json.loads(capsys.readouterr().out)
@@ -1414,14 +1414,14 @@ def test_reddit_id_extraction_edge_shapes():
 
 
 def test_fetch_reddit_thread_accepts_bare_and_short_urls(monkeypatch):
-    monkeypatch.setattr("free_fleet.discover.httpx.Client", ArcticFakeClient)
+    monkeypatch.setattr("harness_fleet.discover.httpx.Client", ArcticFakeClient)
     for ref in ("abc123", "https://www.reddit.com/r/x/comments/abc123",
                 "https://www.reddit.com/r/x/comments/abc123/slug/", "https://redd.it/abc123"):
         assert discover.fetch_reddit_thread(ref).item_id == "reddit-thread-abc123"
 
 
 def test_smart_url_routes_reddit_no_slash(monkeypatch):
-    monkeypatch.setattr("free_fleet.discover.httpx.Client", ArcticFakeClient)
+    monkeypatch.setattr("harness_fleet.discover.httpx.Client", ArcticFakeClient)
     rec = discover.fetch_smart_url("https://www.reddit.com/r/x/comments/abc123")
     assert rec.item_id == "reddit-thread-abc123"
 
@@ -1449,7 +1449,7 @@ def test_lobsters_uses_backoff(monkeypatch):
                 return FakeResponse(status=429, headers={"retry-after": "0"}, content=b"slow")
             return FakeResponse(json_data=LOBSTERS_PAGE)
 
-    monkeypatch.setattr("free_fleet.discover.httpx.Client", Twice429)
+    monkeypatch.setattr("harness_fleet.discover.httpx.Client", Twice429)
     Twice429.calls = 0
     recs = discover.fetch_lobsters()
     assert len(recs) == 2 and Twice429.calls == 3 and slept == [0.0, 0.0]  # retry-after: 0 honored
@@ -1471,7 +1471,7 @@ def test_devto_uses_backoff_for_details(monkeypatch):
                 return FakeResponse(status=429, headers={"retry-after": "0"}, content=b"slow")
             return FakeResponse(json_data={"body_markdown": "Full body"})
 
-    monkeypatch.setattr("free_fleet.discover.httpx.Client", FlakyDetail)
+    monkeypatch.setattr("harness_fleet.discover.httpx.Client", FlakyDetail)
     FlakyDetail.detail_calls = 0
     recs = discover.fetch_devto_tag("kafka")
     assert "Full body" in recs[0].text and slept == [0.0]  # retry-after: 0 honored

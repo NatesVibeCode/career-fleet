@@ -1,8 +1,9 @@
 import json
-from free_fleet.catalog import RouteCatalog
-from free_fleet.eval import RouteEvaluator
-from free_fleet.models import InputItem, TaskSpec
-from free_fleet.store import BulkLanesStore
+
+from harness_fleet.catalog import RouteCatalog
+from harness_fleet.eval import RouteEvaluator
+from harness_fleet.models import InputItem, TaskSpec
+from harness_fleet.store import HarnessStore
 
 
 class EvalMockProvider:
@@ -54,7 +55,7 @@ class EvalMockProvider:
 
 def test_route_eval_and_feedback_loop(tmp_path):
     db_path = tmp_path / "test.db"
-    store = BulkLanesStore(db_path)
+    store = HarnessStore(db_path)
     catalog = RouteCatalog(config_path=tmp_path / "routes.json", db_path=db_path)
     catalog.data = {
         "revision": 2,

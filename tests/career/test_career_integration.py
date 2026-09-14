@@ -3,8 +3,15 @@ from types import SimpleNamespace
 
 import pytest
 
-from career_fleet.cli import cmd_discover, cmd_dossier, cmd_export, cmd_profile, cmd_triage, get_profile
 import career_fleet.lanes.lane1_sourcing as lane1
+from career_fleet.cli import (
+    cmd_discover,
+    cmd_dossier,
+    cmd_export,
+    cmd_profile,
+    cmd_triage,
+    get_profile,
+)
 from career_fleet.lanes.lane2_triage import check_dealbreakers, run_lane2_triage
 from career_fleet.lanes.lane3_systems import run_lane3_systems
 from career_fleet.lanes.lane4_culture import run_lane4_culture
@@ -176,7 +183,10 @@ def test_lane1_and_lane2_accept_explicit_remote_roles(text):
 )
 def test_workplace_negations_do_not_pass_remote_policies(text):
     from career_fleet.lanes.lane1_sourcing import _is_remote_listing
-    from career_fleet.lanes.lane2_triage import _has_remote_evidence, _has_remote_or_hybrid_evidence
+    from career_fleet.lanes.lane2_triage import (
+        _has_remote_evidence,
+        _has_remote_or_hybrid_evidence,
+    )
 
     posting = {"raw_text": text, "location": "Austin, TX", "is_remote": False}
     assert not _is_remote_listing(text, posting["location"])

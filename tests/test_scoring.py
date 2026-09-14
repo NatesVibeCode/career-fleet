@@ -1,11 +1,12 @@
 import time
-from free_fleet.models import RoutePolicy
-from free_fleet.scoring import RouteScorer, filter_and_rank_routes
-from free_fleet.store import BulkLanesStore
+
+from harness_fleet.models import RoutePolicy
+from harness_fleet.scoring import RouteScorer, filter_and_rank_routes
+from harness_fleet.store import HarnessStore
 
 
 def test_route_scoring_ranks_verified_over_failed(tmp_path):
-    store = BulkLanesStore(tmp_path / "test.db")
+    store = HarnessStore(tmp_path / "test.db")
     scorer = RouteScorer(store)
 
     routes = [
@@ -39,7 +40,7 @@ def test_route_scoring_ranks_verified_over_failed(tmp_path):
 
 
 def test_route_cooldown_zeros_score(tmp_path):
-    store = BulkLanesStore(tmp_path / "test.db")
+    store = HarnessStore(tmp_path / "test.db")
     scorer = RouteScorer(store)
 
     routes = [{"id": "route/cooled", "provider": "openrouter", "enabled": True}]
@@ -50,7 +51,7 @@ def test_route_cooldown_zeros_score(tmp_path):
 
 
 def test_filter_and_rank_routes_respects_policy(tmp_path):
-    store = BulkLanesStore(tmp_path / "test.db")
+    store = HarnessStore(tmp_path / "test.db")
     routes = [
         {"id": "openrouter/free-1", "provider": "openrouter", "enabled": True},
         {"id": "opencode/local-1", "provider": "opencode", "enabled": True},

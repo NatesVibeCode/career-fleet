@@ -2,13 +2,13 @@
   "$defs": {
     "JsonValue": {}
   },
-  "$id": "https://raw.githubusercontent.com/NatesVibeCode/free-fleet/master/schemas/input-item-v1.schema.json",
+  "$id": "https://raw.githubusercontent.com/NatesVibeCode/harness-fleet/master/schemas/input-item-v1.schema.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
   "properties": {
     "$schema": {
-      "const": "https://raw.githubusercontent.com/NatesVibeCode/free-fleet/master/schemas/input-item-v1.schema.json",
-      "default": "https://raw.githubusercontent.com/NatesVibeCode/free-fleet/master/schemas/input-item-v1.schema.json",
+      "const": "https://raw.githubusercontent.com/NatesVibeCode/harness-fleet/master/schemas/input-item-v1.schema.json",
+      "default": "https://raw.githubusercontent.com/NatesVibeCode/harness-fleet/master/schemas/input-item-v1.schema.json",
       "title": "$Schema",
       "type": "string"
     },

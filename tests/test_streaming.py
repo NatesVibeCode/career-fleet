@@ -1,7 +1,7 @@
 import json
 
-from free_fleet.input_data import iter_input_items
-from free_fleet.packer import iter_packed_batches
+from harness_fleet.input_data import iter_input_items
+from harness_fleet.packer import iter_packed_batches
 
 
 def test_json_array_input_is_lazy(tmp_path):

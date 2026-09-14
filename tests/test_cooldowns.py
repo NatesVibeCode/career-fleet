@@ -1,12 +1,13 @@
 import time
-from free_fleet.catalog import RouteCatalog
-from free_fleet.cli import build_parser, cmd_cooldowns
-from free_fleet.mcp_server import create_mcp_server
-from free_fleet.store import BulkLanesStore
+
+from harness_fleet.catalog import RouteCatalog
+from harness_fleet.cli import build_parser, cmd_cooldowns
+from harness_fleet.mcp_server import create_mcp_server
+from harness_fleet.store import HarnessStore
 
 
 def test_adaptive_backoff_progression(tmp_path):
-    store = BulkLanesStore(tmp_path / "test.db")
+    store = HarnessStore(tmp_path / "test.db")
     route_id = "test-provider/test-model"
 
     # Initially 0 consecutive rate limits
@@ -89,7 +90,7 @@ def test_adaptive_backoff_progression(tmp_path):
 
 
 def test_cooldown_details_and_clearing(tmp_path):
-    store = BulkLanesStore(tmp_path / "test.db")
+    store = HarnessStore(tmp_path / "test.db")
     store.record_rate_limit_with_adaptive_backoff("provider/model-a", reason="Hit quota A")
     store.record_rate_limit_with_adaptive_backoff("provider/model-b", reason="Hit quota B")
 
@@ -113,7 +114,7 @@ def test_cooldown_details_and_clearing(tmp_path):
 
 def test_route_summary_with_cooldowns(tmp_path):
     db_path = tmp_path / "test.db"
-    store = BulkLanesStore(db_path)
+    _store = HarnessStore(db_path)
     catalog = RouteCatalog(db_path=db_path)
     catalog.add_route(
         route_id="mock/r1",
@@ -134,7 +135,7 @@ def test_route_summary_with_cooldowns(tmp_path):
 
 def test_cli_cooldowns_command(tmp_path, capsys):
     db_path = tmp_path / "test.db"
-    store = BulkLanesStore(db_path)
+    store = HarnessStore(db_path)
     store.record_rate_limit_with_adaptive_backoff("mock/m1", reason="429 error")
 
     parser = build_parser()
@@ -160,4 +161,4 @@ def test_cli_cooldowns_command(tmp_path, capsys):
 def test_mcp_cooldowns_tool(tmp_path):
     server = create_mcp_server(workspace_root=tmp_path, db_path="test.db")
     tool_names = [t.name for t in server._tool_manager.list_tools()]
-    assert "free_fleet_cooldowns" in tool_names
+    assert "harness_fleet_cooldowns" in tool_names

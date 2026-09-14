@@ -6,11 +6,11 @@ import json
 import sqlite3
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 from urllib.parse import urlparse
 
 
-def normalize_domain(value: Optional[str]) -> Optional[str]:
+def normalize_domain(value: str | None) -> str | None:
     """Return one stable hostname for company/domain matching."""
     if value is None:
         return None
@@ -125,8 +125,8 @@ class CareerStore:
     def __init__(self, db_path: Path | str = "career_fleet.db"):
         db_value = str(db_path)
         self.db_path = Path(db_path).expanduser()
-        self._memory_uri: Optional[str] = None
-        self._keepalive: Optional[sqlite3.Connection] = None
+        self._memory_uri: str | None = None
+        self._keepalive: sqlite3.Connection | None = None
         if db_value == ":memory:":
             # Each sqlite3.connect(":memory:") call creates a different
             # database. A shared in-memory URI plus one keepalive connection
@@ -175,15 +175,15 @@ class CareerStore:
         self,
         company_id: str,
         name: str,
-        domain: Optional[str] = None,
-        stage: Optional[str] = None,
-        headcount: Optional[int] = None,
-        hq_location: Optional[str] = None,
-        ats_provider: Optional[str] = None,
-        ats_token: Optional[str] = None,
-        website_url: Optional[str] = None,
+        domain: str | None = None,
+        stage: str | None = None,
+        headcount: int | None = None,
+        hq_location: str | None = None,
+        ats_provider: str | None = None,
+        ats_token: str | None = None,
+        website_url: str | None = None,
         status: str = "discovered",
-        timezone: Optional[str] = None,
+        timezone: str | None = None,
     ) -> str:
         domain = normalize_domain(domain)
         with self.connect() as con:
@@ -227,7 +227,7 @@ class CareerStore:
         company_id: str,
         *,
         clear_postings: bool = False,
-        source_type: Optional[str] = None,
+        source_type: str | None = None,
     ) -> None:
         """Reset derived funnel state before replacing a company's source data.
 
@@ -254,7 +254,7 @@ class CareerStore:
         self,
         company_id: str,
         source_type: str,
-        postings: List[Dict[str, Any]],
+        postings: list[dict[str, Any]],
     ) -> bool:
         """Replace one source's postings in a single transaction.
 
@@ -317,7 +317,7 @@ class CareerStore:
                 )
         return True
 
-    def list_companies(self, status: Optional[str] = None) -> List[Dict[str, Any]]:
+    def list_companies(self, status: str | None = None) -> list[dict[str, Any]]:
         with self.connect() as con:
             if status:
                 rows = con.execute("SELECT * FROM companies WHERE status = ? ORDER BY name ASC", (status,)).fetchall()
@@ -325,13 +325,13 @@ class CareerStore:
                 rows = con.execute("SELECT * FROM companies ORDER BY name ASC").fetchall()
             return [dict(r) for r in rows]
 
-    def get_company_by_domain(self, domain: str) -> Optional[Dict[str, Any]]:
+    def get_company_by_domain(self, domain: str) -> dict[str, Any] | None:
         """Return the canonical company row for a normalized domain."""
-        domain = normalize_domain(domain)
-        if not domain:
+        normalized = normalize_domain(domain)
+        if not normalized:
             return None
         with self.connect() as con:
-            row = con.execute("SELECT * FROM companies WHERE domain = ?", (domain,)).fetchone()
+            row = con.execute("SELECT * FROM companies WHERE domain = ?", (normalized,)).fetchone()
             return dict(row) if row else None
 
     def save_profile(self, profile: Any) -> str:
@@ -368,7 +368,7 @@ class CareerStore:
                 )
         return revision_id
 
-    def load_profile(self) -> Optional[Any]:
+    def load_profile(self) -> Any | None:
         """Load the active IEP from SQLite, if one has been stored."""
         with self.connect() as con:
             row = con.execute(
@@ -385,7 +385,7 @@ class CareerStore:
 
         return IdealEmployerProfile.model_validate(json.loads(row["profile_json"]))
 
-    def active_profile_revision_id(self) -> Optional[str]:
+    def active_profile_revision_id(self) -> str | None:
         """Return the active IEP revision used for new evaluations."""
         with self.connect() as con:
             row = con.execute(
@@ -394,7 +394,7 @@ class CareerStore:
         return str(row["revision_id"]) if row else None
 
     @staticmethod
-    def _validate_profile_revision(con: sqlite3.Connection, revision_id: Optional[str]) -> None:
+    def _validate_profile_revision(con: sqlite3.Connection, revision_id: str | None) -> None:
         """Keep legacy databases from accepting an unresolvable profile ID."""
         if revision_id is None:
             return
@@ -413,11 +413,11 @@ class CareerStore:
         company_id: str,
         title: str,
         raw_text: str,
-        location: Optional[str] = None,
+        location: str | None = None,
         is_remote: bool = False,
-        job_url: Optional[str] = None,
-        timezone: Optional[str] = None,
-        source_type: Optional[str] = None,
+        job_url: str | None = None,
+        timezone: str | None = None,
+        source_type: str | None = None,
     ) -> None:
         with self.connect() as con:
             with con:
@@ -443,10 +443,10 @@ class CareerStore:
         self,
         source_type: str,
         source_key: str,
-        signals: List[Dict[str, Any]],
+        signals: list[dict[str, Any]],
         *,
-        profile_revision_id: Optional[str] = None,
-    ) -> Dict[str, int]:
+        profile_revision_id: str | None = None,
+    ) -> dict[str, int]:
         """Replace one career-focused community snapshot atomically.
 
         Community records may not identify a company.  Unlinked records live
@@ -594,10 +594,10 @@ class CareerStore:
 
     def list_community_signals(
         self,
-        source_type: Optional[str] = None,
-        linked: Optional[bool] = None,
+        source_type: str | None = None,
+        linked: bool | None = None,
         limit: int = 100,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """List durable community leads with decoded metadata."""
         if limit < 1:
             raise ValueError("limit must be at least 1")
@@ -624,7 +624,7 @@ class CareerStore:
                 """,
                 params,
             ).fetchall()
-        decoded: list[Dict[str, Any]] = []
+        decoded: list[dict[str, Any]] = []
         for record in records:
             row = dict(record)
             try:
@@ -647,9 +647,9 @@ class CareerStore:
         score: float,
         verdict: str,
         rationale: str,
-        quotes: Optional[List[str]] = None,
-        model_used: Optional[str] = None,
-        profile_revision_id: Optional[str] = None,
+        quotes: list[str] | None = None,
+        model_used: str | None = None,
+        profile_revision_id: str | None = None,
     ) -> None:
         quotes_json = json.dumps(quotes or [])
         with self.connect() as con:
@@ -714,7 +714,7 @@ class CareerStore:
                         (company_id,),
                     )
 
-    def get_company_dossier(self, company_id: str) -> Optional[Dict[str, Any]]:
+    def get_company_dossier(self, company_id: str) -> dict[str, Any] | None:
         with self.connect() as con:
             comp = con.execute("SELECT * FROM companies WHERE id = ?", (company_id,)).fetchone()
             if not comp:

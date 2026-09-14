@@ -1,9 +1,10 @@
 import json
-from free_fleet.catalog import RouteCatalog
-from free_fleet.engine import Engine
-from free_fleet.models import TaskSpec
-from free_fleet.packer import pack_items
-from free_fleet.store import BulkLanesStore
+
+from harness_fleet.catalog import RouteCatalog
+from harness_fleet.engine import Engine
+from harness_fleet.models import TaskSpec
+from harness_fleet.packer import pack_items
+from harness_fleet.store import HarnessStore
 
 
 class FlakyRateLimitProvider:
@@ -44,7 +45,7 @@ class FlakyRateLimitProvider:
 
 
 def test_rate_limit_cools_down_and_fails_over_non_destructively(tmp_path):
-    store = BulkLanesStore(tmp_path / "test.db")
+    store = HarnessStore(tmp_path / "test.db")
     catalog = RouteCatalog(config_path=tmp_path / "routes.json", db_path=tmp_path / "test.db")
     catalog.data = {
         "revision": 2,

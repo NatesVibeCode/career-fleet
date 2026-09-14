@@ -1,9 +1,9 @@
 import pytest
 
-from free_fleet.engine import Engine
-from free_fleet.packer import iter_packed_batches
-from free_fleet.store import FreeFleetStore, MAX_NON_COUNTING_RETRIES
-from free_fleet.models import TaskSpec
+from harness_fleet.engine import Engine
+from harness_fleet.models import TaskSpec
+from harness_fleet.packer import iter_packed_batches
+from harness_fleet.store import MAX_NON_COUNTING_RETRIES, HarnessStore
 
 
 def _task():
@@ -20,7 +20,7 @@ def _task():
 
 
 def test_failed_one_shot_ingestion_rolls_back_run_and_rate_limits_stop(tmp_path):
-    store = FreeFleetStore(tmp_path / "broken.db")
+    store = HarnessStore(tmp_path / "broken.db")
 
     def broken_source():
         yield {"item_id": "one", "text": "source one"}

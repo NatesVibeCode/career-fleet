@@ -2,7 +2,7 @@ import json
 
 import pytest
 
-from free_fleet.input_data import InputDataError, load_input_items
+from harness_fleet.input_data import InputDataError, load_input_items
 
 
 def test_input_is_closed_and_canonical(tmp_path):

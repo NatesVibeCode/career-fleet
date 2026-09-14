@@ -1,0 +1,6 @@
+interface:
+  display_name: "Harness Fleet"
+  short_description: "Run typed, evidence-bound batch processing with free LLM workers"
+  default_prompt: "Use $harness-fleet to define and test a typed, evidence-bound bulk task for these inputs."
+policy:
+  allow_implicit_invocation: true

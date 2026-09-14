@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import shutil
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any
 
 
 def bundled_skill_path() -> Path:
@@ -26,7 +26,7 @@ def _same_tree(source: Path, destination: Path) -> bool:
     )
 
 
-def install_skill(workspace_root: Path | str, *, force: bool = False) -> Dict[str, Any]:
+def install_skill(workspace_root: Path | str, *, force: bool = False) -> dict[str, Any]:
     """Install the bundled skill under ``<workspace>/.agents/skills``."""
     workspace = Path(workspace_root).expanduser().resolve()
     if not workspace.is_dir():

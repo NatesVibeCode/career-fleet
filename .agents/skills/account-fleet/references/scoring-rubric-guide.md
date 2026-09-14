@@ -25,12 +25,12 @@ To prevent model score inflation or arbitrary grading, enforce this standardized
 
 ## 2. Complete TaskSpec Template
 
-When initializing a task via CLI or MCP (`account-fleet init` or `free_fleet_init`), use this declarative TaskSpec structure:
+When initializing a task via CLI or MCP (`account-fleet init` or `harness_fleet_init`), use this declarative TaskSpec structure:
 
 ```json
 {
-  "$schema": "https://raw.githubusercontent.com/NatesVibeCode/free-fleet/master/schemas/task-v1.schema.json",
-  "format_version": "free_fleet_task_v1",
+  "$schema": "https://raw.githubusercontent.com/NatesVibeCode/harness-fleet/master/schemas/task-v1.schema.json",
+  "format_version": "harness_fleet_task_v1",
   "name": "target-account-qualification",
   "instructions": "Evaluate each company based on ICP fit. Assign an integer score from 0 to 100 based on the 4-tier rubric. For any score >= 70, identify the technical gap and extract an exact verbatim quote (at least 15 characters) from the source text proving the bottleneck or initiative. If the company uses incompatible technology or has no technical fit, assign a score < 50.",
   "batch_size": 4,
@@ -103,3 +103,5 @@ end = start + len(quote["text"])
 ```
 
 If the model hallucinates or paraphrases text that doesn't appear character-for-character in `raw_text`, the entire record fails verification and rotates to the next worker route. **Zero hallucinated claims can enter the exported CSV.**
+
+Score/tier consistency is enforced the same deterministic way: when claims carry both `score` and `fit_tier`, the tier must equal the score's band (85+ → `tier_1`, 70+ → `tier_2`, 50+ → `tier_3`, else `unfit`). A mismatched tier fails validation and rotates routes — author the rubric bands, not per-record tier judgment.

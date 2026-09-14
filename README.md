@@ -131,14 +131,14 @@ career-fleet export --output qualified_targets.json
 
 ## Clean Architecture: The Twin-Sister Fork
 
-`career-fleet` is architected as a **namespace-isolated fork** of `bulk-lanes` (`free-fleet`):
-* `free_fleet/`: Shared engine layer (Bayesian route scoring, 429 adaptive backoff, mechanical discovery).
+`career-fleet` is architected as a **namespace-isolated fork** of `harness-fleet` (`harness-fleet`):
+* `harness_fleet/`: Shared engine layer (Bayesian route scoring, 429 adaptive backoff, mechanical discovery).
 * `career_fleet/`: Career-specific domain logic, profile models, and 4-lane pipeline.
 * `.agents/skills/career-fleet/`: Assistant skill for Claude, Antigravity, and Cursor.
 
 ### Syncing Upstream Improvements
 
-Because `career_fleet/` lives in an isolated namespace, pulling new scrapers and scoring features from upstream `bulk-lanes` is conflict-free at the Python namespace level:
+Because `career_fleet/` lives in an isolated namespace, pulling new scrapers and scoring features from upstream `harness-fleet` is conflict-free at the Python namespace level:
 
 ```bash
 git fetch upstream-engine
@@ -150,3 +150,16 @@ git merge upstream-engine/master
 ## License
 
 MIT License. See [LICENSE](LICENSE).
+
+## Migrating from free-fleet
+
+Version 0.3.0 renames the `free-fleet` distribution to `harness-fleet` (the old `bulk-lanes` name is gone). Back up your database first, then:
+
+```bash
+free-fleet db backup free-fleet.db.bak  # back up with the OLD CLI first (SQLite backup API, WAL-safe)
+mv free-fleet.db harness-fleet.db
+career-fleet setup --workspace-root .   # re-installs the skill
+career-fleet mcp install                # re-installs client configs
+```
+
+Old packets (`free_fleet_v2` / `bulk_lanes_v2`) no longer read; re-export them from SQLite before upgrading. The `FREE_FLEET_DB` / `BULK_LANES_DB` / `ACCOUNT_FLEET_DB` variables are replaced by the single `HARNESS_FLEET_DB`. There is no downgrade path — restore your backup to go back.

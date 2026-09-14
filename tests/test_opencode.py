@@ -1,7 +1,7 @@
 import json
 from types import SimpleNamespace
 
-from free_fleet.providers.opencode import LocalOpenCodeCLI, OpenCodeProvider
+from harness_fleet.providers.opencode import LocalOpenCodeCLI, OpenCodeProvider
 
 
 class RunnerStub:
@@ -16,8 +16,8 @@ class RunnerStub:
 def test_missing_cost_is_unknown_not_zero():
     ok, _, receipt = OpenCodeProvider(runner=RunnerStub()).run_prompt("opencode/name-free", "prompt")
     assert ok is True
-    assert receipt["cost"] is None
-    assert receipt["cost_status"] == "unknown"
+    assert receipt.cost is None
+    assert receipt.cost_status == "unknown"
 
 
 def test_discovered_opencode_model_keeps_native_provider_prefix():
@@ -38,7 +38,7 @@ def test_local_runner_invokes_normal_opencode_cli(monkeypatch):
         captured["config"] = json.loads(__import__("pathlib").Path(cwd, "opencode.json").read_text())
         return SimpleNamespace(returncode=0, stdout="", stderr="")
 
-    monkeypatch.setattr("free_fleet.providers.opencode.subprocess.run", fake_run)
+    monkeypatch.setattr("harness_fleet.providers.opencode.subprocess.run", fake_run)
     LocalOpenCodeCLI().run({"permission": {"*": "deny"}, "mcp": {}}, ["run", "prompt"], 10)
 
     assert captured["command"] == ["opencode", "run", "prompt"]

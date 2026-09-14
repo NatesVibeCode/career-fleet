@@ -3,14 +3,15 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any, Dict, List, Literal, Optional
+from typing import Any, Literal
+
 from pydantic import BaseModel, ConfigDict, Field
 
 
 class Dealbreakers(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    max_headcount: Optional[int] = Field(
+    max_headcount: int | None = Field(
         default=None,
         ge=1,
         description="Optional maximum company headcount. Leave unset to avoid assuming a size preference."
@@ -29,7 +30,7 @@ class Dealbreakers(BaseModel):
             "remote_only or remote_or_hybrid only when the user requests it."
         )
     )
-    disallowed_locations: List[str] = Field(
+    disallowed_locations: list[str] = Field(
         default_factory=list,
         description="Mandatory in-office locations that trigger disqualification."
     )
@@ -47,7 +48,7 @@ class Dealbreakers(BaseModel):
         le=8.0,
         description="Minimum domestic/regional timezone overlap required for effective sync."
     )
-    candidate_timezone: Optional[str] = Field(
+    candidate_timezone: str | None = Field(
         default=None,
         description="Optional IANA timezone for the candidate, used with timezone metadata from a posting."
     )
@@ -64,15 +65,15 @@ class IdealEmployerProfile(BaseModel):
         default="1.0.0",
         description="Profile specification version."
     )
-    wedge_capabilities: List[str] = Field(
+    wedge_capabilities: list[str] = Field(
         default_factory=list,
         description="Core high-leverage capabilities the candidate deploys."
     )
-    required_stack: List[str] = Field(
+    required_stack: list[str] = Field(
         default_factory=list,
         description="Core technical stack or infrastructure required in the target company."
     )
-    negative_stack: List[str] = Field(
+    negative_stack: list[str] = Field(
         default_factory=list,
         description="Technologies indicating legacy bloat or misaligned engineering culture."
     )
@@ -80,15 +81,15 @@ class IdealEmployerProfile(BaseModel):
         default_factory=Dealbreakers,
         description="Hard dealbreakers that disqualify companies immediately."
     )
-    hiring_catalysts: List[str] = Field(
+    hiring_catalysts: list[str] = Field(
         default_factory=list,
         description="Catalyst events that create urgent leadership budget and mandate."
     )
-    target_leadership: List[str] = Field(
+    target_leadership: list[str] = Field(
         default_factory=list,
         description="Leadership traits and counterpart profiles."
     )
-    anchor_companies: List[str] = Field(
+    anchor_companies: list[str] = Field(
         default_factory=list,
         description="Exemplar companies retained as context for calibration and external evaluation; not a direct deterministic score."
     )
@@ -106,7 +107,7 @@ class IdealEmployerProfile(BaseModel):
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text(self.model_dump_json(indent=2), encoding="utf-8")
 
-    def to_triage_criteria(self) -> Dict[str, Any]:
+    def to_triage_criteria(self) -> dict[str, Any]:
         """Produce structured criteria dictionary for Lane 2 Gatekeeper Triage."""
         return {
             "max_headcount": self.dealbreakers.max_headcount,

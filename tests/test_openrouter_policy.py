@@ -1,6 +1,7 @@
 import httpx
-from free_fleet.models import RoutePolicy
-from free_fleet.providers.openrouter import OpenRouterProvider
+
+from harness_fleet.models import RoutePolicy
+from harness_fleet.providers.openrouter import OpenRouterProvider
 
 
 def test_openrouter_injects_zdr_and_privacy_controls(monkeypatch):
@@ -40,5 +41,5 @@ def test_openrouter_rate_limit_populates_retry_after(monkeypatch):
     prov = OpenRouterProvider(api_key="test-key")
     ok, text, receipt = prov.run_prompt("openrouter/meta/llama-3:free", "hello")
     assert ok is False
-    assert receipt["error_type"] == "rate_limit"
-    assert receipt["retry_after"] == 8.0
+    assert receipt.error_type == "rate_limit"
+    assert receipt.retry_after == 8.0

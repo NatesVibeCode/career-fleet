@@ -7,38 +7,39 @@ Covers:
 - Export format jsonl
 - SQLite online db backup
 - Input loaders: txt, md, html
-- High-level Python SDK: free_fleet.process
+- High-level Python SDK: harness_fleet.process
 - Explicit --free-only policy flag
-- Deprecation notice for bulk-lanes invocation
+- Deprecation notice for harness-fleet invocation
 """
 from __future__ import annotations
 
 import argparse
 import csv
 import json
-import sqlite3
-import sys
 from pathlib import Path
 
-import pytest
-
-import free_fleet
-from free_fleet.catalog import PriceState, RouteCatalog
-from free_fleet.cli import (
+import harness_fleet
+from harness_fleet.catalog import PriceState, RouteCatalog
+from harness_fleet.cli import (
     _extract_policy,
-    _maybe_emit_deprecation_notice,
     cmd_db_backup,
     cmd_init,
     cmd_quickstart,
 )
-from free_fleet.engine import Engine
-from free_fleet.export import export_clean_packet
-from free_fleet.grounding import normalize_grounding, verify_grounding
-from free_fleet.input_data import load_input_items
-from free_fleet.models import CandidateExtractedItem, InputItem, QuoteCandidate, RoutePolicy, SortSpec, TaskSpec
-from free_fleet.packer import pack_items
-from free_fleet.store import FreeFleetStore
-from free_fleet.task import create_task_from_preset, load_task_spec
+from harness_fleet.engine import Engine
+from harness_fleet.export import export_clean_packet
+from harness_fleet.grounding import normalize_grounding, verify_grounding
+from harness_fleet.input_data import load_input_items
+from harness_fleet.models import (
+    CandidateExtractedItem,
+    QuoteCandidate,
+    RoutePolicy,
+    SortSpec,
+    TaskSpec,
+)
+from harness_fleet.packer import pack_items
+from harness_fleet.store import HarnessStore
+from harness_fleet.task import create_task_from_preset
 
 
 def test_quickstart_demo(tmp_path: Path):
@@ -61,7 +62,7 @@ def test_quickstart_demo(tmp_path: Path):
     assert csv_path.is_file()
 
     data = json.loads(out_packet.read_text())
-    assert data["format_version"] == "free_fleet_v2"
+    assert data["format_version"] == "harness_fleet_v2"
     assert data["run_id"] == run_id
     assert data["total_verified_records"] > 0
     assert len(data["records"]) == data["total_verified_records"]
@@ -92,7 +93,7 @@ def test_init_from_example_csv(tmp_path: Path):
     )
     cmd_init(args)
 
-    store = FreeFleetStore(db_path)
+    store = HarnessStore(db_path)
     spec = store.get_task(task_name)
     assert spec.name == task_name
     schema = spec.claims_schema
@@ -174,7 +175,7 @@ def test_export_jsonl(tmp_path: Path):
     )
     cmd_quickstart(args)
 
-    store = FreeFleetStore(db_path)
+    store = HarnessStore(db_path)
     snapshot = store.run_snapshot("jsonl-run")
 
     jsonl_output = tmp_path / "exported.jsonl"
@@ -191,7 +192,7 @@ def test_export_jsonl(tmp_path: Path):
 
 def test_db_backup(tmp_path: Path):
     db_path = tmp_path / "original.db"
-    store = FreeFleetStore(db_path)
+    store = HarnessStore(db_path)
     spec = TaskSpec(name="backup_test", instructions="test")
     store.register_task(spec)
 
@@ -207,7 +208,7 @@ def test_db_backup(tmp_path: Path):
     assert backup_path.is_file()
     assert backup_path.stat().st_size > 0
 
-    backup_store = FreeFleetStore(backup_path)
+    backup_store = HarnessStore(backup_path)
     retrieved = backup_store.get_task("backup_test")
     assert retrieved.name == "backup_test"
 
@@ -269,7 +270,7 @@ def test_high_level_process_sdk(tmp_path: Path):
     ]
 
     out_packet = tmp_path / "sdk_out.json"
-    result = free_fleet.process(
+    result = harness_fleet.process(
         task=task,
         input=input_items,
         run_id="sdk-demo-run",
@@ -284,7 +285,7 @@ def test_high_level_process_sdk(tmp_path: Path):
 
 def test_free_only_flag_and_policy():
     parser = argparse.ArgumentParser()
-    from free_fleet.cli import _policy_options
+    from harness_fleet.cli import _policy_options
 
     _policy_options(parser)
     args = parser.parse_args(["--free-only"])
@@ -294,16 +295,15 @@ def test_free_only_flag_and_policy():
     assert policy.free_only is True
 
 
-def test_deprecation_notice_bulk_lanes(monkeypatch, capsys):
-    monkeypatch.setattr(sys, "argv", ["/usr/local/bin/bulk-lanes", "doctor"])
-    _maybe_emit_deprecation_notice()
-    captured = capsys.readouterr()
-    assert "bulk-lanes` is deprecated" in captured.err
+def test_no_deprecation_shim():
+    import harness_fleet.cli as cli_module
+
+    assert not hasattr(cli_module, "_maybe_emit_deprecation_notice")
 
 
 def test_account_research_pipeline(tmp_path: Path):
     db_path = tmp_path / "research_test.db"
-    store = FreeFleetStore(db_path)
+    store = HarnessStore(db_path)
     catalog = RouteCatalog(db_path=store.path)
     catalog.add_route(
         route_id="demo/fake",
@@ -355,7 +355,7 @@ def test_account_research_pipeline(tmp_path: Path):
     )
 
     assert ranked_csv.is_file()
-    with open(ranked_csv, mode="r", encoding="utf-8") as f:
+    with open(ranked_csv, encoding="utf-8") as f:
         rows = list(csv.DictReader(f))
     assert len(rows) == 5
     assert [r["rank"] for r in rows] == ["1", "2", "3", "4", "5"]

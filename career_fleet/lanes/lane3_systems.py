@@ -5,10 +5,10 @@ and mission-critical infrastructure vs. fragile commodity wrappers.
 from __future__ import annotations
 
 import re
-from typing import Any, Dict, List
+from typing import Any
+
 from career_fleet.profile import IdealEmployerProfile
 from career_fleet.store import CareerStore
-
 
 SYSTEM_WEDGE_SIGNALS = [
     (re.compile(r"\b(?:database|distributed systems|storage engine|raft|consensus|kafka)\b", re.I), "Infrastructure & Data Systems"),
@@ -28,11 +28,11 @@ def _phrase_pattern(phrase: str) -> re.Pattern[str] | None:
     )
 
 
-def _stack_options(requirement: str) -> List[str]:
+def _stack_options(requirement: str) -> list[str]:
     return [option.strip() for option in str(requirement or "").split("/") if option.strip()]
 
 
-def _configured_matches(text: str, phrases: List[str]) -> List[str]:
+def _configured_matches(text: str, phrases: list[str]) -> list[str]:
     matches = []
     for phrase in phrases:
         pattern = _phrase_pattern(phrase)
@@ -44,7 +44,7 @@ def _configured_matches(text: str, phrases: List[str]) -> List[str]:
 def score_technical_wedge(
     text: str,
     profile: IdealEmployerProfile,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Score technical wedge depth and extract supporting quotes."""
     if not text or not text.strip():
         return {
@@ -79,18 +79,18 @@ def score_technical_wedge(
     for requirement in profile.required_stack:
         matched_option = None
         for option in _stack_options(requirement):
-            pattern = _phrase_pattern(option)
-            if pattern and pattern.search(text):
+            stack_pattern = _phrase_pattern(option)
+            if stack_pattern and stack_pattern.search(text):
                 matched_option = option
                 break
         if matched_option:
             if matched_option not in matched_stack:
                 matched_stack.append(matched_option)
-            pattern = _phrase_pattern(matched_option)
-            match = pattern.search(text) if pattern else None
-            if match:
-                start = max(0, match.start() - 30)
-                end = min(len(text), match.end() + 30)
+            stack_pattern = _phrase_pattern(matched_option)
+            stack_match = stack_pattern.search(text) if stack_pattern else None
+            if stack_match:
+                start = max(0, stack_match.start() - 30)
+                end = min(len(text), stack_match.end() + 30)
                 required_quotes.append(text[start:end].strip())
         else:
             missing_required_stack.append(requirement)
@@ -100,11 +100,11 @@ def score_technical_wedge(
     matched_negative_stack = _configured_matches(text, profile.negative_stack)
 
     for phrase in matched_capabilities + matched_catalysts + matched_negative_stack:
-        pattern = _phrase_pattern(phrase)
-        match = pattern.search(text) if pattern else None
-        if match:
-            start = max(0, match.start() - 30)
-            end = min(len(text), match.end() + 30)
+        sig_pattern = _phrase_pattern(phrase)
+        sig_match = sig_pattern.search(text) if sig_pattern else None
+        if sig_match:
+            start = max(0, sig_match.start() - 30)
+            end = min(len(text), sig_match.end() + 30)
             signal_quotes.append(text[start:end].strip())
 
     score = (
@@ -146,7 +146,7 @@ def score_technical_wedge(
 def run_lane3_systems(
     store: CareerStore,
     profile: IdealEmployerProfile,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Evaluate every current Lane 2 survivor, including prior results.
 
     A profile change must be able to invalidate a previously qualified

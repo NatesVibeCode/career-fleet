@@ -1,8 +1,14 @@
 import json
 from pathlib import Path
 
-from free_fleet.models import CandidateModelOutput, CleanPacket, InputItem, ModelOutput, TaskSpec
-from free_fleet.store import MIGRATION_002_PATH, SCHEMA_PATH, SCHEMA_SQL
+from harness_fleet.models import (
+    CandidateModelOutput,
+    CleanPacket,
+    InputItem,
+    ModelOutput,
+    TaskSpec,
+)
+from harness_fleet.store import MIGRATION_002_PATH, SCHEMA_PATH, SCHEMA_SQL
 
 
 def test_published_json_schemas_match_runtime_models():

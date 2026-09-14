@@ -1,27 +1,28 @@
 """Regression tests for audit bug fixes."""
 import json
-import pytest
 from pathlib import Path
 from unittest.mock import MagicMock
 
-from free_fleet.models import (
+import pytest
+
+from harness_fleet.catalog import PriceState, RouteCatalog
+from harness_fleet.engine import Engine
+from harness_fleet.export import _evaluate_filter, _filter_and_sort_records
+from harness_fleet.grounding import normalize_grounding
+from harness_fleet.input_data import _resolve_only_ids, load_input_items
+from harness_fleet.models import (
     CandidateExtractedItem,
     ClaimFilter,
     FilterClause,
     FilterOp,
-    QuoteCandidate,
     InputItem,
+    QuoteCandidate,
     SortSpec,
     TaskSpec,
 )
-from free_fleet.providers.base import clean_llm_json
-from free_fleet.providers.opencode import OpenCodeProvider
-from free_fleet.input_data import load_input_items, _resolve_only_ids
-from free_fleet.export import _filter_and_sort_records, _evaluate_filter
-from free_fleet.grounding import normalize_grounding
-from free_fleet.store import FreeFleetStore
-from free_fleet.engine import Engine
-from free_fleet.catalog import RouteCatalog, PriceState
+from harness_fleet.providers.base import clean_llm_json
+from harness_fleet.providers.opencode import OpenCodeProvider
+from harness_fleet.store import HarnessStore
 
 
 def test_clean_llm_json_conversational_and_malformed():
@@ -98,7 +99,7 @@ def test_csv_excel_bom_and_trailing_empty_rows(tmp_path: Path):
 
 
 def test_export_sorting_mixed_types_and_quoted_filters():
-    from free_fleet.models import ExtractedItem, QuoteRef
+    from harness_fleet.models import ExtractedItem, QuoteRef
 
     digest = "a" * 64
     records = [
@@ -134,7 +135,7 @@ def test_export_sorting_mixed_types_and_quoted_filters():
 
 def test_resume_reclaims_abandoned_leased_batches(tmp_path: Path):
     db_path = tmp_path / "test.db"
-    store = FreeFleetStore(db_path)
+    store = HarnessStore(db_path)
     catalog = RouteCatalog(db_path=db_path)
     catalog.add_route(
         route_id="demo/fake",
@@ -159,7 +160,7 @@ def test_resume_reclaims_abandoned_leased_batches(tmp_path: Path):
         InputItem(item_id="item_2", text="This is sample text for item 2."),
     ]
 
-    from free_fleet.packer import pack_items
+    from harness_fleet.packer import pack_items
     batches = pack_items(items, batch_size=1, max_slice_chars=1000)
     store.create_run(
         run_id="run_abandoned",
@@ -181,7 +182,7 @@ def test_resume_reclaims_abandoned_leased_batches(tmp_path: Path):
     snapshot_before = store.run_snapshot("run_abandoned")
     assert snapshot_before["batches"][lease1["batch"]["batch_id"]]["status"] == "leased"
 
-    from free_fleet.models import RoutePolicy
+    from harness_fleet.models import RoutePolicy
     engine = Engine(task=spec, store=store, catalog=catalog, policy=RoutePolicy(allowed_routes=["demo/fake"]))
     packet = engine.resume_campaign("run_abandoned", concurrency=1, output_packet_path=tmp_path / "packet.json")
 
@@ -227,16 +228,17 @@ def test_candidate_offsets_repaired_when_inaccurate():
 
 
 def test_mcp_server_evaluate_tool(tmp_path: Path):
-    from free_fleet.mcp_server import create_mcp_server
     import anyio
+
+    from harness_fleet.mcp_server import create_mcp_server
 
     server = create_mcp_server(tmp_path)
     tool_names = [tool.name for tool in anyio.run(server.list_tools)]
-    assert "free_fleet_eval" in tool_names
+    assert "harness_fleet_eval" in tool_names
 
 
 def test_canonical_url_preserves_query_params():
-    from free_fleet.discover import canonical_url
+    from harness_fleet.discover import canonical_url
 
     u1 = "https://news.ycombinator.com/item?id=123"
     u2 = "https://news.ycombinator.com/item?id=456"
@@ -246,7 +248,7 @@ def test_canonical_url_preserves_query_params():
 
 
 def test_to_input_items_handles_multiple_collisions():
-    from free_fleet.discover import to_input_items, RawRecord
+    from harness_fleet.discover import RawRecord, to_input_items
 
     records = [
         RawRecord(text="Item 1 text", source_uri="https://example.com/feed", title="Feed item"),
@@ -261,7 +263,7 @@ def test_to_input_items_handles_multiple_collisions():
 
 
 def test_ats_records_includes_profile_evidence():
-    from free_fleet.discover import _ats_records
+    from harness_fleet.discover import _ats_records
 
     jobs = [{"id": 42, "title": "Staff Engineer", "content": "Full text of posting"}]
     records = _ats_records(
@@ -281,8 +283,10 @@ def test_ats_records_includes_profile_evidence():
 
 def test_gzipped_sitemap_decompression(tmp_path: Path):
     import gzip
-    from free_fleet.discover import fetch_sitemap_urls
+
     import httpx
+
+    from harness_fleet.discover import fetch_sitemap_urls
 
     xml = b"""<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
@@ -301,11 +305,11 @@ def test_gzipped_sitemap_decompression(tmp_path: Path):
 
 
 def test_scoring_respects_free_only_policy(tmp_path: Path):
-    from free_fleet.scoring import filter_and_rank_routes
-    from free_fleet.models import RoutePolicy
-    from free_fleet.store import BulkLanesStore
+    from harness_fleet.models import RoutePolicy
+    from harness_fleet.scoring import filter_and_rank_routes
+    from harness_fleet.store import HarnessStore
 
-    store = BulkLanesStore(tmp_path / "test.db")
+    store = HarnessStore(tmp_path / "test.db")
     routes = [
         {"id": "paid/model-1", "provider": "paid", "price_state": "unknown", "cost_per_1k_input": 5.0, "cost_per_1k_output": 15.0},
         {"id": "free/model-1", "provider": "free", "price_state": "price_observed_zero", "cost_per_1k_input": 0.0, "cost_per_1k_output": 0.0},
@@ -315,8 +319,8 @@ def test_scoring_respects_free_only_policy(tmp_path: Path):
 
 
 def test_circuit_breaker_trips_when_route_pinned_and_free_only(tmp_path: Path):
-    from free_fleet.catalog import RouteCatalog, RouteCircuitBreaker
-    from free_fleet.models import RoutePolicy
+    from harness_fleet.catalog import RouteCatalog, RouteCircuitBreaker
+    from harness_fleet.models import RoutePolicy
 
     cat = RouteCatalog(tmp_path / "routes.json", db_path=tmp_path / "test.db")
     cat.add_route("openrouter/test-model", provider="openrouter", cost_per_1k_input=0.0, cost_per_1k_output=0.0)
@@ -332,7 +336,7 @@ def test_circuit_breaker_trips_when_route_pinned_and_free_only(tmp_path: Path):
 
 
 def test_route_catalog_init_with_string_path(tmp_path: Path):
-    from free_fleet.catalog import RouteCatalog
+    from harness_fleet.catalog import RouteCatalog
 
     str_path = str(tmp_path / "custom_routes.json")
     catalog = RouteCatalog(str_path)
@@ -340,14 +344,13 @@ def test_route_catalog_init_with_string_path(tmp_path: Path):
 
 
 def test_account_fleet_db_env_var_respected(monkeypatch, tmp_path: Path):
-    from free_fleet.store import default_db_path
-    from free_fleet.cli import _store
     import argparse
 
+    from harness_fleet.cli import _store
+    from harness_fleet.store import default_db_path
+
     custom_db = str(tmp_path / "acct.db")
-    monkeypatch.setenv("ACCOUNT_FLEET_DB", custom_db)
-    monkeypatch.delenv("FREE_FLEET_DB", raising=False)
-    monkeypatch.delenv("BULK_LANES_DB", raising=False)
+    monkeypatch.setenv("HARNESS_FLEET_DB", custom_db)
 
     assert str(default_db_path()) == custom_db
 
@@ -357,8 +360,9 @@ def test_account_fleet_db_env_var_respected(monkeypatch, tmp_path: Path):
 
 
 def test_safe_json_helper():
-    from free_fleet.discover import _safe_json, DiscoverError
     import httpx
+
+    from harness_fleet.discover import DiscoverError, _safe_json
 
     resp_bad = httpx.Response(200, text="<html>Cloudflare 502 error</html>")
     with pytest.raises(DiscoverError) as exc_info:
@@ -367,11 +371,12 @@ def test_safe_json_helper():
 
 
 def test_crawl_site_link_extraction_with_render_js(monkeypatch):
-    from free_fleet.discover import crawl_site
     import httpx
 
+    from harness_fleet.discover import crawl_site
+
     rendered_html = '<html><body><h1>Welcome</h1><a href="/subpage">Next</a></body></html>'
-    monkeypatch.setattr("free_fleet.discover._render_js", lambda url, timeout: rendered_html)
+    monkeypatch.setattr("harness_fleet.discover._render_js", lambda url, timeout: rendered_html)
 
     client = httpx.Client()
     records, skipped = crawl_site("https://example.com", client=client, max_pages=2, render_js=True, respect_robots=False)
@@ -382,8 +387,8 @@ def test_crawl_site_link_extraction_with_render_js(monkeypatch):
 
 
 def test_evaluate_filter_equals_and_null():
-    from free_fleet.export import _evaluate_filter
-    from free_fleet.models import ClaimFilter, FilterClause, FilterOp
+    from harness_fleet.export import _evaluate_filter
+    from harness_fleet.models import ClaimFilter, FilterClause, FilterOp
 
     def _f(field, op, value):
         return ClaimFilter(all=[FilterClause(field=field, op=FilterOp(op), value=value)])
@@ -398,9 +403,10 @@ def test_evaluate_filter_equals_and_null():
 
 
 def test_export_csv_reserved_column_collision(tmp_path: Path):
-    from free_fleet.export import export_clean_csv
-    from free_fleet.models import TaskSpec
     import csv
+
+    from harness_fleet.export import export_clean_csv
+    from harness_fleet.models import TaskSpec
 
     task = TaskSpec(
         name="test-reserved",
@@ -436,7 +442,7 @@ def test_export_csv_reserved_column_collision(tmp_path: Path):
     }
     csv_path = tmp_path / "out.csv"
     export_clean_csv(run_data, csv_path, rank=True)
-    with open(csv_path, mode="r", encoding="utf-8") as f:
+    with open(csv_path, encoding="utf-8") as f:
         reader = csv.reader(f)
         header = next(reader)
     # Ensure no duplicates in header
@@ -446,13 +452,14 @@ def test_export_csv_reserved_column_collision(tmp_path: Path):
 
 
 def test_cmd_test_empty_input_error(tmp_path: Path):
-    from free_fleet.cli import cmd_test
-    from free_fleet.store import FreeFleetStore
-    from free_fleet.models import TaskSpec
     import argparse
 
+    from harness_fleet.cli import cmd_test
+    from harness_fleet.models import TaskSpec
+    from harness_fleet.store import HarnessStore
+
     db_path = tmp_path / "test.db"
-    store = FreeFleetStore(db_path)
+    store = HarnessStore(db_path)
     task = TaskSpec(
         name="test-task",
         instructions="do things",
@@ -475,7 +482,7 @@ def test_cmd_test_empty_input_error(tmp_path: Path):
 
 
 def test_run_discovery_multi_backend_isolation(monkeypatch):
-    from free_fleet.discover import run_discovery, SearchHit, DiscoverError
+    from harness_fleet.discover import DiscoverError, SearchHit, run_discovery
 
     def fake_run_backend(backend, query, max_results, searxng_url, client, *args, **kwargs):
         if backend == "ddgs":
@@ -484,9 +491,9 @@ def test_run_discovery_multi_backend_isolation(monkeypatch):
             raise DiscoverError("HN rate limit 429")
         return []
 
-    monkeypatch.setattr("free_fleet.discover._run_backend", fake_run_backend)
-    monkeypatch.setattr("free_fleet.discover.fetch_smart_url", lambda url, *args, **kwargs: None)
-    monkeypatch.setattr("free_fleet.discover.to_input_items", lambda records, *args, **kwargs: [InputItem(item_id="1", text=r.text, source_uri=r.source_uri) for r in records])
+    monkeypatch.setattr("harness_fleet.discover._run_backend", fake_run_backend)
+    monkeypatch.setattr("harness_fleet.discover.fetch_smart_url", lambda url, *args, **kwargs: None)
+    monkeypatch.setattr("harness_fleet.discover.to_input_items", lambda records, *args, **kwargs: [InputItem(item_id="1", text=r.text, source_uri=r.source_uri) for r in records])
 
     items, report = run_discovery(
         queries=["test query"],
@@ -501,8 +508,14 @@ def test_run_discovery_multi_backend_isolation(monkeypatch):
 
 
 def test_safe_json_in_discourse_and_lemmy(monkeypatch):
-    from free_fleet.discover import search_lemmy, fetch_lemmy, fetch_discourse_search, DiscoverError
     import httpx
+
+    from harness_fleet.discover import (
+        DiscoverError,
+        fetch_discourse_search,
+        fetch_lemmy,
+        search_lemmy,
+    )
 
     fake_html_resp = httpx.Response(200, text="<html>Nginx 502 Bad Gateway</html>")
 
@@ -524,7 +537,7 @@ def test_safe_json_in_discourse_and_lemmy(monkeypatch):
 
 
 def test_input_data_invalid_explicit_columns(tmp_path: Path):
-    from free_fleet.input_data import load_input_items, InputDataError
+    from harness_fleet.input_data import InputDataError, load_input_items
 
     csv_file = tmp_path / "data.csv"
     csv_file.write_text("item_id,text,heading,link\n1,some text,My Heading,https://example.com\n")
@@ -545,7 +558,8 @@ def test_input_data_invalid_explicit_columns(tmp_path: Path):
 
 def test_opencode_timeout_classification():
     import subprocess
-    from free_fleet.providers.opencode import OpenCodeProvider
+
+    from harness_fleet.providers.opencode import OpenCodeProvider
 
     class TimeoutRunner:
         def run(self, task_config, args, timeout_sec):
@@ -555,11 +569,11 @@ def test_opencode_timeout_classification():
     ok, text, receipt = prov.run_prompt("opencode/test-model", "test prompt", timeout_sec=5)
     assert ok is False
     assert text is None
-    assert receipt["error_type"] == "timeout"
+    assert receipt.error_type == "timeout"
 
 
 def test_fetch_hn_thread_comment_support(monkeypatch):
-    from free_fleet.discover import fetch_hn_thread
+    from harness_fleet.discover import fetch_hn_thread
 
     def fake_hn_item(item_id, client, timeout):
         if item_id == "99999":
@@ -580,7 +594,7 @@ def test_fetch_hn_thread_comment_support(monkeypatch):
             }
         return None
 
-    monkeypatch.setattr("free_fleet.discover._hn_item", fake_hn_item)
+    monkeypatch.setattr("harness_fleet.discover._hn_item", fake_hn_item)
 
     rec = fetch_hn_thread("99999")
     assert "great discussion comment" in rec.text
@@ -589,8 +603,9 @@ def test_fetch_hn_thread_comment_support(monkeypatch):
 
 
 def test_openrouter_refresh_pricing_resilience(monkeypatch, tmp_path):
-    from free_fleet.catalog import RouteCatalog
     import httpx
+
+    from harness_fleet.catalog import RouteCatalog
 
     fake_models_resp = {
         "data": [
@@ -629,7 +644,7 @@ def test_openrouter_refresh_pricing_resilience(monkeypatch, tmp_path):
 
 
 def test_pack_items_invalid_batch_size():
-    from free_fleet.packer import pack_items
+    from harness_fleet.packer import pack_items
 
     with pytest.raises(ValueError, match="batch_size must be greater than 0"):
         pack_items([], batch_size=0)
@@ -638,7 +653,7 @@ def test_pack_items_invalid_batch_size():
 
 
 def test_slicer_min_width():
-    from free_fleet.slicer import slice_document
+    from harness_fleet.slicer import slice_document
 
     text = "abcdefghij"
     slices = slice_document(text, max_chars=2)
@@ -655,8 +670,15 @@ def test_slicer_min_width():
 
 
 def test_safe_json_in_all_discovery_backends():
-    from free_fleet.discover import search_searxng, search_hn, _yc_get_page, _se_get, DiscoverError
     import httpx
+
+    from harness_fleet.discover import (
+        DiscoverError,
+        _se_get,
+        _yc_get_page,
+        search_hn,
+        search_searxng,
+    )
 
     fake_html_resp = httpx.Response(200, text="<html>502 Bad Gateway</html>")
 
@@ -681,9 +703,10 @@ def test_safe_json_in_all_discovery_backends():
 
 
 def test_null_content_in_providers(monkeypatch):
-    from free_fleet.providers.openai_compatible import OpenAICompatibleProvider
-    from free_fleet.providers.openrouter import OpenRouterProvider
     import httpx
+
+    from harness_fleet.providers.openai_compatible import OpenAICompatibleProvider
+    from harness_fleet.providers.openrouter import OpenRouterProvider
 
     payload_null_content = {
         "choices": [{"message": {"role": "assistant", "content": None}}],
@@ -714,12 +737,12 @@ def test_null_content_in_providers(monkeypatch):
 
 
 def test_resume_campaign_fallback_output_path(tmp_path):
-    from free_fleet.engine import Engine
-    from free_fleet.task import create_task_from_preset
-    from free_fleet.store import FreeFleetStore
-    from free_fleet.models import InputItem, RoutePolicy
+    from harness_fleet.engine import Engine
+    from harness_fleet.models import InputItem, RoutePolicy
+    from harness_fleet.store import HarnessStore
+    from harness_fleet.task import create_task_from_preset
 
-    store = FreeFleetStore(tmp_path / "test.db")
+    store = HarnessStore(tmp_path / "test.db")
     task = create_task_from_preset("test_task")
     store.register_task(task)
 
@@ -734,7 +757,7 @@ def test_resume_campaign_fallback_output_path(tmp_path):
         price_state="price_observed_zero",
     )
     items = [InputItem(item_id="i1", text="Sample test text verification fact here.")]
-    packet = engine.run_campaign(
+    _packet = engine.run_campaign(
         raw_items=items,
         run_id="run_fallback_test",
         input_path=str(tmp_path / "input.json"),
@@ -750,10 +773,11 @@ def test_resume_campaign_fallback_output_path(tmp_path):
 
 
 def test_export_top_zero_and_negative(tmp_path: Path):
-    from free_fleet.export import export_clean_packet, export_clean_csv
-    from free_fleet.models import TaskSpec
-    from free_fleet.store import digest_json
     import pytest
+
+    from harness_fleet.export import export_clean_csv, export_clean_packet
+    from harness_fleet.models import TaskSpec
+    from harness_fleet.store import digest_json
 
     task = TaskSpec(
         name="test-top",
@@ -812,12 +836,13 @@ def test_export_top_zero_and_negative(tmp_path: Path):
 
 
 def test_engine_run_campaign_empty_items(tmp_path: Path):
-    from free_fleet.store import FreeFleetStore
-    from free_fleet.engine import Engine
-    from free_fleet.task import create_task_from_preset
     import pytest
 
-    store = FreeFleetStore(tmp_path / "store.db")
+    from harness_fleet.engine import Engine
+    from harness_fleet.store import HarnessStore
+    from harness_fleet.task import create_task_from_preset
+
+    store = HarnessStore(tmp_path / "store.db")
     task = create_task_from_preset("test_task")
     store.register_task(task)
     engine = Engine(task=task, store=store)
@@ -827,9 +852,10 @@ def test_engine_run_campaign_empty_items(tmp_path: Path):
 
 
 def test_export_clean_csv_invalid_batch_shape(tmp_path: Path):
-    from free_fleet.export import export_clean_csv
-    from free_fleet.models import TaskSpec
     import pytest
+
+    from harness_fleet.export import export_clean_csv
+    from harness_fleet.models import TaskSpec
 
     task = TaskSpec(
         name="test-shape",
@@ -855,17 +881,17 @@ def test_export_clean_csv_invalid_batch_shape(tmp_path: Path):
 
 
 def test_demo_provider_trailing_garbage_json_recovery():
-    from free_fleet.providers.demo import DemoProvider
+    from harness_fleet.providers.demo import DemoProvider
     demo = DemoProvider()
     prompt = 'instructions here\n{"input_items": [{"item_id": "i1", "sections": [{"slice_id": "full", "text": "deterministic text for verification"}]}], "output_schema": {"properties": {"items": {"items": {"properties": {"claims": {"type": "object", "properties": {"status": {"type": "string"}}}}}}}}}\nSome extra trailing garbage text'
     ok, resp, receipt = demo.run_prompt("demo", prompt)
     assert ok is True
-    assert receipt["status"] == "complete"
+    assert receipt.status == "complete"
     assert "i1" in resp
 
 
 def test_demo_provider_short_slice_quote_min_chars():
-    from free_fleet.providers.demo import DemoProvider
+    from harness_fleet.providers.demo import DemoProvider
     demo = DemoProvider()
     prompt = 'instructions\n{"input_items": [{"item_id": "i1", "sections": [{"slice_id": "full", "text": "tiny"}]}], "output_schema": {"properties": {"items": {"items": {"properties": {"claims": {"type": "object", "properties": {"val": {"type": "string"}}}}}}}}}'
     ok, resp, receipt = demo.run_prompt("demo", prompt)
@@ -876,7 +902,7 @@ def test_demo_provider_short_slice_quote_min_chars():
 
 
 def test_demo_provider_disambiguates_repeated_quote_with_offsets():
-    from free_fleet.providers.demo import DemoProvider
+    from harness_fleet.providers.demo import DemoProvider
     demo = DemoProvider()
     source = "Introducing Browserbase Agents: One Prompt, One API Call.\n" * 2
     prompt = (
@@ -889,14 +915,14 @@ def test_demo_provider_disambiguates_repeated_quote_with_offsets():
     )
     ok, resp, receipt = demo.run_prompt("demo", prompt)
     assert ok is True
-    assert receipt["status"] == "complete"
+    assert receipt.status == "complete"
     quote = json.loads(resp)["items"][0]["quotes"][0]
     assert quote["start"] == 0
     assert quote["end"] == len(quote["text"])
 
 
 def test_demo_provider_nested_object_properties():
-    from free_fleet.providers.demo import _value_for_spec
+    from harness_fleet.providers.demo import _value_for_spec
     spec = {
         "type": "object",
         "properties": {
@@ -912,6 +938,6 @@ def test_demo_provider_nested_object_properties():
 
 
 def test_session_pool_empty_routes_raises():
-    from free_fleet.sessions import SessionPool
+    from harness_fleet.sessions import SessionPool
     with pytest.raises(ValueError, match="SessionPool requires at least one route"):
         SessionPool(num_sessions=2, routes=[])

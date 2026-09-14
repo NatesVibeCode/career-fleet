@@ -7,13 +7,14 @@ Drops disqualified companies immediately to save time and tokens.
 """
 from __future__ import annotations
 
-from datetime import datetime, timezone as dt_timezone
 import re
-from typing import Any, Dict, List, Optional
+from datetime import datetime
+from datetime import timezone as dt_timezone
+from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
 from career_fleet.profile import IdealEmployerProfile
 from career_fleet.store import CareerStore
-
 
 OFFICE_MANDATE_PATTERNS = [
     re.compile(r"\b(?:5|4)\s*days?\s*(?:a\s*week\s*)?(?:in\s*(?:the\s*|our\s*)?(?:\w+\s*)?office|on[- ]?site)\b", re.I),
@@ -108,7 +109,7 @@ LOCATION_CANONICAL_ALIASES = {
 }
 
 
-def _screening_text(company: Dict[str, Any], postings: List[Dict[str, Any]]) -> str:
+def _screening_text(company: dict[str, Any], postings: list[dict[str, Any]]) -> str:
     """Combine source text and structured location metadata for screening."""
     parts = [str(company.get("hq_location") or "")]
     for posting in postings:
@@ -143,7 +144,7 @@ def _location_matches(text: str, configured_location: str) -> bool:
     return terms <= canonical_tokens(text)
 
 
-def _has_remote_evidence(posting: Dict[str, Any]) -> bool:
+def _has_remote_evidence(posting: dict[str, Any]) -> bool:
     raw_text = str(posting.get("raw_text") or "")
     location = str(posting.get("location") or "").strip()
     text = " ".join(part for part in (raw_text, location) if part)
@@ -161,7 +162,7 @@ def _has_remote_evidence(posting: Dict[str, Any]) -> bool:
     return bool(REMOTE_POSITIVE_PATTERN.search(text))
 
 
-def _has_remote_or_hybrid_evidence(posting: Dict[str, Any]) -> bool:
+def _has_remote_or_hybrid_evidence(posting: dict[str, Any]) -> bool:
     raw_text = str(posting.get("raw_text") or "")
     location = str(posting.get("location") or "").strip()
     text = " ".join(part for part in (raw_text, location) if part)
@@ -176,7 +177,7 @@ def _has_remote_or_hybrid_evidence(posting: Dict[str, Any]) -> bool:
     return _has_remote_evidence(posting)
 
 
-def _configured_location_mandate(text: str, configured_location: str) -> Optional[str]:
+def _configured_location_mandate(text: str, configured_location: str) -> str | None:
     """Find a non-negated mandate in the same sentence as a configured location."""
     for sentence in re.split(r"(?<=[.!?\n])\s*", text):
         if not _location_matches(sentence, configured_location):
@@ -221,10 +222,10 @@ def _business_day_overlap_hours(candidate_timezone: str, employer_timezone: str)
 
 
 def _check_timezone_overlap(
-    company: Dict[str, Any],
-    postings: List[Dict[str, Any]],
+    company: dict[str, Any],
+    postings: list[dict[str, Any]],
     profile: IdealEmployerProfile,
-) -> Optional[Dict[str, Any]]:
+) -> dict[str, Any] | None:
     dealbreakers = profile.dealbreakers
     candidate_timezone = (dealbreakers.candidate_timezone or "").strip()
     if not candidate_timezone or dealbreakers.min_timezone_overlap_hours <= 0:
@@ -266,10 +267,10 @@ def _check_timezone_overlap(
 
 
 def check_dealbreakers(
-    company: Dict[str, Any],
-    postings: List[Dict[str, Any]],
+    company: dict[str, Any],
+    postings: list[dict[str, Any]],
     profile: IdealEmployerProfile,
-) -> Optional[Dict[str, Any]]:
+) -> dict[str, Any] | None:
     """Return disqualification dictionary if any hard dealbreaker triggers, else None."""
     dealbreakers = profile.dealbreakers
 
@@ -284,7 +285,7 @@ def check_dealbreakers(
                     "rule": "headcount_unknown",
                 }
         try:
-            hc_int = int(headcount)
+            hc_int = int(headcount if headcount is not None else "unknown")
             if hc_int > dealbreakers.max_headcount:
                 return {
                     "disqualified": True,
@@ -399,7 +400,7 @@ def check_dealbreakers(
 def run_lane2_triage(
     store: CareerStore,
     profile: IdealEmployerProfile,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Execute Gatekeeper Triage across all tracked companies.
 
     Rechecking processed companies lets profile edits take effect. A new
@@ -426,7 +427,7 @@ def run_lane2_triage(
                 score=0.0,
                 verdict="DISQUALIFIED",
                 rationale=dq["reason"],
-                quotes=[dq.get("quote")] if dq.get("quote") else [],
+                quotes=[dq["quote"]] if dq.get("quote") else [],
                 profile_revision_id=profile_revision_id,
             )
             dropped += 1

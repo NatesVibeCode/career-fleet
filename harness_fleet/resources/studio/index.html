@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Harness Studio</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { font-family: system-ui, sans-serif; margin: 0 auto; max-width: 960px; padding: 16px; }
+  h1 { font-size: 1.4rem; }
+  h2 { font-size: 1.05rem; margin-top: 1.6em; border-bottom: 1px solid #8884; padding-bottom: 4px; }
+  #cards { display: flex; flex-wrap: wrap; gap: 8px; }
+  .card { border: 2px solid #8886; border-radius: 10px; padding: 8px 10px; cursor: pointer; min-width: 110px; text-align: center; }
+  .card.off { opacity: 0.45; }
+  .card.unavail { cursor: not-allowed; border-style: dashed; }
+  .card svg { display: block; margin: 0 auto 4px; }
+  .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 4px; }
+  .ok { background: #2a2; } .no { background: #a22; }
+  .models { font-size: 0.85rem; columns: 2; }
+  .models label { display: block; break-inside: avoid; padding: 2px 0; }
+  .badge { font-size: 0.72rem; border: 1px solid #8886; border-radius: 6px; padding: 0 5px; margin-left: 6px; }
+  .step { border: 1px solid #8886; border-radius: 10px; padding: 10px; margin: 10px 0; }
+  .row { display: flex; flex-wrap: wrap; gap: 10px; align-items: end; margin: 6px 0; }
+  .row label { display: flex; flex-direction: column; font-size: 0.8rem; gap: 2px; }
+  input[type=number] { width: 7em; }
+  input[type=text], select, textarea { font: inherit; }
+  textarea { width: 100%; min-height: 64px; font-family: monospace; font-size: 0.8rem; }
+  button { font: inherit; padding: 6px 14px; cursor: pointer; }
+  #runBtn { font-size: 1.05rem; }
+  .result { border-left: 4px solid #2a2; padding: 6px 10px; margin: 8px 0; }
+  .result.failed { border-color: #a22; }
+  .note { font-style: italic; }
+  .err { color: #a22; }
+</style>
+</head>
+<body>
+<h1>Harness Studio</h1>
+<p>Pick harnesses, pick their models, then build steps: each step is a sequenced run with its own routes, budgets, and an optional paid opt-in with a recorded trust note. Paid routes never run without the opt-in.</p>
+
+<h2>1 · Harnesses</h2>
+<div id="cards"></div>
+
+<h2>2 · Models</h2>
+<div id="modelsBox"><p><button id="refreshBtn" type="button">Refresh catalog</button> <span id="refreshMsg"></span></p><div class="models" id="models"></div></div>
+
+<h2>3 · Steps</h2>
+<div id="steps"></div>
+<p><button id="addStep" type="button">+ Add step</button></p>
+
+<h2>4 · Run</h2>
+<p><button id="runBtn" type="button">Run plan</button> <span id="runMsg"></span></p>
+<div id="results"></div>
+
+<script>
+const H = { harnesses: [], routes: [], presets: [], enabled: new Set(), picked: new Set(), steps: [] };
+const initial = { O: "opencode", C: "claude", X: "codex", U: "cursor", G: "grok", M: "muse", A: "antigravity" };
+
+async function api(method, path, body) {
+  const r = await fetch(path, { method, headers: {"Content-Type": "application/json"},
+    body: body === undefined ? undefined : JSON.stringify(body) });
+  const j = await r.json();
+  if (!r.ok) throw new Error(j.error || ("HTTP " + r.status));
+  return j;
+}
+function icon(letter, color) {
+  return `<svg width="34" height="34" viewBox="0 0 34 34"><circle cx="17" cy="17" r="15" fill="${color}22" stroke="${color}" stroke-width="2"/><text x="17" y="22" text-anchor="middle" font-size="15" font-weight="bold" fill="${color}">${letter}</text></svg>`;
+}
+const COLORS = { opencode: "#46c", claude: "#d73", codex: "#3a3", cursor: "#66c", grok: "#ccc", muse: "#c6c", antigravity: "#4aa" };
+
+async function load() {
+  H.harnesses = (await api("GET", "/api/harnesses")).harnesses;
+  H.routes = (await api("GET", "/api/routes")).routes;
+  H.presets = (await api("GET", "/api/presets")).presets;
+  H.harnesses.forEach(h => { if (h.available) H.enabled.add(h.name); });
+  renderCards(); renderModels(); addStep();
+}
+function renderCards() {
+  const box = document.getElementById("cards"); box.innerHTML = "";
+  H.harnesses.forEach(h => {
+    const d = document.createElement("div");
+    d.className = "card" + (H.enabled.has(h.name) ? "" : " off") + (h.available ? "" : " unavail");
+    d.title = h.detail;
+    d.innerHTML = icon(initial[h.name[0].toUpperCase()] || "?", COLORS[h.name] || "#888") +
+      `<div><span class="dot ${h.available ? "ok" : "no"}"></span><b>${h.name}</b></div><small>${h.binary}</small>`;
+    if (h.available) d.onclick = () => { H.enabled.has(h.name) ? H.enabled.delete(h.name) : H.enabled.add(h.name); renderCards(); renderModels(); };
+    box.appendChild(d);
+  });
+}
+function offeredRoutes() { return H.routes.filter(r => H.enabled.has(r.provider)); }
+function renderModels() {
+  const box = document.getElementById("models"); box.innerHTML = "";
+  if (!renderModels._init) {
+    renderModels._init = true;
+    offeredRoutes().forEach(r => { if (r.price_state === "price_observed_zero" && r.enabled) H.picked.add(r.id); });
+  }
+  offeredRoutes().forEach(r => {
+    const lab = document.createElement("label");
+    const cb = document.createElement("input");
+    cb.type = "checkbox"; cb.checked = H.picked.has(r.id);
+    cb.onchange = () => { cb.checked ? H.picked.add(r.id) : H.picked.delete(r.id); renderSteps(); };
+    lab.appendChild(cb);
+    lab.appendChild(document.createTextNode(" " + r.id));
+    const b = document.createElement("span"); b.className = "badge"; b.textContent = r.price_state; lab.appendChild(b);
+    box.appendChild(lab);
+  });
+  renderSteps();
+}
+function stepDefaults() {
+  return { task: "", preset: "score", itemsText: '[{"item_id": "i1", "text": "paste source text here"}]',
+    routes: [...H.picked], max_attempts: 20, concurrency: 2, max_per_batch: 3,
+    max_request_cost: "", allow_paid: false, paid_note: "" };
+}
+function addStep() { H.steps.push(stepDefaults()); renderSteps(); }
+function renderSteps() {
+  const box = document.getElementById("steps"); box.innerHTML = "";
+  H.steps.forEach((s, i) => {
+    const d = document.createElement("div"); d.className = "step";
+    const routeCbs = offeredRoutes().filter(r => H.picked.has(r.id)).map(r =>
+      `<label><input type="checkbox" data-s="${i}" data-r="${r.id}" ${s.routes.includes(r.id) ? "checked" : ""}> ${r.id}</label>`).join("");
+    d.innerHTML = `<b>Step ${i + 1}</b> <button type="button" data-del="${i}">remove</button>
+      <div class="row">
+        <label>Task name (existing)<input type="text" data-f="task" data-s="${i}" value="${s.task}" placeholder="optional if preset"></label>
+        <label>Preset<select data-f="preset" data-s="${i}">${H.presets.map(p => `<option ${p === s.preset ? "selected" : ""}>${p}</option>`).join("")}</select></label>
+        <label>Max attempts<input type="number" data-f="max_attempts" data-s="${i}" value="${s.max_attempts}" min="1"></label>
+        <label>Sessions<input type="number" data-f="concurrency" data-s="${i}" value="${s.concurrency}" min="1"></label>
+        <label>Max per batch<input type="number" data-f="max_per_batch" data-s="${i}" value="${s.max_per_batch}" min="1"></label>
+        <label>Max $/request<input type="number" data-f="max_request_cost" data-s="${i}" value="${s.max_request_cost}" min="0" step="any" placeholder="none"></label>
+      </div>
+      <div>Routes for this step: ${routeCbs || "<i>pick models above</i>"}</div>
+      <div class="row"><label><span><input type="checkbox" data-f="allow_paid" data-s="${i}" ${s.allow_paid ? "checked" : ""}> allow paid routes for this step</span></label>
+      <label>Trust note (recorded)<input type="text" data-f="paid_note" data-s="${i}" value="${s.paid_note}" size="48" placeholder="e.g. claude for career scoring: personal data"></label></div>
+      <label>Items (JSON array)<textarea data-f="itemsText" data-s="${i}">${s.itemsText}</textarea></label>`;
+    box.appendChild(d);
+  });
+  box.querySelectorAll("[data-f]").forEach(el => {
+    el.onchange = () => {
+      const s = H.steps[+el.dataset.s], f = el.dataset.f;
+      s[f] = el.type === "checkbox" ? el.checked : el.value;
+    };
+  });
+  box.querySelectorAll("[data-r]").forEach(el => {
+    el.onchange = () => {
+      const s = H.steps[+el.dataset.s];
+      el.checked ? s.routes.push(el.dataset.r) : s.routes = s.routes.filter(x => x !== el.dataset.r);
+    };
+  });
+  box.querySelectorAll("[data-del]").forEach(el => {
+    el.onclick = () => { H.steps.splice(+el.dataset.del, 1); renderSteps(); };
+  });
+}
+document.getElementById("addStep").onclick = addStep;
+document.getElementById("refreshBtn").onclick = async () => {
+  const m = document.getElementById("refreshMsg"); m.textContent = "refreshing…";
+  try { const r = await api("POST", "/api/routes/refresh"); m.textContent = JSON.stringify(r.refresh);
+    H.routes = (await api("GET", "/api/routes")).routes; renderModels(); }
+  catch (e) { m.textContent = "error: " + e.message; }
+};
+document.getElementById("runBtn").onclick = async () => {
+  const msg = document.getElementById("runMsg"), out = document.getElementById("results");
+  msg.textContent = "running…"; out.innerHTML = "";
+  try {
+    const steps = H.steps.map(s => ({ task: s.task || undefined, preset: s.task ? undefined : s.preset,
+      items: JSON.parse(s.itemsText), routes: s.routes,
+      max_attempts: +s.max_attempts, concurrency: +s.concurrency, max_per_batch: +s.max_per_batch,
+      max_request_cost: s.max_request_cost === "" ? undefined : +s.max_request_cost,
+      allow_paid: s.allow_paid, paid_note: s.paid_note || undefined }));
+    const r = await api("POST", "/api/runs", { steps });
+    msg.textContent = "done";
+    r.steps.forEach(st => {
+      const d = document.createElement("div");
+      d.className = "result" + (st.status === "completed" ? "" : " failed");
+      d.innerHTML = `<b>${st.run_id}</b> · ${st.task} · ${st.status} · verified ${st.verified} · tokens ${st.tokens} · cost ${st.cost} · receipts ${st.receipts}<br><small>${st.routes.join(", ")}</small>` +
+        (st.paid_note ? `<br><span class="note">trust note: ${st.paid_note}</span>` : "");
+      out.appendChild(d);
+    });
+  } catch (e) { msg.innerHTML = ""; const p = document.createElement("p"); p.className = "err"; p.textContent = "error: " + e.message; out.appendChild(p); }
+};
+load().catch(e => { document.body.insertAdjacentHTML("beforeend", `<p class="err">failed to load: ${e.message}</p>`); });
+</script>
+</body>
+</html>
