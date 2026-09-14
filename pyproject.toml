@@ -53,7 +53,6 @@ js = [
 
 [project.scripts]
 career-fleet = "career_fleet.cli:main"
-career-lanes = "career_fleet.cli:main"
 
 [tool.setuptools.packages.find]
 include = ["harness_fleet*", "career_fleet*"]

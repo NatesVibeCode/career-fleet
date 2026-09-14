@@ -128,10 +128,28 @@ def test_fallback_extraction_skips_boilerplate():
     assert "only fallback here" in text
 
 
-def test_extract_text_prefers_trafilatura(monkeypatch):
-    fake = types.ModuleType("trafilatura")
-    fake.extract = lambda html, **kw: "TRAFILATURA MAIN"
-    monkeypatch.setitem(sys.modules, "trafilatura", fake)
+def test_extract_text_prefers_readability_over_trafilatura(monkeypatch):
+    # Readability returns markup, so the chrome-aware fallback stripper
+    # still sees nav/menu roles and classes; trafilatura's plain text
+    # would bypass those heuristics and leak site chrome into evidence.
+    fake_t = types.ModuleType("trafilatura")
+    fake_t.extract = lambda html, **kw: "TRAFILATURA MAIN"
+    monkeypatch.setitem(sys.modules, "trafilatura", fake_t)
+    fake_r = types.ModuleType("readability")
+    doc_cls = type("Document", (), {"__init__": lambda self, h: None, "summary": lambda self: "<p>READABILITY MAIN</p>"})
+    fake_r.Document = doc_cls
+    monkeypatch.setitem(sys.modules, "readability", fake_r)
+    assert extract_text(HTML_DOC) == "READABILITY MAIN"
+
+
+def test_extract_text_uses_trafilatura_when_readability_empty(monkeypatch):
+    fake_t = types.ModuleType("trafilatura")
+    fake_t.extract = lambda html, **kw: "TRAFILATURA MAIN"
+    monkeypatch.setitem(sys.modules, "trafilatura", fake_t)
+    fake_r = types.ModuleType("readability")
+    doc_cls = type("Document", (), {"__init__": lambda self, h: None, "summary": lambda self: ""})
+    fake_r.Document = doc_cls
+    monkeypatch.setitem(sys.modules, "readability", fake_r)
     assert extract_text(HTML_DOC) == "TRAFILATURA MAIN"
 
 

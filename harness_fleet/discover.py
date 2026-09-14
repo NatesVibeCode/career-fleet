@@ -703,23 +703,22 @@ def _extract_title(html: str) -> str:
 
 
 def extract_text(html: str) -> str:
-    """HTML -> verbatim plain text. Prefers trafilatura, then readability, then stdlib."""
+    """HTML -> verbatim plain text. Prefers readability, then trafilatura, then stdlib.
+
+    Hidden script/style blocks are removed first: their code is never page
+    copy, and trafilatura would otherwise surface JSON-LD bodies as text.
+    Readability goes first because it returns markup, so the chrome-aware
+    fallback stripper below still sees nav/menu roles and classes;
+    trafilatura's plain-text output would bypass those heuristics and leak
+    site chrome (menus, chat widgets) into citable evidence.
+    """
     if not html.strip():
         return ""
-    try:
-        import trafilatura  # type: ignore
-
-        out = trafilatura.extract(html, include_comments=False, include_tables=True)
-        if out and out.strip():
-            return out.strip()
-    except ImportError:
-        pass
-    except Exception:
-        pass
+    cleaned = _remove_hidden_blocks(html)
     try:
         from readability import Document  # type: ignore
 
-        summary = Document(html).summary()
+        summary = Document(cleaned).summary()
         if summary and summary.strip():
             text = _fallback_strip(summary)
             if text.strip():
@@ -728,7 +727,17 @@ def extract_text(html: str) -> str:
         pass
     except Exception:
         pass
-    return _fallback_strip(html).strip()
+    try:
+        import trafilatura  # type: ignore
+
+        out = trafilatura.extract(cleaned, include_comments=False, include_tables=True)
+        if out and out.strip():
+            return out.strip()
+    except ImportError:
+        pass
+    except Exception:
+        pass
+    return _fallback_strip(cleaned).strip()
 
 
 def require_playwright() -> None:

@@ -7,7 +7,7 @@
 
 `career-fleet` turns a candidate's stated career criteria into a systematically screened pipeline of target companies and opportunities. Its built-in lanes use explicit rules and keyword signals, not nuanced model judgment. Every qualification is backed by verbatim source quotes from captured source records.
 
-*Canonical CLI is `career-fleet` (`career-lanes` remains available as an alias).*
+*Canonical CLI is `career-fleet`.*
 
 ---
 

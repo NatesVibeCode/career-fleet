@@ -27,7 +27,12 @@ def test_setup_installs_bundled_skill_and_database_idempotently(tmp_path):
     assert second.actions[0].status == "unchanged"
     assert Path(first.skill_path, "SKILL.md").is_file()
     assert HarnessStore(first.database).schema_version() == "5"
-    assert Path(first.stdio_server.command).stem in {"account-fleet", "harness-fleet"}
+    # installed_cli_path() returns the first product CLI found in this
+    # environment (or the "harness-fleet" fallback when none is installed),
+    # so any product name the resolver searches is a correct answer here.
+    assert Path(first.stdio_server.command).stem in {
+        "harness-fleet", "account-fleet", "career-fleet", "career-lanes",
+    }
     assert Path(first.skill_path).with_name("account-fleet").joinpath("SKILL.md").is_file()
     assert first.database in first.stdio_server.args
     assert first.ready is False  # packaged route hints are not fresh price evidence
