@@ -106,8 +106,12 @@ def test_refresh_all_shape_with_discovery_zeros(tmp_path, monkeypatch):
     results = catalog.refresh_all()
     for spec in HARNESS_SPECS:
         assert spec.name in results or f"{spec.name}_error" in results
-    for name in ("claude", "codex", "grok", "muse", "antigravity"):
+    # Harnesses without a models command always contribute zero.
+    for name in ("claude", "codex", "muse"):
         assert results[name] == 0
+    # Harnesses with one either discover or report why they could not.
+    for name in ("opencode", "cursor", "grok", "antigravity"):
+        assert name in results or f"{name}_error" in results
     assert "opencode_error" in results
 
 
