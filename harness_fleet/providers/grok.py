@@ -26,7 +26,7 @@ GROK_SPEC = HarnessSpec(
     prompt_file_flag="--prompt-file",
     parser="json_object",
     call_workdir=True,
-    discovery_argv=None,
+    discovery_argv=["models"],
     model_from_route=False,
 )
 

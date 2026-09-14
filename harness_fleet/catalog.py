@@ -441,6 +441,38 @@ class RouteCatalog:
                 else:
                     text = rest
             return models
+        # antigravity (`agy models`) prints a tab-separated table:
+        #   "Fetching available models..." then  id<TAB>Description
+        if spec.name == "antigravity":
+            models = {}
+            for line in text.splitlines():
+                line = line.strip()
+                if "\t" not in line:
+                    continue  # banner lines, section headers, blank
+                model_id, _, description = line.partition("\t")
+                model_id = model_id.strip()
+                if not model_id or " " in model_id:
+                    continue
+                # A bare id from a text table carries no pricing evidence: it
+                # enters as a candidate, never as an observed-zero route.
+                models[f"{spec.name}/{model_id}"] = {
+                    "id": model_id,
+                    "description": description.strip(),
+                }
+            return models
+        # grok models prints "Available models:" then "  * id (default)" bullets.
+        if spec.name == "grok":
+            models = {}
+            for line in text.splitlines():
+                stripped = line.strip()
+                if not stripped.startswith("*"):
+                    continue
+                model_id = stripped.lstrip("* ").strip()
+                model_id = re.sub(r"\s*\(default\)\s*$", "", model_id).strip()
+                if not model_id:
+                    continue
+                models[model_id if "/" in model_id else f"{spec.name}/{model_id}"] = {"id": model_id}
+            return models
         # cursor-agent models: conservative JSON read; bare ids carry no
         # pricing evidence, so they enter as disabled candidates, never as
         # observed-zero routes.
@@ -472,9 +504,9 @@ class RouteCatalog:
         """Discover routes from one CLI harness over its spec discovery command.
 
         Harnesses without a documented models command (``discovery_argv``
-        None: claude, codex, grok, muse, antigravity) contribute 0; their
-        availability is surfaced by the doctor matrix instead. Routes for
-        those harnesses enter via ``routes add`` / refresh, never invented.
+        None: claude, codex, muse) contribute 0; their availability is
+        surfaced by the doctor matrix instead. Routes for those harnesses
+        enter via ``routes add`` / refresh, never invented.
         """
         if not spec.discovery_argv:
             return 0
@@ -498,6 +530,12 @@ class RouteCatalog:
             if spec.name == "opencode":
                 price_state = classify_price_state(model_data)
                 is_active = model_data.get("status") == "active"
+            elif spec.name in {"antigravity", "grok"}:
+                # Their `models` output is a plain text listing: an id and a
+                # description, never pricing. Classifying that as "unknown"
+                # would drop every route, so they enter as candidates.
+                price_state = PriceState.CANDIDATE
+                is_active = True
             else:
                 price_state = (
                     classify_price_state(model_data)

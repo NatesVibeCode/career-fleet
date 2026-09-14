@@ -25,7 +25,7 @@ ANTIGRAVITY_SPEC = HarnessSpec(
     binary="agy",
     prompt_delivery="argv_last",
     parser="json_object",
-    discovery_argv=None,
+    discovery_argv=["models"],
     model_from_route=False,
 )
 

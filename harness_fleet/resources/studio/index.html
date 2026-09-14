@@ -185,34 +185,38 @@ function renderCards() {
 }
 function renderModelList() {
   const box = document.getElementById("models"); box.innerHTML = "";
-  // Only ever list models for what is actually selected, and only usable ones.
-  const on = [...H.selected].filter(p => usableOf(p).length);
+  // List models for whatever is selected. Disabled routes stay visible in
+  // Specific mode: they are stale seeds or unpriced models, and the latter are
+  // genuinely pickable once the run opts into paid routes.
+  const on = [...H.selected].filter(p => routesOf(p).length);
   if (!H.selected.size) {
     box.innerHTML = `<p class="hint">Pick a harness above to choose from its models.</p>`;
     return;
   }
   if (!on.length) {
-    box.innerHTML = `<p class="hint">Nothing usable yet — refresh the catalogue, or add routes for that harness with <code>harness-fleet routes add</code>.</p>`;
+    box.innerHTML = `<p class="hint">Nothing to list yet — refresh the catalogue, or add routes for that harness with <code>harness-fleet routes add</code>.</p>`;
     return;
   }
   if (H.mode === "free") return;
   on.forEach(provider => {
     const group = document.createElement("div"); group.className = "mgroup";
     const head = document.createElement("div"); head.className = "mgroup-head";
-    const skipped = disabledCount(provider);
-    head.innerHTML = `<b>${esc(provider)}</b><span class="counts">${freeOf(provider).length} free / ${usableOf(provider).length} available</span>`
-      + (skipped ? `<span class="counts" title="stale seed entries or unpriced models">${skipped} not offered</span>` : "");
+    const free = freeOf(provider), usable = usableOf(provider), skipped = disabledCount(provider);
+    head.innerHTML = `<b>${esc(provider)}</b><span class="counts">${free.length} free · ${usable.length} priced · ${skipped} unpriced</span>`;
     group.appendChild(head);
     const list = document.createElement("div"); list.className = "mlist";
-    usableOf(provider).forEach(route => {
+    routesOf(provider).forEach(route => {
+      const freeRoute = route.price_state === "price_observed_zero" && route.enabled;
       const label = document.createElement("label");
+      if (!freeRoute) label.title = route.disabled_reason || "not verified free";
       const cb = document.createElement("input");
       cb.type = "checkbox"; cb.checked = H.picked.has(route.id);
       cb.onchange = () => { cb.checked ? H.picked.add(route.id) : H.picked.delete(route.id); renderSummary(); };
       label.appendChild(cb);
       const text = document.createElement("span"); text.textContent = route.id; label.appendChild(text);
       const badge = document.createElement("span"); badge.className = "badge";
-      badge.textContent = route.price_state === "price_observed_zero" ? "free" : route.price_state;
+      badge.textContent = freeRoute ? "free" : (route.enabled ? route.price_state : "unpriced");
+      if (!freeRoute && route.disabled_reason) badge.title = route.disabled_reason;
       label.appendChild(badge);
       list.appendChild(label);
     });
