@@ -126,3 +126,41 @@ class TestStore(unittest.TestCase):
         self.store.upsert_company("acme", "Acme", domain="https://www.Example.com.:443/jobs")
         self.assertEqual(self.store.get_company_by_domain("example.com.")["id"], "acme")
         self.assertEqual(self.store.list_companies()[0]["domain"], "example.com")
+
+    def test_community_snapshot_keeps_unlinked_leads_and_linked_postings(self):
+        self.store.upsert_company("acme.example", "Acme", domain="acme.example")
+        profile_revision = self.store.save_profile(IdealEmployerProfile(profile_name="Community Profile"))
+        result = self.store.replace_community_source_snapshot(
+            "reddit",
+            "reddit:career-query",
+            [
+                {
+                    "id": "community-reddit-1",
+                    "title": "Hiring a Staff Engineer",
+                    "source_uri": "https://www.reddit.com/r/startups/comments/abc/hiring/",
+                    "raw_text": "Hiring a Staff Engineer. Fully remote.",
+                    "relevance_score": 0.8,
+                    "signal_types": ["hiring", "role", "workplace"],
+                    "metadata": {"is_remote": True},
+                    "company_id": "acme.example",
+                },
+                {
+                    "id": "community-reddit-2",
+                    "title": "Remote engineering discussion",
+                    "source_uri": "https://www.reddit.com/r/experienceddevs/comments/def/discussion/",
+                    "raw_text": "What makes a good remote engineering team?",
+                    "relevance_score": 0.4,
+                    "signal_types": ["role", "workplace", "leadership"],
+                    "metadata": {},
+                },
+            ],
+            profile_revision_id=profile_revision,
+        )
+
+        self.assertEqual(result, {"signals_added": 2, "linked_postings_added": 1, "linked_companies": 1})
+        self.assertEqual(len(self.store.list_community_signals(linked=False)), 1)
+        dossier = self.store.get_company_dossier("acme.example")
+        self.assertEqual(len(dossier["jobs"]), 1)
+        self.assertEqual(dossier["jobs"][0]["source_type"], "reddit")
+        self.assertEqual(len(dossier["community_signals"]), 1)
+        self.assertEqual(dossier["community_signals"][0]["profile_revision_id"], profile_revision)

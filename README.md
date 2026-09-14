@@ -27,7 +27,7 @@ On Windows, use `py -m pip` in place of `python3 -m pip`.
 ## The 4-Lane Funnel Architecture
 
 ```
-0. Authorized IEP Calibration ──> Lane 1: Sourcing (YC, ATS, site crawl)
+0. Authorized IEP Calibration ──> Lane 1: Sourcing (YC, ATS, site, community)
                                                       │
                                                       ▼
 Lane 4: Founder & Culture Recon      <── Lane 3: Systems Wedge <── Lane 2: Gatekeeper Triage
@@ -36,7 +36,7 @@ Lane 4: Founder & Culture Recon      <── Lane 3: Systems Wedge <── Lane 
    Qualified Targets                                             Dropped Dealbreakers
 ```
 
-1. **Lane 1: Sourcing & Discovery**: Ingests companies from YC batches, direct ATS boards (Ashby, Greenhouse, Lever), or a same-origin site crawl using polite crawling and deterministic IDs.
+1. **Lane 1: Sourcing & Discovery**: Ingests companies from YC batches, direct ATS boards (Ashby, Greenhouse, Lever), or a same-origin site crawl using polite crawling and deterministic IDs. Career-focused community sources (Reddit, HN, Stack Exchange, Discourse, Lobsters, Lemmy, and Dev.to) are stored as durable signals; only an unambiguous external company domain is promoted into the company funnel.
 2. **Lane 2: Gatekeeper Triage**: Fast deterministic screening against hard dealbreakers (headcount limits, mandatory non-local office mandates, shallow prompt wrappers) without token cost.
 3. **Lane 3: Systems Wedge**: Technical architecture depth and moat evaluation (distributed systems, state machines, compliance rails vs. commodity wrappers).
 4. **Lane 4: Founder & Culture Recon**: Evaluates leadership and communication signals found in captured source text.
@@ -73,6 +73,16 @@ career-fleet discover --source yc --target W24 --max 30
 # Or ingest an ATS job board directly
 career-fleet discover --source greenhouse --target stripe
 career-fleet discover --source ashby --target linear
+
+# Add career-focused community evidence. Unlinked leads remain reviewable.
+career-fleet discover --source reddit --target "hiring platform engineers" --subreddit startups
+career-fleet discover --source hn --target "who is hiring distributed systems"
+career-fleet discover --source stackexchange --target "remote engineering jobs" --se-site workplace
+career-fleet discover --source discourse --target https://discuss.python.org --query hiring
+career-fleet discover --source lobsters --target newest --query hiring
+career-fleet discover --source lemmy --target "hiring engineers"
+career-fleet discover --source devto --target career
+career-fleet signals --unlinked
 ```
 
 ### 3. Filter dealbreakers (Lane 2)

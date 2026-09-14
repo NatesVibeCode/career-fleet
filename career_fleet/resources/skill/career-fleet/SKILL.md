@@ -18,7 +18,7 @@ to each evaluation.
 ## The 4-Lane Funnel Architecture
 
 ```
-0. Context Inference & IEP Calibration ──> Lane 1: Sourcing (YC, ATS, site crawl)
+0. Context Inference & IEP Calibration ──> Lane 1: Sourcing (YC, ATS, site, community)
                                                         │
                                                         ▼
 Lane 4: Founder & Culture Recon        <── Lane 3: Systems Wedge <── Lane 2: Gatekeeper Triage
@@ -61,7 +61,7 @@ Ask **only** for signals that are genuinely unobserved or ambiguous. Confirm the
 
 ## Phase 1: Lane Execution
 
-* **Lane 1: Sourcing (`career-fleet discover`)**: Ingests companies from YC batches and direct ATS boards (Ashby, Greenhouse, Lever), or crawls a site.
+* **Lane 1: Sourcing (`career-fleet discover`)**: Ingests companies from YC batches and direct ATS boards (Ashby, Greenhouse, Lever), crawls a site, or captures career-focused evidence from Reddit, HN, Stack Exchange, Discourse, Lobsters, Lemmy, and Dev.to. Community items without one unambiguous external company domain remain durable unlinked leads and are listed with `career-fleet signals`.
 * **Lane 2: Gatekeeper Triage (`career-fleet triage`)**: Drops dealbreakers instantly (headcount limits, in-person office mandates, shallow wrappers, pure quota roles) without model cost.
 * **Lane 3: Systems Wedge (`career-fleet recon --lane systems`)**: Evaluates proprietary technical defensibility and infrastructure depth with source quotes.
 * **Lane 4: Culture Recon (`career-fleet recon --lane culture`)**: Assesses leadership signals and communication culture from captured source text.

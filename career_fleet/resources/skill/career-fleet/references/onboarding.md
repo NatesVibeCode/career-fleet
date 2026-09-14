@@ -15,7 +15,9 @@ career-fleet --version
 
 On Windows, create the environment with `py -m venv .venv`, activate `.venv\Scripts\activate`, and use `py -m pip`.
 
-The `discover` extra enables broad web-page extraction and search helpers. YC and the structured ATS APIs work with the base package.
+The `discover` extra enables broad web-page extraction and search helpers.
+YC and the structured ATS APIs work with the base package; community sources
+use the same optional discovery extra and are filtered for career signals.
 
 ## Initialize a workspace
 
@@ -73,3 +75,21 @@ test -f .agents/skills/career-fleet/SKILL.md
 In PowerShell, use `Test-Path` in place of `test -f`.
 
 Keep the database and profile local. They may contain source-derived or private career data and are ignored by the repository defaults.
+
+### Career-focused community leads
+
+After editing the profile, add supplemental evidence from community sources:
+
+```bash
+career-fleet discover --source reddit --target "hiring platform engineers" \
+  --subreddit startups --profile profile.json --db career_fleet.db
+career-fleet discover --source hn --target "who is hiring distributed systems" \
+  --profile profile.json --db career_fleet.db
+career-fleet signals --unlinked --db career_fleet.db
+```
+
+Career Fleet keeps these records in SQLite. It creates a company posting only
+when one external employer domain is attributable; otherwise the record stays
+an unlinked lead for review. See [community-sourcing.md](community-sourcing.md)
+for the full Reddit, HN, Stack Exchange, Discourse, Lobsters, Lemmy, and Dev.to
+source matrix.

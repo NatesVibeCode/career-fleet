@@ -82,6 +82,24 @@ CREATE TABLE IF NOT EXISTS job_postings (
 
 CREATE INDEX IF NOT EXISTS idx_jobs_company ON job_postings(company_id);
 
+CREATE TABLE IF NOT EXISTS community_signals (
+    id TEXT PRIMARY KEY,
+    source_type TEXT NOT NULL,
+    source_key TEXT NOT NULL,
+    title TEXT NOT NULL,
+    source_uri TEXT NOT NULL,
+    raw_text TEXT NOT NULL,
+    relevance_score REAL NOT NULL DEFAULT 0.0,
+    signal_types_json TEXT NOT NULL DEFAULT '[]',
+    metadata_json TEXT NOT NULL DEFAULT '{}',
+    company_id TEXT REFERENCES companies(id) ON DELETE SET NULL,
+    profile_revision_id TEXT REFERENCES profile_revisions(revision_id),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_community_source ON community_signals(source_type, source_key);
+CREATE INDEX IF NOT EXISTS idx_community_company ON community_signals(company_id);
+
 CREATE TABLE IF NOT EXISTS evaluations (
     id TEXT PRIMARY KEY,
     company_id TEXT NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
@@ -142,7 +160,7 @@ class CareerStore:
                 con.executescript(SCHEMA)
                 # Keep existing user databases usable when new metadata fields
                 # are added in a later package version.
-                for table in ("companies", "job_postings", "evaluations"):
+                for table in ("companies", "job_postings", "evaluations", "community_signals"):
                     columns = {row["name"] for row in con.execute(f"PRAGMA table_info({table})").fetchall()}
                     if table in ("companies", "job_postings") and "timezone" not in columns:
                         con.execute(f"ALTER TABLE {table} ADD COLUMN timezone TEXT")
@@ -150,6 +168,8 @@ class CareerStore:
                         con.execute("ALTER TABLE job_postings ADD COLUMN source_type TEXT")
                     if table == "evaluations" and "profile_revision_id" not in columns:
                         con.execute("ALTER TABLE evaluations ADD COLUMN profile_revision_id TEXT")
+                    if table == "community_signals" and "profile_revision_id" not in columns:
+                        con.execute("ALTER TABLE community_signals ADD COLUMN profile_revision_id TEXT")
 
     def upsert_company(
         self,
@@ -419,6 +439,205 @@ class CareerStore:
                     (job_id, company_id, title, location, timezone, 1 if is_remote else 0, job_url, raw_text, source_type),
                 )
 
+    def replace_community_source_snapshot(
+        self,
+        source_type: str,
+        source_key: str,
+        signals: List[Dict[str, Any]],
+        *,
+        profile_revision_id: Optional[str] = None,
+    ) -> Dict[str, int]:
+        """Replace one career-focused community snapshot atomically.
+
+        Community records may not identify a company.  Unlinked records live
+        in ``community_signals`` for human review; linked records also become
+        ordinary postings so the existing Career lanes can screen them.
+        Empty fetches are preserved as unavailable snapshots, matching the
+        refresh semantics of ATS and site sources.
+        """
+        source_type = str(source_type or "").strip()
+        source_key = str(source_key or "").strip()
+        if not source_type or not source_key:
+            raise ValueError("community source_type and source_key are required")
+        rows: list[tuple[Any, ...]] = []
+        posting_rows: list[tuple[Any, ...]] = []
+        new_company_ids: set[str] = set()
+        seen_ids: set[str] = set()
+        for signal in signals:
+            signal_id = str(signal.get("id") or "").strip()
+            title = str(signal.get("title") or "Community career signal").strip()
+            source_uri = str(signal.get("source_uri") or "").strip()
+            raw_text = str(signal.get("raw_text") or "").strip()
+            if not signal_id or not source_uri or not raw_text:
+                raise ValueError("community signals require non-empty id, source_uri, and raw_text")
+            if signal_id in seen_ids:
+                raise ValueError(f"duplicate community signal id: {signal_id}")
+            seen_ids.add(signal_id)
+            try:
+                relevance_score = float(signal.get("relevance_score", 0.0))
+            except (TypeError, ValueError) as exc:
+                raise ValueError(f"invalid community relevance score for {signal_id}") from exc
+            if not 0.0 <= relevance_score <= 1.0:
+                raise ValueError(f"community relevance score out of range for {signal_id}")
+            signal_types = signal.get("signal_types") or []
+            if not isinstance(signal_types, list):
+                raise ValueError(f"community signal_types must be a list for {signal_id}")
+            metadata = signal.get("metadata") or {}
+            if not isinstance(metadata, dict):
+                raise ValueError(f"community metadata must be an object for {signal_id}")
+            company_id = str(signal.get("company_id") or "").strip() or None
+            if company_id:
+                new_company_ids.add(company_id)
+            rows.append(
+                (
+                    signal_id,
+                    source_type,
+                    source_key,
+                    title,
+                    source_uri,
+                    raw_text,
+                    relevance_score,
+                    json.dumps(signal_types, ensure_ascii=False, separators=(",", ":")),
+                    json.dumps(metadata, ensure_ascii=False, separators=(",", ":")),
+                    company_id,
+                    profile_revision_id,
+                )
+            )
+            if company_id:
+                posting_rows.append(
+                    (
+                        signal_id,
+                        company_id,
+                        title,
+                        metadata.get("location"),
+                        metadata.get("timezone"),
+                        1 if metadata.get("is_remote") else 0,
+                        source_uri,
+                        raw_text,
+                        source_type,
+                    )
+                )
+
+        if not rows:
+            return {"signals_added": 0, "linked_postings_added": 0, "linked_companies": 0}
+
+        with self.connect() as con:
+            with con:
+                self._validate_profile_revision(con, profile_revision_id)
+                old = con.execute(
+                    "SELECT id, company_id FROM community_signals WHERE source_type = ? AND source_key = ?",
+                    (source_type, source_key),
+                ).fetchall()
+                old_ids = [str(row["id"]) for row in old]
+                affected_company_ids = {str(row["company_id"]) for row in old if row["company_id"]}
+                affected_company_ids.update(new_company_ids)
+                if old_ids:
+                    placeholders = ",".join("?" for _ in old_ids)
+                    con.execute(
+                        f"DELETE FROM job_postings WHERE source_type = ? AND id IN ({placeholders})",
+                        [source_type, *old_ids],
+                    )
+                con.execute(
+                    "DELETE FROM community_signals WHERE source_type = ? AND source_key = ?",
+                    (source_type, source_key),
+                )
+                for company_id in affected_company_ids:
+                    con.execute("DELETE FROM evaluations WHERE company_id = ?", (company_id,))
+                    con.execute(
+                        "UPDATE companies SET status = 'discovered', disqualification_reason = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                        (company_id,),
+                    )
+                con.executemany(
+                    """
+                    INSERT INTO community_signals (
+                        id, source_type, source_key, title, source_uri, raw_text,
+                        relevance_score, signal_types_json, metadata_json, company_id,
+                        profile_revision_id, created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                    ON CONFLICT(id) DO UPDATE SET
+                        source_type = excluded.source_type,
+                        source_key = excluded.source_key,
+                        title = excluded.title,
+                        source_uri = excluded.source_uri,
+                        raw_text = excluded.raw_text,
+                        relevance_score = excluded.relevance_score,
+                        signal_types_json = excluded.signal_types_json,
+                        metadata_json = excluded.metadata_json,
+                        company_id = excluded.company_id,
+                        profile_revision_id = excluded.profile_revision_id
+                    """,
+                    rows,
+                )
+                con.executemany(
+                    """
+                    INSERT INTO job_postings (
+                        id, company_id, title, location, timezone, is_remote,
+                        job_url, raw_text, source_type, created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                    ON CONFLICT(id) DO UPDATE SET
+                        company_id = excluded.company_id,
+                        title = excluded.title,
+                        location = excluded.location,
+                        timezone = excluded.timezone,
+                        is_remote = excluded.is_remote,
+                        job_url = excluded.job_url,
+                        raw_text = excluded.raw_text,
+                        source_type = excluded.source_type
+                    """,
+                    posting_rows,
+                )
+        return {
+            "signals_added": len(rows),
+            "linked_postings_added": len(posting_rows),
+            "linked_companies": len(new_company_ids),
+        }
+
+    def list_community_signals(
+        self,
+        source_type: Optional[str] = None,
+        linked: Optional[bool] = None,
+        limit: int = 100,
+    ) -> List[Dict[str, Any]]:
+        """List durable community leads with decoded metadata."""
+        if limit < 1:
+            raise ValueError("limit must be at least 1")
+        clauses: list[str] = []
+        params: list[Any] = []
+        if source_type:
+            clauses.append("s.source_type = ?")
+            params.append(source_type)
+        if linked is True:
+            clauses.append("s.company_id IS NOT NULL")
+        elif linked is False:
+            clauses.append("s.company_id IS NULL")
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        params.append(limit)
+        with self.connect() as con:
+            records = con.execute(
+                f"""
+                SELECT s.*, c.name AS company_name
+                FROM community_signals s
+                LEFT JOIN companies c ON c.id = s.company_id
+                {where}
+                ORDER BY s.relevance_score DESC, s.created_at DESC, s.id ASC
+                LIMIT ?
+                """,
+                params,
+            ).fetchall()
+        decoded: list[Dict[str, Any]] = []
+        for record in records:
+            row = dict(record)
+            try:
+                row["signal_types"] = json.loads(row.pop("signal_types_json") or "[]")
+            except (TypeError, ValueError):
+                row["signal_types"] = []
+            try:
+                row["metadata"] = json.loads(row.pop("metadata_json") or "{}")
+            except (TypeError, ValueError):
+                row["metadata"] = {}
+            decoded.append(row)
+        return decoded
+
     def record_evaluation(
         self,
         eval_id: str,
@@ -507,5 +726,10 @@ class CareerStore:
             evals = con.execute("SELECT * FROM evaluations WHERE company_id = ? ORDER BY created_at ASC", (company_id,)).fetchall()
             dossier = dict(comp)
             dossier["jobs"] = [dict(j) for j in jobs]
+            signals = con.execute(
+                "SELECT * FROM community_signals WHERE company_id = ? ORDER BY created_at ASC",
+                (company_id,),
+            ).fetchall()
+            dossier["community_signals"] = [dict(s) for s in signals]
             dossier["evaluations"] = [dict(e) for e in evals]
             return dossier

@@ -474,6 +474,165 @@ def test_lane1_source_refresh_preserves_other_source_records(tmp_path, monkeypat
     assert {job["source_type"] for job in jobs} == {"yc", "site"}
 
 
+def test_lane1_community_source_links_only_unambiguous_company_domains(tmp_path, monkeypatch):
+    records = [
+        item(
+            "reddit-1",
+            "Hiring a Staff Engineer to build Kafka and PostgreSQL systems. Fully remote. https://acme.example/careers",
+            source_uri="https://www.reddit.com/r/experienceddevs/comments/abc123/hiring/",
+        ),
+        item(
+            "reddit-2",
+            "Hiring a platform engineer. Fully remote. See https://one.example and https://two.example",
+            source_uri="https://www.reddit.com/r/experienceddevs/comments/def456/hiring/",
+        ),
+        item(
+            "reddit-3",
+            "Kafka architecture discussion with throughput tradeoffs.",
+            source_uri="https://www.reddit.com/r/dataengineering/comments/ghi789/kafka/",
+        ),
+    ]
+    monkeypatch.setattr(lane1, "_fetch_community_records", lambda *args, **kwargs: (records, []))
+    store = CareerStore(tmp_path / "community.db")
+    profile = IdealEmployerProfile(required_stack=["Kafka", "PostgreSQL"])
+
+    result = lane1.run_lane1_sourcing(store, "reddit", "hiring", max_items=10, profile=profile)
+
+    assert result["status"] == "success"
+    assert result["community_signals_added"] == 2
+    assert result["postings_added"] == 1
+    assert result["unlinked_signals"] == 1
+    assert result["low_signal_skipped"] == 1
+    assert len(store.list_companies()) == 1
+    signals = store.list_community_signals(limit=10)
+    assert len(signals) == 2
+    assert sum(1 for signal in signals if signal["company_id"]) == 1
+    assert len(store.get_company_dossier("acme.example")["jobs"]) == 1
+
+
+def test_community_attribution_ignores_its_own_forum_host():
+    forum_record = item(
+        "discourse-1",
+        "Hiring discussion on https://discuss.python.org/t/jobs/1",
+        source_uri="https://discuss.python.org/t/jobs/1",
+        metadata={"instance": "https://discuss.python.org"},
+    )
+
+    assert lane1._community_company_links(forum_record, ignored_domains=["https://discuss.python.org"]) == []
+
+
+def test_community_attribution_does_not_promote_unrelated_article_links():
+    article = item(
+        "devto-1",
+        "An engineering productivity retrospective. Product link: https://amazon.com/dp/example",
+        source_uri="https://dev.to/example/retrospective",
+    )
+
+    assert lane1._community_company_links(article) == []
+
+
+def test_low_signal_audit_records_stay_unlinked(tmp_path, monkeypatch):
+    record = item(
+        "article-1",
+        "An unrelated engineering essay. https://unrelated.example/article",
+        source_uri="https://dev.to/example/essay",
+    )
+    monkeypatch.setattr(lane1, "_fetch_community_records", lambda *args, **kwargs: ([record], []))
+    store = CareerStore(tmp_path / "low-signal.db")
+
+    result = lane1.run_lane1_sourcing(store, "devto", "engineering", include_low_signal=True)
+
+    assert result["community_signals_added"] == 1
+    assert result["postings_added"] == 0
+    assert result["unlinked_signals"] == 1
+    assert store.list_companies() == []
+
+
+def test_hn_hiring_threads_split_into_attributable_comments():
+    thread = item(
+        "hn-123",
+        "Ask HN: Who is hiring?\n\n[alice]: Hiring a remote engineer at https://acme.example/careers\n\n[bob]: Looking for a product engineer.",
+        source_uri="https://news.ycombinator.com/item?id=123",
+        metadata={"source": "hackernews"},
+    )
+
+    records = lane1._expand_hn_records([thread], max_items=10)
+
+    assert len(records) == 3
+    assert records[1]["item_id"] == "hn-123-comment-1"
+    assert "Hiring a remote engineer" in records[1]["text"]
+
+
+def test_lane1_community_source_refresh_is_idempotent(tmp_path, monkeypatch):
+    store = CareerStore(tmp_path / "community-refresh.db")
+    first = [item("reddit-1", "Hiring a remote engineer at https://one.example", source_uri="https://reddit.com/r/x/comments/one/post")]
+    second = [item("reddit-2", "Hiring a remote engineer at https://two.example", source_uri="https://reddit.com/r/x/comments/two/post")]
+    records = [first]
+    monkeypatch.setattr(lane1, "_fetch_community_records", lambda *args, **kwargs: (records[0], []))
+
+    first_result = lane1.run_lane1_sourcing(store, "reddit", "hiring", max_items=10)
+    records[0] = second
+    second_result = lane1.run_lane1_sourcing(store, "reddit", "hiring", max_items=10)
+
+    assert first_result["community_signals_added"] == 1
+    assert second_result["community_signals_added"] == 1
+    assert [signal["id"] for signal in store.list_community_signals(limit=10)] == ["community-reddit-reddit-2"]
+    assert store.get_company_dossier("one.example")["jobs"] == []
+    assert len(store.get_company_dossier("two.example")["jobs"]) == 1
+
+
+def test_cli_exposes_career_community_sources_and_forwards_focus_options(tmp_path, monkeypatch):
+    from career_fleet.cli import cmd_discover
+
+    captured = {}
+
+    def fake_run(**kwargs):
+        captured.update(kwargs)
+        return {"status": "success", "source_type": "reddit", "target": "hiring engineers", "companies_discovered": 0, "postings_added": 0, "pages_skipped": 0}
+
+    from career_fleet import cli
+    monkeypatch.setattr(cli, "run_lane1_sourcing", fake_run)
+    result = cmd_discover(
+        SimpleNamespace(
+            source="reddit", target="hiring engineers", max=5,
+            db=str(tmp_path / "career-community-cli.db"), profile=None,
+            subreddit=["startups"], include_low_signal=True,
+            query=None, reddit_rss=False, subreddit_sort="new",
+            se_tagged=None, se_site="stackoverflow", se_answers=False,
+            discourse_url=None, lemmy_instance="https://programming.dev",
+            delay=0.2, timeout=20.0,
+        )
+    )
+    assert result == 0
+    assert captured["source_type"] == "reddit"
+    assert captured["subreddit"] == ["startups"]
+    assert captured["include_low_signal"] is True
+
+
+def test_lane1_community_dispatches_every_supported_source(monkeypatch):
+    sample = item(
+        "community-1",
+        "Hiring a remote Staff Engineer with Kafka experience.",
+        source_uri="https://community.example/1",
+    )
+    monkeypatch.setattr(lane1, "fetch_reddit_posts", lambda *args, **kwargs: [sample])
+    monkeypatch.setattr(lane1, "fetch_stackexchange_questions", lambda *args, **kwargs: [sample])
+    monkeypatch.setattr(lane1, "fetch_discourse_search", lambda *args, **kwargs: ([sample], []))
+    monkeypatch.setattr(lane1, "fetch_lemmy", lambda *args, **kwargs: [sample])
+    monkeypatch.setattr(lane1, "fetch_devto_tag", lambda *args, **kwargs: [sample])
+    monkeypatch.setattr(lane1, "run_discovery", lambda *args, **kwargs: ([sample], {"skipped": []}))
+
+    for source_type in lane1.COMMUNITY_SOURCE_TYPES:
+        records, skipped = lane1._fetch_community_records(
+            source_type,
+            "https://forum.example" if source_type == "discourse" else "hiring",
+            query="hiring" if source_type in {"discourse", "lobsters"} else None,
+            max_items=1,
+        )
+        assert records == [sample], source_type
+        assert skipped == [], source_type
+
+
 def test_lane1_does_not_promote_company_remote_text_over_city_location(tmp_path, monkeypatch):
     monkeypatch.setattr(
         lane1,

@@ -13,6 +13,7 @@ from career_fleet.profile import IdealEmployerProfile
 from career_fleet.setup import install_skill
 from career_fleet.store import CareerStore
 from career_fleet.lanes import (
+    COMMUNITY_SOURCE_TYPES,
     run_lane1_sourcing,
     run_lane2_triage,
     run_lane3_systems,
@@ -188,12 +189,32 @@ def cmd_discover(args):
     store = _open_store(getattr(args, "db", "career_fleet.db"), getattr(args, "workspace_root", "."))
     if store is None:
         return 1
+    profile = store.load_profile()
+    if getattr(args, "profile", None):
+        try:
+            profile = get_profile(args.profile, store=store, workspace_root=getattr(args, "workspace_root", "."))
+        except (OSError, ValueError, sqlite3.Error) as exc:
+            print(f"Error: Could not load profile: {exc}", file=sys.stderr)
+            return 1
     try:
         res = run_lane1_sourcing(
             store=store,
             source_type=args.source,
             target=args.target,
             max_items=getattr(args, "max", 50),
+            profile=profile,
+            query=getattr(args, "query", None),
+            subreddit=getattr(args, "subreddit", None),
+            reddit_rss=getattr(args, "reddit_rss", False),
+            subreddit_sort=getattr(args, "subreddit_sort", "new"),
+            se_tagged=getattr(args, "se_tagged", None),
+            se_site=getattr(args, "se_site", "stackoverflow"),
+            se_answers=getattr(args, "se_answers", False),
+            discourse_url=getattr(args, "discourse_url", None),
+            lemmy_instance=getattr(args, "lemmy_instance", "https://programming.dev"),
+            include_low_signal=getattr(args, "include_low_signal", False),
+            delay=getattr(args, "delay", 0.2),
+            timeout=getattr(args, "timeout", 20.0),
         )
     except (OSError, RuntimeError, ValueError) as exc:
         print(f"Error: Lane 1 discovery failed: {exc}", file=sys.stderr)
@@ -202,8 +223,17 @@ def cmd_discover(args):
         print(f"Error: Lane 1 discovery failed: {res.get('error', 'unknown error')}", file=sys.stderr)
         return 1
     print(_ok(f"Lane 1 Discovery completed: {res['companies_discovered']} companies discovered, {res['postings_added']} source records ingested."))
+    if res.get("community_signals_added"):
+        print(_ok(
+            f"Career focus retained {res['community_signals_added']} community signals "
+            f"({res.get('unlinked_signals', 0)} unlinked leads)."
+        ))
+    if res.get("low_signal_skipped"):
+        print(f"Career-focus filter omitted {res['low_signal_skipped']} low-signal records.")
     if res.get("pages_skipped"):
         print(f"Skipped pages: {res['pages_skipped']}")
+    for warning in res.get("warnings", []):
+        print(f"Warning: {warning}", file=sys.stderr)
     return 0
 
 
@@ -273,6 +303,33 @@ def cmd_list(args):
         print(f"{c['id']:<20} {c['name'][:22]:<24} {c['status']:<14} {ats[:25]:<26}")
     print("==========================================================================================")
     print(f"Total: {len(companies)} companies.\n")
+    return 0
+
+
+def cmd_signals(args):
+    store = _open_store(getattr(args, "db", "career_fleet.db"), getattr(args, "workspace_root", "."))
+    if store is None:
+        return 1
+    linked = True if getattr(args, "linked", False) else (False if getattr(args, "unlinked", False) else None)
+    signals = store.list_community_signals(
+        source_type=getattr(args, "source", None),
+        linked=linked,
+        limit=getattr(args, "limit", 100),
+    )
+    print("==========================================================================================")
+    print("                              CAREER COMMUNITY SIGNALS")
+    print("==========================================================================================")
+    if not signals:
+        print("No community signals found.")
+        return 0
+    for signal in signals:
+        company = signal.get("company_name") or "unlinked lead"
+        signal_types = ", ".join(signal.get("signal_types") or []) or "unclassified"
+        print(f"[{signal['source_type']}] {signal['title']}")
+        print(f"  Score:   {signal['relevance_score']:.3f} ({signal_types})")
+        print(f"  Company: {company}")
+        print(f"  Source:  {signal['source_uri']}")
+    print(f"Total: {len(signals)} signals.")
     return 0
 
 
@@ -382,10 +439,29 @@ def main():
     p_prof.set_defaults(func=cmd_profile)
 
     p_disc = subparsers.add_parser("discover", help="Lane 1: Sourcing & discovery")
-    p_disc.add_argument("--source", required=True, choices=["yc", "greenhouse", "ashby", "lever", "site"], help="Source type")
+    p_disc.add_argument(
+        "--source",
+        required=True,
+        choices=["yc", "greenhouse", "ashby", "lever", "site", *COMMUNITY_SOURCE_TYPES],
+        help="Company/job source or career-focused community source",
+    )
     p_disc.add_argument("--target", required=True, help="Batch, tag, board token, or origin URL")
     p_disc.add_argument("--max", type=_positive_int, default=50, help="Maximum items to ingest")
     p_disc.add_argument("--db", default="career_fleet.db", help="SQLite database path")
+    p_disc.add_argument("--workspace-root", default=".", help="Workspace root for relative paths")
+    p_disc.add_argument("--profile", help="Optional profile.json used to rank career signals")
+    p_disc.add_argument("--query", help="Career-focused search query; defaults to --target for query-based sources")
+    p_disc.add_argument("--subreddit", action="append", help="Reddit subreddit restriction (repeatable)")
+    p_disc.add_argument("--reddit-rss", action="store_true", help="Use fresh Reddit RSS instead of archive search")
+    p_disc.add_argument("--subreddit-sort", choices=["new", "hot", "top", "rising"], default="new")
+    p_disc.add_argument("--se-tagged", action="append", help="Stack Exchange tag restriction (repeatable)")
+    p_disc.add_argument("--se-site", default="stackoverflow", help="Stack Exchange site")
+    p_disc.add_argument("--se-answers", action="store_true", help="Include top Stack Exchange answers")
+    p_disc.add_argument("--discourse-url", help="Discourse instance when --target is the career query")
+    p_disc.add_argument("--lemmy-instance", default="https://programming.dev", help="Lemmy instance")
+    p_disc.add_argument("--include-low-signal", action="store_true", help="Keep community records that do not match the career-focus filter")
+    p_disc.add_argument("--delay", type=float, default=0.2, help="Delay between community fetches in seconds")
+    p_disc.add_argument("--timeout", type=float, default=20.0, help="HTTP timeout in seconds")
     p_disc.set_defaults(func=cmd_discover)
 
     p_trig = subparsers.add_parser("triage", help="Lane 2: Gatekeeper triage (dealbreakers)")
@@ -405,6 +481,16 @@ def main():
     p_list.add_argument("--status", choices=["discovered", "triaged", "qualified", "disqualified"], help="Filter by status")
     p_list.add_argument("--db", default="career_fleet.db", help="SQLite database path")
     p_list.set_defaults(func=cmd_list)
+
+    p_sig = subparsers.add_parser("signals", help="List career-focused community signals and unlinked leads")
+    p_sig.add_argument("--source", choices=list(COMMUNITY_SOURCE_TYPES), help="Filter by community source")
+    linked_group = p_sig.add_mutually_exclusive_group()
+    linked_group.add_argument("--linked", action="store_true", help="Show signals linked to a company")
+    linked_group.add_argument("--unlinked", action="store_true", help="Show signals needing company attribution")
+    p_sig.add_argument("--limit", type=_positive_int, default=100, help="Maximum signals to show")
+    p_sig.add_argument("--db", default="career_fleet.db", help="SQLite database path")
+    p_sig.add_argument("--workspace-root", default=".", help="Workspace root for relative paths")
+    p_sig.set_defaults(func=cmd_signals)
 
     p_dos = subparsers.add_parser("dossier", help="Inspect company dossier")
     p_dos.add_argument("--company", required=True, help="Company ID")
