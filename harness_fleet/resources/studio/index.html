@@ -56,6 +56,9 @@
   .mlist label { display: block; break-inside: avoid; padding: 2px 0; }
   .badge { font-size: 0.7rem; border: 1px solid var(--line); border-radius: 6px;
     padding: 0 5px; margin-left: 5px; opacity: 0.85; }
+  .cmd { font-family: ui-monospace, monospace; font-size: 0.78rem; opacity: 0.85;
+    background: var(--raised); border: 1px solid var(--line); border-radius: 8px;
+    padding: 6px 9px; white-space: pre-wrap; word-break: break-word; }
   .err { color: var(--bad); }
   @media (max-width: 640px) { .mlist { columns: 1; } }
 </style>
@@ -83,6 +86,7 @@
     <span id="refreshMsg" class="hint"></span>
   </div>
   <p class="hint" id="modelSummary"></p>
+  <p class="cmd" id="cmdLine"></p>
   <div id="refreshBox"></div>
   <div id="models"></div>
 </details>
@@ -235,8 +239,30 @@ function renderSummary() {
   const unpaid = selected.filter(r => r.price_state !== "price_observed_zero").length;
   el.textContent = `${selected.length} ${H.mode === "free" ? "free" : "specific"} model(s) — ${parts.join(" · ")}`
     + (unpaid ? ` · ${unpaid} paid/unpriced (needs the run's paid opt-in)` : "");
+  renderCommand();
 }
-function renderAll() { renderCards(); renderModelList(); renderSummary(); }
+function studioSelection() {
+  return {
+    providers: [...H.selected],
+    mode: H.mode === "free" ? "free" : "specific",
+    routes: H.mode === "free" ? [] : selectedRoutes().map(r => r.id),
+  };
+}
+let saveTimer = null;
+function persistSelection() {
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(async () => {
+    try { await api("PUT", "/api/settings", studioSelection()); } catch (e) { /* local-only */ }
+  }, 600);
+}
+function renderCommand() {
+  const el = document.getElementById("cmdLine");
+  if (!el) return;
+  el.textContent = H.selected.size && selectedRouteIds().length
+    ? "harness-fleet run TASK --input FILE --from-studio"
+    : "";
+}
+function renderAll() { renderCards(); renderModelList(); renderSummary(); persistSelection(); }
 
 async function refreshAll() {
   const msg = document.getElementById("refreshMsg");

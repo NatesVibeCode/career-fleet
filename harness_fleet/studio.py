@@ -281,6 +281,8 @@ class StudioHandler(BaseHTTPRequestHandler):
                     "database": str(store.path),
                     "schema_version": store.schema_version(),
                 })
+            elif path == "/api/settings":
+                _send_json(self, 200, {"settings": _store(self).get_studio_selection()})
             elif path == "/api/tasks":
                 _send_json(self, 200, {"tasks": _store(self).list_tasks()})
             elif (scoring_name := _scoring_task_name(path)) is not None:
@@ -389,6 +391,30 @@ class StudioHandler(BaseHTTPRequestHandler):
                 _send_json(self, 403, {"error": "request rejected: studio is localhost-only"})
                 return
             path = urlparse(self.path).path
+            if path == "/api/settings":
+                body = _read_json(self)
+                if not isinstance(body, dict):
+                    raise ValueError("settings must be an object")
+                mode = str(body.get("mode") or "free")
+                if mode not in {"free", "specific"}:
+                    raise ValueError("mode must be 'free' or 'specific'")
+                selection = {
+                    "mode": mode,
+                    "providers": sorted(str(p) for p in body.get("providers") or []),
+                    "routes": sorted(str(r) for r in body.get("routes") or []),
+                }
+                if mode == "free":
+                    selection["routes"] = []
+                store = _store(self)
+                if not selection["providers"]:
+                    store.clear_studio_selection()
+                    _send_json(self, 200, {"settings": selection, "revision": None})
+                    return
+                _send_json(self, 200, {
+                    "settings": selection,
+                    "revision": store.save_studio_selection(selection),
+                })
+                return
             scoring_name = _scoring_task_name(path)
             if scoring_name is None:
                 _send_json(self, 404, {"error": f"unknown path: {path}"})

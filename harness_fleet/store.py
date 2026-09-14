@@ -35,6 +35,7 @@ SCHEMA_PATH = Path(__file__).resolve().parent / "migrations" / "001_control_plan
 SCHEMA_SQL = SCHEMA_PATH.read_text(encoding="utf-8")
 MIGRATION_002_PATH = Path(__file__).resolve().parent / "migrations" / "002_intelligence_and_policy.sql"
 MIGRATION_003_PATH = Path(__file__).resolve().parent / "migrations" / "003_profiles.sql"
+MIGRATION_004_PATH = Path(__file__).resolve().parent / "migrations" / "004_studio_settings.sql"
 
 
 def get_database_schema_sql() -> str:
@@ -43,6 +44,8 @@ def get_database_schema_sql() -> str:
         parts.append(MIGRATION_002_PATH.read_text(encoding="utf-8"))
     if MIGRATION_003_PATH.is_file():
         parts.append(MIGRATION_003_PATH.read_text(encoding="utf-8"))
+    if MIGRATION_004_PATH.is_file():
+        parts.append(MIGRATION_004_PATH.read_text(encoding="utf-8"))
     return "\n".join(parts)
 
 
@@ -222,6 +225,8 @@ class HarnessStore:
                 connection.executescript(MIGRATION_002_PATH.read_text(encoding="utf-8"))
             if MIGRATION_003_PATH.is_file():
                 connection.executescript(MIGRATION_003_PATH.read_text(encoding="utf-8"))
+            if MIGRATION_004_PATH.is_file():
+                connection.executescript(MIGRATION_004_PATH.read_text(encoding="utf-8"))
             cols = [row["name"] for row in connection.execute("PRAGMA table_info(runs)").fetchall()]
             if "policy_json" not in cols:
                 connection.execute("ALTER TABLE runs ADD COLUMN policy_json TEXT")
@@ -507,6 +512,61 @@ class HarnessStore:
                 "JOIN task_revisions r ON r.revision_id=c.revision_id ORDER BY c.task_name"
             ).fetchall()
         return [dict(row) for row in rows]
+
+    def save_studio_selection(self, selection: dict[str, Any]) -> str:
+        """Persist the studio's harness/model selection and make it active.
+
+        A single row in studio_settings; the revision id is a content digest so
+        a run can be audited against the exact selection that produced it.
+        """
+        mode = str(selection.get("mode") or "free")
+        if mode not in {"free", "specific"}:
+            raise ValueError("mode must be 'free' or 'specific'")
+        providers = sorted(str(p) for p in selection.get("providers") or [])
+        routes = sorted(str(r) for r in selection.get("routes") or []) if mode == "specific" else []
+        revision_id = digest_json({"mode": mode, "providers": providers, "routes": routes})
+        with self.connect() as connection:
+            connection.execute(
+                """INSERT INTO studio_settings(id,mode,providers_json,routes_json,revision_id,updated_at)
+                   VALUES(1,?,?,?,?,?)
+                   ON CONFLICT(id) DO UPDATE SET
+                     mode=excluded.mode, providers_json=excluded.providers_json,
+                     routes_json=excluded.routes_json, revision_id=excluded.revision_id,
+                     updated_at=excluded.updated_at""",
+                (mode, json.dumps(providers), json.dumps(routes), revision_id, now_iso()),
+            )
+        return revision_id
+
+    def get_studio_selection(self) -> dict[str, Any] | None:
+        """The studio's persisted selection, or None when it has never been set."""
+        with self.connect() as connection:
+            row = connection.execute(
+                "SELECT mode,providers_json,routes_json,revision_id,updated_at FROM studio_settings WHERE id=1"
+            ).fetchone()
+        if row is None:
+            return None
+        try:
+            providers = json.loads(row["providers_json"])
+            routes = json.loads(row["routes_json"])
+        except json.JSONDecodeError:
+            return None
+        return {
+            "mode": row["mode"],
+            "providers": [str(p) for p in providers] if isinstance(providers, list) else [],
+            "routes": [str(r) for r in routes] if isinstance(routes, list) else [],
+            "revision": row["revision_id"],
+            "updated_at": row["updated_at"],
+        }
+
+    def clear_studio_selection(self) -> None:
+        """Forget the studio's persisted selection."""
+        with self.connect() as connection:
+            connection.execute("DELETE FROM studio_settings WHERE id=1")
+
+    def get_studio_revision(self) -> str | None:
+        """Content digest of the active studio selection, if any."""
+        selection = self.get_studio_selection()
+        return str(selection["revision"]) if selection else None
 
     def save_profile(self, profile: Any, profile_kind: str | None = None) -> str:
         """Persist an immutable profile revision and make it active."""
