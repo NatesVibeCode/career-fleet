@@ -23,6 +23,16 @@ career-fleet list --status qualified --db "$DB"
 career-fleet export --db "$DB" --output qualified_targets.json
 ```
 
+For the standard community pass, use the pre-filled workspace plan instead of
+constructing source arguments manually:
+
+```bash
+career-fleet discover --source community --db "$DB"
+```
+
+The plan lives in `career_sources.json` and records the exact deterministic
+inputs used for each community source.
+
 Discovery is refresh-safe: rerunning a source replaces that source's stale
 records and lane results while preserving records captured from other sources
 for the same company.

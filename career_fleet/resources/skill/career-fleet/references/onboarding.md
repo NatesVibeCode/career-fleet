@@ -29,7 +29,7 @@ career-fleet setup --workspace-root .
 career-fleet profile
 ```
 
-This creates `profile.json`, `career_fleet.db`, and `.agents/skills/career-fleet/`. The generated profile is neutral. Edit `profile.json` before screening anyone's opportunities.
+This creates `profile.json`, `career_fleet.db`, `career_sources.json`, and `.agents/skills/career-fleet/`. The generated profile is neutral. Edit `profile.json` before screening anyone's opportunities. The source plan is visible and editable; its defaults are generic career sources, not assumptions about the user's location or workplace policy.
 
 `profile.json` is the human-editable authoring file. `career-fleet init`,
 `career-fleet profile`, and the screening lanes persist the active IEP in
@@ -78,15 +78,18 @@ Keep the database and profile local. They may contain source-derived or private 
 
 ### Career-focused community leads
 
-After editing the profile, add supplemental evidence from community sources:
+After editing the profile, use the pre-filled source plan. This runs every
+enabled community source with deterministic career defaults:
 
 ```bash
-career-fleet discover --source reddit --target "hiring platform engineers" \
-  --subreddit startups --profile profile.json --db career_fleet.db
-career-fleet discover --source hn --target "who is hiring distributed systems" \
-  --profile profile.json --db career_fleet.db
+career-fleet sources
+career-fleet discover --source community --profile profile.json --db career_fleet.db
 career-fleet signals --unlinked --db career_fleet.db
 ```
+
+Edit `career_sources.json` to enable or disable a source, change its public
+community or tag, or add another preset. Use explicit `discover` flags only
+for an advanced one-off run.
 
 Career Fleet keeps these records in SQLite. It creates a company posting only
 when one external employer domain is attributable; otherwise the record stays

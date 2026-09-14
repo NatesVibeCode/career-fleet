@@ -9,6 +9,7 @@ import json
 import re
 from typing import Any, Dict
 from urllib.parse import urlparse
+from career_fleet.community_sources import COMMUNITY_SOURCE_TYPES
 from career_fleet.store import CareerStore
 
 logger = logging.getLogger("career_fleet.lane1")
@@ -59,8 +60,6 @@ REMOTE_ROLE_POSITIVE_PATTERN = re.compile(
 )
 REMOTE_LOCATION_PATTERN = re.compile(r"\b(?:remote|anywhere)\b", re.I)
 
-
-COMMUNITY_SOURCE_TYPES = ("reddit", "hn", "stackexchange", "discourse", "lobsters", "lemmy", "devto")
 
 CAREER_SIGNAL_PATTERNS = {
     "hiring": re.compile(

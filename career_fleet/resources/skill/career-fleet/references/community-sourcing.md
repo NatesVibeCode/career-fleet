@@ -6,8 +6,8 @@ for career signals before they enter the durable SQLite snapshot.
 
 Supported sources:
 
-- `reddit`: full-text archive search, or fresh RSS with `--reddit-rss` and one
-  or more `--subreddit` values.
+- `reddit`: selected-subreddit archive records, or fresh RSS with
+  `--reddit-rss` and one or more `--subreddit` values.
 - `hn`: Hacker News search followed by full story/thread capture.
 - `stackexchange`: full question bodies, optionally with the top answer.
 - `discourse`: any Discourse instance, using `--target` as the instance and
@@ -32,6 +32,19 @@ career-fleet discover --source devto --target career \
   --profile "$PROFILE" --db "$DB"
 career-fleet signals --unlinked --db "$DB"
 ```
+
+`career-fleet init` creates `career_sources.json` with one deterministic,
+career-focused preset for each source. The normal path is:
+
+```bash
+career-fleet sources
+career-fleet discover --source community --db "$DB"
+```
+
+The plan contains the exact public communities, tags, instances, queries, and
+10-item default for each source. Edit the file when a user wants a different
+source mix. `--preset <id>` selects one configured entry; explicit flags remain
+available for one-off overrides.
 
 The default career-focus filter looks for hiring, role, workplace,
 compensation, or leadership signals. Profile stack, wedge, catalyst, and

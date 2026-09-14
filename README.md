@@ -85,6 +85,18 @@ career-fleet discover --source devto --target career
 career-fleet signals --unlinked
 ```
 
+For the standard community pass, `career-fleet init` also writes a visible,
+pre-filled `career_sources.json`:
+
+```bash
+career-fleet sources
+career-fleet discover --source community
+```
+
+The source plan contains the exact public communities, tags, instances,
+queries, and item limits. Edit it when a user wants a different source mix;
+use explicit flags for an advanced one-off override.
+
 ### 3. Filter dealbreakers (Lane 2)
 
 ```bash

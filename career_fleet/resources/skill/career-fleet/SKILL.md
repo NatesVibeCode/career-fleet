@@ -35,6 +35,7 @@ Lane 4: Founder & Culture Recon        <── Lane 3: Systems Wedge <── Lan
 - Read [references/workflow.md](references/workflow.md) before running discovery, triage, recon, or export.
 - Read [references/troubleshooting.md](references/troubleshooting.md) when a command fails, returns no results, or behaves unexpectedly.
 - Keep discovery, triage, and recon pointed at the same `--db` and `--profile` paths.
+- Use the pre-filled `career_sources.json` and `career-fleet discover --source community` for the standard community pass. Treat that visible file as the source of truth; use manual flags only for explicit overrides.
 - Treat a company as finally qualified only after Lane 3 passes and Lane 4 reaches the healthy threshold; inspect the dossier's source quotes before relying on it.
 - Check command exit codes. A source failure is not a completed discovery run.
 

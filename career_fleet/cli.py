@@ -9,11 +9,18 @@ import textwrap
 from pathlib import Path
 
 from career_fleet import __version__
+from career_fleet.community_sources import (
+    COMMUNITY_CONFIG_FILENAME,
+    COMMUNITY_SOURCE_TYPES,
+    configured_sources,
+    default_community_config,
+    load_community_config,
+    write_default_community_config,
+)
 from career_fleet.profile import IdealEmployerProfile
 from career_fleet.setup import install_skill
 from career_fleet.store import CareerStore
 from career_fleet.lanes import (
-    COMMUNITY_SOURCE_TYPES,
     run_lane1_sourcing,
     run_lane2_triage,
     run_lane3_systems,
@@ -119,7 +126,15 @@ def cmd_init(args):
     except (OSError, ValueError, sqlite3.Error) as exc:
         print(f"Error: Could not initialize profile {profile_path}: {exc}", file=sys.stderr)
         return 1
+    try:
+        community_path, created = write_default_community_config(workspace / COMMUNITY_CONFIG_FILENAME)
+    except (OSError, ValueError) as exc:
+        print(f"Error: Could not initialize community source plan: {exc}", file=sys.stderr)
+        return 1
+    if created:
+        print(_ok(f"Initialized pre-filled career source plan at {community_path}"))
     print(_ok(f"Initialized CareerStore database at {db_path}"))
+    return 0
 
 
 def cmd_profile(args):
@@ -185,6 +200,72 @@ def cmd_profile(args):
     return 0
 
 
+def _community_config_for_args(args):
+    workspace = Path(getattr(args, "workspace_root", ".")).expanduser().resolve()
+    config_path = _workspace_path(
+        getattr(args, "config", COMMUNITY_CONFIG_FILENAME),
+        workspace,
+    )
+    if not config_path.exists():
+        write_default_community_config(config_path)
+    return config_path, load_community_config(config_path)
+
+
+def _entry_value(args, entry, name, fallback=None):
+    value = getattr(args, name, None)
+    return entry.get(name, fallback) if value is None else value
+
+
+def _run_discovery_entry(args, store, profile, entry):
+    source_type = str(entry.get("source") or getattr(args, "source", "")).strip()
+    target = getattr(args, "target", None) or entry.get("target")
+    if not target:
+        raise ValueError(f"source '{source_type}' requires --target or a configured preset")
+    raw_max = getattr(args, "max", None)
+    max_items = raw_max if raw_max is not None else entry.get("max_items", 50)
+    return run_lane1_sourcing(
+        store=store,
+        source_type=source_type,
+        target=str(target),
+        max_items=int(max_items),
+        profile=profile,
+        query=_entry_value(args, entry, "query"),
+        subreddit=_entry_value(args, entry, "subreddit"),
+        reddit_rss=bool(_entry_value(args, entry, "reddit_rss", False)),
+        subreddit_sort=_entry_value(args, entry, "subreddit_sort", "new"),
+        se_tagged=_entry_value(args, entry, "se_tagged"),
+        se_site=_entry_value(args, entry, "se_site", "stackoverflow"),
+        se_answers=bool(_entry_value(args, entry, "se_answers", False)),
+        discourse_url=_entry_value(args, entry, "discourse_url"),
+        lemmy_instance=_entry_value(args, entry, "lemmy_instance", "https://programming.dev"),
+        include_low_signal=bool(getattr(args, "include_low_signal", False)),
+        delay=float(_entry_value(args, entry, "delay", 0.2)),
+        timeout=float(_entry_value(args, entry, "timeout", 20.0)),
+    )
+
+
+def _print_discovery_result(res, label=None):
+    prefix = f"[{label}] " if label else ""
+    if res.get("status") != "success":
+        print(f"{prefix}Error: Lane 1 discovery failed: {res.get('error', 'unknown error')}", file=sys.stderr)
+        return
+    print(_ok(
+        f"{prefix}Lane 1 Discovery completed: {res['companies_discovered']} companies discovered, "
+        f"{res['postings_added']} source records ingested."
+    ))
+    if res.get("community_signals_added"):
+        print(_ok(
+            f"{prefix}Career focus retained {res['community_signals_added']} community signals "
+            f"({res.get('unlinked_signals', 0)} unlinked leads)."
+        ))
+    if res.get("low_signal_skipped"):
+        print(f"{prefix}Career-focus filter omitted {res['low_signal_skipped']} low-signal records.")
+    if res.get("pages_skipped"):
+        print(f"{prefix}Skipped pages: {res['pages_skipped']}")
+    for warning in res.get("warnings", []):
+        print(f"{prefix}Warning: {warning}", file=sys.stderr)
+
+
 def cmd_discover(args):
     store = _open_store(getattr(args, "db", "career_fleet.db"), getattr(args, "workspace_root", "."))
     if store is None:
@@ -197,43 +278,60 @@ def cmd_discover(args):
             print(f"Error: Could not load profile: {exc}", file=sys.stderr)
             return 1
     try:
-        res = run_lane1_sourcing(
-            store=store,
-            source_type=args.source,
-            target=args.target,
-            max_items=getattr(args, "max", 50),
-            profile=profile,
-            query=getattr(args, "query", None),
-            subreddit=getattr(args, "subreddit", None),
-            reddit_rss=getattr(args, "reddit_rss", False),
-            subreddit_sort=getattr(args, "subreddit_sort", "new"),
-            se_tagged=getattr(args, "se_tagged", None),
-            se_site=getattr(args, "se_site", "stackoverflow"),
-            se_answers=getattr(args, "se_answers", False),
-            discourse_url=getattr(args, "discourse_url", None),
-            lemmy_instance=getattr(args, "lemmy_instance", "https://programming.dev"),
-            include_low_signal=getattr(args, "include_low_signal", False),
-            delay=getattr(args, "delay", 0.2),
-            timeout=getattr(args, "timeout", 20.0),
-        )
-    except (OSError, RuntimeError, ValueError) as exc:
+        source = args.source
+        target = getattr(args, "target", None)
+        preset = getattr(args, "preset", None)
+        if source == "community" and target:
+            raise ValueError("--target cannot be combined with --source community; edit the source plan or select one source")
+        if source == "community" or (source in COMMUNITY_SOURCE_TYPES and (not target or preset)):
+            _, config = _community_config_for_args(args)
+            entries = configured_sources(config, source=source, preset=preset)
+            if source != "community" and target and preset:
+                entries = entries[:1]
+        else:
+            if not target:
+                raise ValueError(f"source '{source}' requires --target")
+            entries = [{"source": source, "target": target}]
+        if not entries:
+            raise ValueError("no enabled community source presets are configured")
+
+        results = []
+        for entry in entries:
+            label = entry.get("id") if len(entries) > 1 else None
+            result = _run_discovery_entry(args, store, profile, entry)
+            results.append(result)
+            _print_discovery_result(result, label=label)
+        failures = [result for result in results if result.get("status") != "success"]
+        return 1 if failures else 0
+    except (OSError, RuntimeError, ValueError, sqlite3.Error) as exc:
         print(f"Error: Lane 1 discovery failed: {exc}", file=sys.stderr)
         return 1
-    if res.get("status") != "success":
-        print(f"Error: Lane 1 discovery failed: {res.get('error', 'unknown error')}", file=sys.stderr)
+
+
+def cmd_sources(args):
+    workspace = Path(getattr(args, "workspace_root", ".")).expanduser().resolve()
+    config_path = _workspace_path(
+        getattr(args, "config", COMMUNITY_CONFIG_FILENAME),
+        workspace,
+    )
+    try:
+        if getattr(args, "init", False):
+            config_path, created = write_default_community_config(config_path, force=False)
+            if created:
+                print(_ok(f"Wrote pre-filled career source plan to {config_path}"))
+        config = load_community_config(config_path) if config_path.exists() else default_community_config()
+    except (OSError, ValueError) as exc:
+        print(f"Error: Could not load community source plan: {exc}", file=sys.stderr)
         return 1
-    print(_ok(f"Lane 1 Discovery completed: {res['companies_discovered']} companies discovered, {res['postings_added']} source records ingested."))
-    if res.get("community_signals_added"):
-        print(_ok(
-            f"Career focus retained {res['community_signals_added']} community signals "
-            f"({res.get('unlinked_signals', 0)} unlinked leads)."
-        ))
-    if res.get("low_signal_skipped"):
-        print(f"Career-focus filter omitted {res['low_signal_skipped']} low-signal records.")
-    if res.get("pages_skipped"):
-        print(f"Skipped pages: {res['pages_skipped']}")
-    for warning in res.get("warnings", []):
-        print(f"Warning: {warning}", file=sys.stderr)
+    if not config_path.exists():
+        print(f"Using built-in defaults; run 'career-fleet sources --init' to write {config_path}.")
+    print(f"Career source plan: {config_path}")
+    for entry in config["sources"]:
+        state = "enabled" if entry.get("enabled", True) else "disabled"
+        target = entry.get("target", "-")
+        query = entry.get("query") or "preset default"
+        print(f"  {entry['id']}: {entry['source']} ({state})")
+        print(f"    target={target} query={query} max_items={entry.get('max_items', 50)}")
     return 0
 
 
@@ -442,27 +540,35 @@ def main():
     p_disc.add_argument(
         "--source",
         required=True,
-        choices=["yc", "greenhouse", "ashby", "lever", "site", *COMMUNITY_SOURCE_TYPES],
-        help="Company/job source or career-focused community source",
+        choices=["yc", "greenhouse", "ashby", "lever", "site", "community", *COMMUNITY_SOURCE_TYPES],
+        help="Company/job source, one community source, or all configured community sources",
     )
-    p_disc.add_argument("--target", required=True, help="Batch, tag, board token, or origin URL")
-    p_disc.add_argument("--max", type=_positive_int, default=50, help="Maximum items to ingest")
+    p_disc.add_argument("--target", help="Batch, tag, board token, or origin URL; omitted for a community preset")
+    p_disc.add_argument("--preset", help="Named entry from career_sources.json")
+    p_disc.add_argument("--config", default=COMMUNITY_CONFIG_FILENAME, help="Visible community source plan")
+    p_disc.add_argument("--max", type=_positive_int, default=None, help="Maximum items to ingest (preset default is 10)")
     p_disc.add_argument("--db", default="career_fleet.db", help="SQLite database path")
     p_disc.add_argument("--workspace-root", default=".", help="Workspace root for relative paths")
     p_disc.add_argument("--profile", help="Optional profile.json used to rank career signals")
     p_disc.add_argument("--query", help="Career-focused search query; defaults to --target for query-based sources")
     p_disc.add_argument("--subreddit", action="append", help="Reddit subreddit restriction (repeatable)")
-    p_disc.add_argument("--reddit-rss", action="store_true", help="Use fresh Reddit RSS instead of archive search")
-    p_disc.add_argument("--subreddit-sort", choices=["new", "hot", "top", "rising"], default="new")
+    p_disc.add_argument("--reddit-rss", action="store_true", default=None, help="Use fresh Reddit RSS instead of archive search")
+    p_disc.add_argument("--subreddit-sort", choices=["new", "hot", "top", "rising"], default=None)
     p_disc.add_argument("--se-tagged", action="append", help="Stack Exchange tag restriction (repeatable)")
-    p_disc.add_argument("--se-site", default="stackoverflow", help="Stack Exchange site")
-    p_disc.add_argument("--se-answers", action="store_true", help="Include top Stack Exchange answers")
+    p_disc.add_argument("--se-site", default=None, help="Stack Exchange site")
+    p_disc.add_argument("--se-answers", action="store_true", default=None, help="Include top Stack Exchange answers")
     p_disc.add_argument("--discourse-url", help="Discourse instance when --target is the career query")
-    p_disc.add_argument("--lemmy-instance", default="https://programming.dev", help="Lemmy instance")
+    p_disc.add_argument("--lemmy-instance", default=None, help="Lemmy instance")
     p_disc.add_argument("--include-low-signal", action="store_true", help="Keep community records that do not match the career-focus filter")
-    p_disc.add_argument("--delay", type=float, default=0.2, help="Delay between community fetches in seconds")
-    p_disc.add_argument("--timeout", type=float, default=20.0, help="HTTP timeout in seconds")
+    p_disc.add_argument("--delay", type=float, default=None, help="Delay between community fetches in seconds")
+    p_disc.add_argument("--timeout", type=float, default=None, help="HTTP timeout in seconds")
     p_disc.set_defaults(func=cmd_discover)
+
+    p_sources = subparsers.add_parser("sources", help="Show or write the pre-filled career source plan")
+    p_sources.add_argument("--init", action="store_true", help="Write career_sources.json if it does not exist")
+    p_sources.add_argument("--config", default=COMMUNITY_CONFIG_FILENAME, help="Visible community source plan")
+    p_sources.add_argument("--workspace-root", default=".", help="Workspace root for relative paths")
+    p_sources.set_defaults(func=cmd_sources)
 
     p_trig = subparsers.add_parser("triage", help="Lane 2: Gatekeeper triage (dealbreakers)")
     p_trig.add_argument("--profile", default=None, help="Path to profile.json (default: ./profile.json; otherwise use the active IEP in SQLite)")
