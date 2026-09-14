@@ -725,15 +725,22 @@ def test_null_content_in_providers(monkeypatch):
 
     monkeypatch.setattr("httpx.Client", FakeClient)
 
+    # A provider that answers with no content has failed, exactly like a CLI
+    # harness that prints nothing: recording it as "complete" would burn the
+    # attempt and let an empty response count as a successful transport.
     prov1 = OpenAICompatibleProvider(base_url="http://localhost:11434/v1", is_free=True)
     ok1, text1, r1 = prov1.run_prompt("test-route", "prompt")
-    assert ok1 is True
-    assert text1 == ""
+    assert ok1 is False
+    assert text1 is None
+    assert "Empty content" in (r1.error or "")
+    assert r1.status != "complete"
 
     prov2 = OpenRouterProvider(api_key="test-key")
     ok2, text2, r2 = prov2.run_prompt("test-route", "prompt")
-    assert ok2 is True
-    assert text2 == ""
+    assert ok2 is False
+    assert text2 is None
+    assert "Empty content" in (r2.error or "")
+    assert r2.status != "complete"
 
 
 def test_resume_campaign_fallback_output_path(tmp_path):

@@ -198,6 +198,14 @@ class OpenRouterProvider(BaseProvider):
                 return False, None, receipt
 
             text = choices[0].get("message", {}).get("content") or ""
+            if not text.strip():
+                # Mirror the CLI harnesses: a provider that returns no content
+                # has failed, so the batch rotates instead of being recorded as
+                # a completed transport and burning the attempt.
+                receipt.error = "Empty content in response"
+                receipt.error_type = "inference_error"
+                receipt.duration_seconds = time.time() - started
+                return False, None, receipt
             usage = data.get("usage", {})
             receipt.usage = usage
 
