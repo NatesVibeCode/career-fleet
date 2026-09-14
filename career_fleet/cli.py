@@ -512,6 +512,17 @@ def cmd_setup(args):
     return 0
 
 
+def cmd_board(args):
+    from .board import run_board_server
+    run_board_server(
+        db_path=args.db,
+        port=args.port,
+        host=args.host,
+        open_browser=args.open,
+    )
+    return 0
+
+
 def main():
     parser = argparse.ArgumentParser(
         prog="career-fleet",
@@ -519,6 +530,13 @@ def main():
     )
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     subparsers = parser.add_subparsers(dest="subcommand", required=True)
+
+    p_board = subparsers.add_parser("board", aliases=["dashboard"], help="Serve the interactive Career Fleet Jobs dashboard")
+    p_board.add_argument("--db", default=None, help="SQLite database path (default: career_fleet.db or career_research.db)")
+    p_board.add_argument("--port", type=int, default=8000, help="Localhost port (default: 8000)")
+    p_board.add_argument("--host", default="127.0.0.1", help="Host to listen on (default: 127.0.0.1)")
+    p_board.add_argument("--open", action="store_true", help="Automatically open browser")
+    p_board.set_defaults(func=cmd_board)
 
     p_init = subparsers.add_parser("init", help="Initialize SQLite DB and profile template")
     p_init.add_argument("--db", default="career_fleet.db", help="SQLite database path")

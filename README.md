@@ -127,6 +127,17 @@ career-fleet dossier --company stripe --show-source
 career-fleet export --output qualified_targets.json
 ```
 
+### 6. Interactive Jobs Board
+
+```bash
+# Launch the interactive 3-column dashboard UI at http://127.0.0.1:8000
+career-fleet board
+
+# Automatically open the browser or specify a database
+career-fleet board --open
+career-fleet board --db ../career-public-research-worker/career_research.db --port 8080
+```
+
 ---
 
 ## Clean Architecture: The Twin-Sister Fork

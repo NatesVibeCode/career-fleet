@@ -1,0 +1,2365 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Review Career Fleet job opportunities with source-backed evidence and real employer links.">
+  <meta id="themeColorMeta" name="theme-color" content="#f2f1ed">
+  <title>Career Fleet Jobs — Its a free tool</title>
+  <script>
+    (function () {
+      try {
+        var storedTheme = localStorage.getItem("career-fleet-theme");
+        var initialTheme = storedTheme === "dark" || storedTheme === "light"
+          ? storedTheme
+          : (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+        document.documentElement.dataset.theme = initialTheme;
+      } catch (error) {
+        document.documentElement.dataset.theme = "light";
+      }
+    }());
+  </script>
+  <style>
+    /* OD-LAYOUT-PRIMITIVES v1 — structure only: display, flex/grid, overflow, wrapping, ratio.
+       Put this @layer first; product CSS outside the layer always wins. */
+    @layer od-layout {
+      :where(.od-stack,.od-row,.od-row-top,.od-cluster,.od-grid,.od-field,.od-stat,.od-cell,.od-tile) > :where(*) { min-width: 0; }
+
+      /* containers */
+      .od-stack   { display: flex; flex-direction: column; gap: var(--od-gap, 8px); }
+      .od-row     { display: flex; align-items: center; gap: var(--od-gap, 8px); }
+      .od-row-top { display: flex; align-items: flex-start; gap: var(--od-gap, 8px); }
+      .od-cluster { display: flex; flex-wrap: wrap; align-items: center; gap: var(--od-gap, 8px); }
+      .od-fill    { flex: 1 1 0; min-width: 0; }
+      .od-fixed   { flex: none; }
+      .od-grid    { display: grid; gap: var(--od-gap, 12px); grid-template-columns: repeat(var(--od-cols, 3), minmax(0, 1fr)); }
+
+      /* stacked information: each piece is its own line — never sibling inline spans */
+      .od-stat, .od-field, .od-cell { display: grid; gap: var(--od-gap, 2px); }
+      :where(.od-stat,.od-field,.od-cell) > :where(*) { display: block; }
+      .od-tile { display: grid; grid-template-rows: auto 1fr; }
+      :where(.od-tile) > :where(*) { display: block; }
+
+      /* media keeps its intrinsic ratio by default; never a distorted or cropped
+         cover by accident. height:auto lets the ratio win over an <img height="…">
+         attribute. Cropping to a uniform box is an explicit opt-in: set --od-ratio
+         AND add .od-media-cover together (per the core rule, only where a crop is
+         deliberate — tile thumbs, decorative fills — never on full-frame content). */
+      .od-media { display: block; width: 100%; height: auto; aspect-ratio: var(--od-ratio, auto); }
+      .od-media-cover { object-fit: cover; }
+
+      /* data text only — authored copy is rewritten to its budget instead */
+      .od-truncate { display: block; max-width: 100%; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+      .od-clamp-2, .od-clamp-3 { display: -webkit-box; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
+      .od-clamp-2 { -webkit-line-clamp: 2; }
+      .od-clamp-3 { -webkit-line-clamp: 3; }
+      .od-lines-2 { min-height: calc(2 * 1.4em); }
+      .od-nowrap  { white-space: nowrap; }
+      .od-keep    { word-break: keep-all; overflow-wrap: anywhere; }
+
+      /* screen skeleton (optional): bars take their own space, the middle scrolls — no padding guessed for chrome */
+      .od-screen { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; height: 100%; }
+      .od-scroll { overflow-y: auto; overscroll-behavior: contain; min-height: 0; }
+
+      /* horizontal rail: the next item peeks at the edge; trailing room survives overflow */
+      .od-rail { display: flex; gap: var(--od-gap, 8px); overflow-x: auto; scroll-snap-type: x proximity; scrollbar-width: none;
+                 padding-inline: var(--od-rail-pad, 16px); scroll-padding-inline: var(--od-rail-pad, 16px); }
+      .od-rail::-webkit-scrollbar { display: none; }
+      :where(.od-rail) > :where(*) { flex: none; scroll-snap-align: start; }
+      :where(.od-rail) > :where(:last-child) { margin-inline-end: var(--od-rail-pad, 16px); }
+
+      .od-spacer { flex: none; visibility: hidden; pointer-events: none; }
+      .od-touch  { min-width: 44px; min-height: 44px; }
+    }
+    /* /OD-LAYOUT-PRIMITIVES v1 */
+
+    :root {
+      color-scheme: light;
+      --background: #f2f1ed;
+      --foreground: #26251e;
+      --accent: #f54e00;
+      --surface: #e6e5e0;
+      --muted: rgba(38, 37, 30, 0.55);
+      --border: rgba(38, 37, 30, 0.1);
+      --primary-foreground: #ffffff;
+      --font: Inter, system-ui, -apple-system, "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+      --radius: 8px;
+      --line: 1px;
+      --space-1: 8px;
+      --space-2: 16px;
+      --space-3: 24px;
+      --space-4: 32px;
+      --space-5: 40px;
+      --space-6: 48px;
+      --space-8: 64px;
+      --motion-fast: 180ms;
+      --motion-panel: 240ms;
+      --measure: 72ch;
+    }
+
+    :root[data-theme="dark"] {
+      color-scheme: dark;
+      --background: #26251e;
+      --foreground: #f2f1ed;
+      --accent: #f54e00;
+      --surface: #3a3932;
+      --muted: rgba(242, 241, 237, 0.72);
+      --border: rgba(242, 241, 237, 0.2);
+      --primary-foreground: #ffffff;
+    }
+
+    * { box-sizing: border-box; }
+    html { min-width: 320px; background: var(--background); }
+    body {
+      margin: 0;
+      min-width: 320px;
+      min-height: 100dvh;
+      background: var(--background);
+      color: var(--foreground);
+      font-family: var(--font);
+      font-size: 1rem;
+      line-height: 1.6;
+      text-rendering: optimizeLegibility;
+    }
+    button, input, select { font: inherit; }
+    button, select, input[type="checkbox"] { cursor: pointer; }
+    a { color: var(--foreground); text-decoration-color: var(--accent); text-decoration-thickness: 2px; text-underline-offset: 3px; }
+    h1, h2, h3, h4, p, dl, dd, blockquote { margin: 0; }
+    h1, h2, h3, h4 { line-height: 1.2; letter-spacing: -0.02em; }
+    [hidden] { display: none !important; }
+
+    :focus-visible {
+      outline: 3px solid var(--accent);
+      outline-offset: 2px;
+    }
+
+    .visually-hidden {
+      position: absolute !important;
+      width: 1px !important;
+      height: 1px !important;
+      padding: 0 !important;
+      margin: -1px !important;
+      overflow: hidden !important;
+      clip: rect(0, 0, 0, 0) !important;
+      white-space: nowrap !important;
+      border: 0 !important;
+    }
+
+    .skip-link {
+      position: fixed;
+      z-index: 100;
+      top: var(--space-1);
+      left: var(--space-1);
+      padding: var(--space-1) var(--space-2);
+      border: var(--line) solid var(--foreground);
+      border-radius: var(--radius);
+      background: var(--background);
+      transform: translateY(-160%);
+    }
+    .skip-link:focus { transform: translateY(0); }
+
+    .app-frame {
+      min-height: 100dvh;
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr);
+    }
+
+    .topbar {
+      position: relative;
+      z-index: 10;
+      display: flex;
+      align-items: center;
+      gap: var(--space-2);
+      min-height: 64px;
+      padding: var(--space-1) var(--space-3);
+      border-bottom: var(--line) solid var(--border);
+      background: var(--background);
+    }
+
+    .brand {
+      display: grid;
+      flex: none;
+      gap: 0;
+      line-height: 1.15;
+    }
+    .brand-name { font-size: 0.875rem; font-weight: 700; }
+    .product-name { color: var(--muted); font-size: 0.875rem; }
+
+    .dataset-state {
+      display: flex;
+      align-items: center;
+      min-width: 0;
+      margin-right: auto;
+      padding-left: var(--space-2);
+      border-left: var(--line) solid var(--border);
+      color: var(--muted);
+      font-size: 0.875rem;
+    }
+
+    .top-actions {
+      display: flex;
+      align-items: center;
+      gap: var(--space-1);
+      flex: none;
+    }
+
+    .button {
+      min-height: 44px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: var(--space-1);
+      padding: 0 var(--space-2);
+      border: var(--line) solid var(--border);
+      border-radius: var(--radius);
+      background: var(--background);
+      color: var(--foreground);
+      font-weight: 700;
+      line-height: 1.2;
+      text-decoration: none;
+      white-space: nowrap;
+    }
+    .button-primary {
+      border-color: var(--accent);
+      background: var(--accent);
+      color: var(--primary-foreground);
+    }
+    .button-quiet { background: var(--background); }
+    .button-text {
+      min-height: 44px;
+      padding-inline: var(--space-1);
+      border-color: transparent;
+      background: transparent;
+      text-decoration: underline;
+      text-decoration-color: var(--accent);
+      text-decoration-thickness: 2px;
+      text-underline-offset: 3px;
+    }
+    .button-small {
+      min-height: 44px;
+      padding-inline: 12px;
+      font-size: 0.875rem;
+    }
+    .button[disabled], .button[aria-disabled="true"] {
+      border-color: var(--border);
+      background: var(--surface);
+      color: var(--muted);
+      cursor: not-allowed;
+      text-decoration: none;
+    }
+
+    .icon {
+      width: 18px;
+      height: 18px;
+      display: block;
+      flex: none;
+      fill: none;
+      stroke: currentColor;
+      stroke-width: 2;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    .count-badge {
+      min-width: 24px;
+      min-height: 24px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding-inline: 6px;
+      border: var(--line) solid var(--border);
+      border-radius: 999px;
+      background: var(--surface);
+      font-size: 0.875rem;
+      line-height: 1;
+    }
+
+    main { min-height: 0; }
+
+    .onboarding {
+      min-height: 100%;
+      overflow-y: auto;
+      padding: clamp(var(--space-3), 6vw, var(--space-8));
+    }
+
+    .onboarding-inner {
+      width: min(1120px, 100%);
+      margin-inline: auto;
+    }
+
+    .onboarding-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1.15fr) minmax(320px, 0.85fr);
+      gap: var(--space-8);
+      align-items: start;
+    }
+
+    .eyebrow {
+      display: block;
+      color: var(--muted);
+      font-size: 0.875rem;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .onboarding-copy {
+      display: grid;
+      gap: var(--space-3);
+      padding-top: var(--space-3);
+    }
+
+    .onboarding-copy h1 {
+      max-width: 15ch;
+      font-size: clamp(2.25rem, 4vw, 3rem);
+    }
+
+    .intro {
+      max-width: 62ch;
+      color: var(--muted);
+      font-size: 1.0625rem;
+      line-height: 1.7;
+    }
+
+    .action-cluster {
+      display: flex;
+      flex-wrap: wrap;
+      gap: var(--space-1);
+    }
+
+    .drop-zone {
+      display: grid;
+      gap: var(--space-1);
+      max-width: 680px;
+      padding: var(--space-3);
+      border: var(--line) dashed var(--border);
+      border-radius: var(--radius);
+      background: var(--surface);
+    }
+    .drop-zone.is-dragging { border-color: var(--accent); }
+    .drop-zone strong { display: block; }
+    .drop-zone p { color: var(--muted); font-size: 0.875rem; }
+
+    .command-box {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: var(--space-1);
+      align-items: center;
+      max-width: 680px;
+      padding: var(--space-1);
+      border: var(--line) solid var(--border);
+      border-radius: var(--radius);
+      background: var(--background);
+    }
+    .command-box code {
+      min-width: 0;
+      overflow-wrap: anywhere;
+      padding: var(--space-1);
+      color: var(--foreground);
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 0.875rem;
+    }
+
+    .import-outcome {
+      display: grid;
+      gap: 4px;
+      max-width: 680px;
+      padding: var(--space-2);
+      border: var(--line) solid var(--border);
+      border-radius: var(--radius);
+      background: var(--background);
+    }
+    .import-outcome.is-error { border-style: dashed; }
+    .import-outcome p { color: var(--muted); }
+
+    .workflow-card {
+      display: grid;
+      gap: var(--space-3);
+      padding: var(--space-3);
+      border: var(--line) solid var(--border);
+      border-radius: var(--radius);
+      background: var(--surface);
+    }
+    .workflow-card h2 { font-size: 1.25rem; }
+    .workflow-card > p { color: var(--muted); }
+    .workflow-list {
+      display: grid;
+      gap: 0;
+      padding: 0;
+      margin: 0;
+      list-style: none;
+    }
+    .workflow-step {
+      display: grid;
+      grid-template-columns: 32px minmax(0, 1fr);
+      gap: 12px;
+      padding-block: var(--space-2);
+      border-top: var(--line) solid var(--border);
+    }
+    .workflow-step:first-child { border-top: 0; padding-top: 0; }
+    .step-number {
+      width: 32px;
+      height: 32px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border: var(--line) solid var(--border);
+      border-radius: 50%;
+      background: var(--background);
+      font-size: 0.875rem;
+      font-weight: 700;
+    }
+    .step-copy { display: grid; gap: 2px; }
+    .step-copy strong { display: block; }
+    .step-copy span { display: block; color: var(--muted); font-size: 0.875rem; }
+
+    .privacy-note {
+      padding-top: var(--space-2);
+      border-top: var(--line) solid var(--border);
+      color: var(--muted);
+      font-size: 0.875rem;
+    }
+
+    .workspace {
+      min-height: 0;
+      display: grid;
+      grid-template-columns: 248px 384px minmax(0, 1fr);
+      background: var(--background);
+    }
+
+    .filters-panel,
+    .list-panel,
+    .detail-panel { min-width: 0; min-height: 0; }
+
+    .filters-panel {
+      overflow-y: auto;
+      padding: var(--space-2);
+      border-right: var(--line) solid var(--border);
+      background: var(--surface);
+    }
+
+    .panel-heading {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: var(--space-1);
+      margin-bottom: var(--space-2);
+    }
+    .panel-heading h2 { font-size: 1.125rem; }
+
+    .stat-grid {
+      --od-cols: 2;
+      --od-gap: var(--space-1);
+      margin-bottom: var(--space-3);
+    }
+    .mini-stat {
+      padding: 12px;
+      border: var(--line) solid var(--border);
+      border-radius: var(--radius);
+      background: var(--background);
+    }
+    .mini-stat strong { font-size: 1.25rem; }
+    .mini-stat span { color: var(--muted); font-size: 0.875rem; }
+
+    .filter-group {
+      display: grid;
+      gap: var(--space-1);
+      padding-block: var(--space-2);
+      border-top: var(--line) solid var(--border);
+    }
+    .filter-group h3,
+    .field-label {
+      display: block;
+      font-size: 0.875rem;
+      font-weight: 700;
+      letter-spacing: 0;
+    }
+    .filter-options { display: grid; gap: var(--space-1); }
+
+    .filter-option {
+      min-height: 44px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: var(--space-1);
+      width: 100%;
+      padding: 0 12px;
+      border: var(--line) solid var(--border);
+      border-radius: var(--radius);
+      background: var(--background);
+      color: var(--foreground);
+      text-align: left;
+    }
+    .filter-option[aria-pressed="true"] {
+      border-color: var(--accent);
+      background: var(--surface);
+      font-weight: 700;
+    }
+    .option-mark {
+      width: 10px;
+      height: 10px;
+      display: block;
+      flex: none;
+      border: var(--line) solid var(--border);
+      border-radius: 50%;
+      background: var(--background);
+    }
+    .filter-option[aria-pressed="true"] .option-mark {
+      border: 3px solid var(--accent);
+    }
+
+    .select-input,
+    .search-input {
+      width: 100%;
+      min-height: 44px;
+      border: var(--line) solid var(--border);
+      border-radius: var(--radius);
+      background: var(--background);
+      color: var(--foreground);
+    }
+    .select-input { padding: 0 36px 0 12px; }
+    .search-input { padding: 0 12px 0 44px; cursor: text; }
+    .search-input::placeholder { color: var(--muted); opacity: 1; }
+
+    .check-row {
+      min-height: 44px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      cursor: pointer;
+    }
+    .check-row input {
+      width: 20px;
+      height: 20px;
+      flex: none;
+      accent-color: var(--accent);
+    }
+
+    .filter-note {
+      padding-top: var(--space-2);
+      border-top: var(--line) solid var(--border);
+      color: var(--muted);
+      font-size: 0.875rem;
+    }
+
+    .list-panel {
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr);
+      border-right: var(--line) solid var(--border);
+      background: var(--background);
+    }
+
+    .list-header {
+      display: grid;
+      gap: 12px;
+      padding: var(--space-2);
+      border-bottom: var(--line) solid var(--border);
+      background: var(--background);
+    }
+    .list-title-row {
+      display: flex;
+      align-items: end;
+      justify-content: space-between;
+      gap: var(--space-2);
+    }
+    .list-title-row h1 { font-size: 1.5rem; }
+    .result-count { color: var(--muted); font-size: 0.875rem; white-space: nowrap; }
+    .mobile-filter { display: none; }
+
+    .search-wrap { position: relative; }
+    .search-wrap .icon {
+      position: absolute;
+      top: 13px;
+      left: 14px;
+      pointer-events: none;
+    }
+
+    .sort-row {
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr);
+      gap: var(--space-1);
+      align-items: center;
+    }
+    .sort-row label { font-size: 0.875rem; font-weight: 700; }
+    .sort-note { color: var(--muted); font-size: 0.875rem; line-height: 1.45; }
+
+    .board-source-note {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: var(--space-2);
+      padding: 12px var(--space-2);
+      border: var(--line) solid var(--border);
+      border-radius: var(--radius);
+      background: var(--surface);
+    }
+    .board-source-note p { max-width: 62ch; color: var(--muted); font-size: 0.875rem; line-height: 1.45; }
+    .board-source-note strong { color: var(--foreground); }
+
+    .job-list {
+      overflow-y: auto;
+      overscroll-behavior: contain;
+    }
+
+    .job-row {
+      display: grid;
+      gap: 12px;
+      padding: var(--space-2);
+      border-bottom: var(--line) solid var(--border);
+      background: var(--background);
+    }
+    .job-row.is-selected {
+      background: var(--surface);
+      outline: 2px solid var(--accent);
+      outline-offset: -2px;
+    }
+    .job-row-top {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: var(--space-1);
+      align-items: start;
+    }
+    .job-heading { display: grid; gap: 2px; }
+    .job-title { font-size: 1rem; }
+    .job-title-button {
+      min-height: 44px;
+      display: flex;
+      align-items: center;
+      width: 100%;
+      padding: 0;
+      border: 0;
+      background: transparent;
+      color: var(--foreground);
+      font-weight: 700;
+      line-height: 1.35;
+      text-align: left;
+    }
+    .company-line { color: var(--muted); font-size: 0.875rem; }
+
+    .tag-row { --od-gap: 6px; }
+    .tag {
+      display: inline-flex;
+      align-items: center;
+      min-height: 28px;
+      padding: 2px 8px;
+      border: var(--line) solid var(--border);
+      border-radius: 999px;
+      background: var(--background);
+      color: var(--foreground);
+      font-size: 0.875rem;
+      line-height: 1.2;
+    }
+    .tag-accent { border-color: var(--accent); }
+
+    .job-facts {
+      --od-gap: 12px;
+      color: var(--muted);
+      font-size: 0.875rem;
+    }
+
+    .job-meta-row { align-items: end; justify-content: space-between; }
+    .job-signal { min-width: 116px; padding-top: var(--space-1); border-top: var(--line) solid var(--border); }
+    .job-signal span:first-child { color: var(--muted); font-size: 0.875rem; }
+    .job-signal strong { font-size: 0.9375rem; }
+
+    .mini-evidence-grid {
+      --od-cols: 2;
+      --od-gap: var(--space-1);
+    }
+    .mini-evidence {
+      padding-top: var(--space-1);
+      border-top: var(--line) solid var(--border);
+    }
+    .mini-evidence span:first-child { color: var(--muted); font-size: 0.875rem; }
+    .mini-evidence strong { font-size: 0.875rem; }
+
+    .empty-state {
+      min-height: 280px;
+      display: grid;
+      place-items: center;
+      padding: var(--space-4);
+      text-align: center;
+    }
+    .empty-state-inner {
+      display: grid;
+      justify-items: center;
+      gap: var(--space-2);
+      max-width: 46ch;
+    }
+    .empty-state h2 { font-size: 1.25rem; }
+    .empty-state p { color: var(--muted); }
+
+    .detail-panel { background: var(--background); }
+    .detail-scroll {
+      height: 100%;
+      overflow-y: auto;
+      overscroll-behavior: contain;
+    }
+    .detail-content {
+      width: min(820px, 100%);
+      margin-inline: auto;
+      padding: var(--space-3) clamp(var(--space-2), 4vw, var(--space-5)) var(--space-6);
+    }
+    .mobile-back { display: none; margin-bottom: var(--space-1); }
+    .detail-header {
+      display: grid;
+      gap: var(--space-2);
+      padding-bottom: var(--space-3);
+      border-bottom: var(--line) solid var(--border);
+    }
+    .detail-kicker { --od-gap: var(--space-1); }
+    .detail-title-block { display: grid; gap: 4px; }
+    .detail-title-block h2 { font-size: clamp(1.75rem, 3vw, 2.5rem); overflow-wrap: anywhere; }
+    .detail-company { color: var(--muted); font-size: 1.0625rem; }
+
+    .detail-facts {
+      --od-cols: 4;
+      --od-gap: var(--space-1);
+    }
+    .detail-fact {
+      min-height: 72px;
+      align-content: center;
+      padding: 10px 12px;
+      border: var(--line) solid var(--border);
+      border-radius: var(--radius);
+      background: var(--surface);
+    }
+    .detail-fact span:first-child { color: var(--muted); font-size: 0.875rem; }
+    .detail-fact strong { overflow-wrap: anywhere; }
+
+    .detail-actions {
+      --od-gap: var(--space-1);
+      padding-block: var(--space-3);
+    }
+
+    .evidence-callout {
+      display: grid;
+      gap: 4px;
+      padding: var(--space-2);
+      border: var(--line) solid var(--border);
+      border-radius: var(--radius);
+      background: var(--surface);
+    }
+    .evidence-callout p { max-width: var(--measure); color: var(--muted); }
+
+    .score-grid {
+      --od-cols: 3;
+      --od-gap: var(--space-1);
+      margin-top: var(--space-3);
+    }
+    .score-card {
+      min-height: 112px;
+      align-content: center;
+      padding: var(--space-2);
+      border: var(--line) solid var(--border);
+      border-radius: var(--radius);
+      background: var(--background);
+    }
+    .score-card strong { font-size: 1.5rem; line-height: 1.1; }
+    .score-card span { color: var(--muted); font-size: 0.875rem; }
+
+    .detail-section {
+      display: grid;
+      gap: var(--space-2);
+      padding-top: var(--space-4);
+    }
+    .detail-section > h2 { font-size: 1.25rem; }
+
+    .evaluation {
+      display: grid;
+      gap: 12px;
+      padding-block: var(--space-3);
+      border-top: var(--line) solid var(--border);
+    }
+    .evaluation:first-of-type { border-top: 0; padding-top: 0; }
+    .evaluation-header {
+      display: flex;
+      align-items: start;
+      justify-content: space-between;
+      gap: var(--space-2);
+    }
+    .evaluation-title { display: grid; gap: 4px; }
+    .evaluation-title h3 { font-size: 1.0625rem; }
+    .evaluation-meta { color: var(--muted); font-size: 0.875rem; }
+    .evaluation p { max-width: var(--measure); }
+    .quote-list { display: grid; gap: var(--space-1); }
+    .quote-list h4 { font-size: 0.875rem; }
+    blockquote {
+      padding: 12px var(--space-2);
+      border: var(--line) solid var(--border);
+      border-radius: var(--radius);
+      background: var(--surface);
+      overflow-wrap: anywhere;
+    }
+
+    .posting-copy {
+      max-width: var(--measure);
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+    }
+    details {
+      border: var(--line) solid var(--border);
+      border-radius: var(--radius);
+      background: var(--background);
+    }
+    summary {
+      min-height: 48px;
+      display: flex;
+      align-items: center;
+      padding: 0 var(--space-2);
+      cursor: pointer;
+      font-weight: 700;
+    }
+    details[open] summary { border-bottom: var(--line) solid var(--border); }
+    .details-body { padding: var(--space-2); }
+
+    .signal-list { display: grid; gap: var(--space-1); }
+    .signal-row {
+      display: grid;
+      gap: 4px;
+      padding: var(--space-2);
+      border: var(--line) solid var(--border);
+      border-radius: var(--radius);
+      background: var(--surface);
+    }
+    .signal-row p { color: var(--muted); font-size: 0.875rem; }
+
+    dialog {
+      width: min(640px, calc(100% - 32px));
+      max-height: 88dvh;
+      padding: 0;
+      border: var(--line) solid var(--border);
+      border-radius: var(--radius);
+      background: var(--background);
+      color: var(--foreground);
+    }
+    dialog::backdrop { background: var(--foreground); opacity: 0.42; }
+    .compare-dialog { width: min(1080px, calc(100% - 32px)); }
+    .dialog-shell {
+      max-height: 88dvh;
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr) auto;
+    }
+    .dialog-header,
+    .dialog-footer {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: var(--space-2);
+      padding: var(--space-2);
+      background: var(--background);
+    }
+    .dialog-header { border-bottom: var(--line) solid var(--border); }
+    .dialog-footer { border-top: var(--line) solid var(--border); }
+    .dialog-title { display: grid; gap: 2px; }
+    .dialog-title h2 { font-size: 1.25rem; }
+    .dialog-title p { color: var(--muted); font-size: 0.875rem; }
+    .dialog-body {
+      min-height: 0;
+      overflow-y: auto;
+      padding: var(--space-2);
+    }
+
+    .compare-grid {
+      --od-cols: 3;
+      --od-gap: var(--space-1);
+    }
+    .compare-card {
+      display: grid;
+      align-content: start;
+      gap: var(--space-2);
+      padding: var(--space-2);
+      border: var(--line) solid var(--border);
+      border-radius: var(--radius);
+      background: var(--background);
+    }
+    .compare-card h3 { font-size: 1.0625rem; overflow-wrap: anywhere; }
+    .compare-company { color: var(--muted); }
+    .compare-facts { display: grid; gap: var(--space-1); }
+    .compare-fact {
+      display: grid;
+      grid-template-columns: minmax(96px, auto) minmax(0, 1fr);
+      gap: var(--space-1);
+      padding-top: var(--space-1);
+      border-top: var(--line) solid var(--border);
+    }
+    .compare-fact dt { color: var(--muted); font-size: 0.875rem; }
+    .compare-fact dd { overflow-wrap: anywhere; }
+    .compare-quote {
+      padding: 12px;
+      border: var(--line) solid var(--border);
+      border-radius: var(--radius);
+      background: var(--surface);
+      font-size: 0.875rem;
+    }
+    .compare-actions {
+      display: grid;
+      gap: var(--space-1);
+      align-self: end;
+    }
+    .compare-note {
+      margin-bottom: var(--space-2);
+      color: var(--muted);
+    }
+
+    .toast {
+      position: fixed;
+      z-index: 120;
+      right: var(--space-2);
+      bottom: var(--space-2);
+      max-width: min(420px, calc(100% - 32px));
+      padding: 12px var(--space-2);
+      border: var(--line) solid var(--foreground);
+      border-radius: var(--radius);
+      background: var(--foreground);
+      color: var(--background);
+      font-weight: 700;
+      opacity: 0;
+      pointer-events: none;
+      transform: translateY(12px);
+      transition: opacity var(--motion-fast) ease-out, transform var(--motion-fast) ease-out;
+    }
+    .toast.is-visible { opacity: 1; transform: translateY(0); }
+
+    .noscript {
+      margin: var(--space-3);
+      padding: var(--space-3);
+      border: var(--line) solid var(--border);
+      border-radius: var(--radius);
+      background: var(--surface);
+    }
+
+    @media (hover: hover) {
+      .button:not([disabled]):not([aria-disabled="true"]):hover,
+      .filter-option:hover,
+      .job-title-button:hover {
+        border-color: var(--accent);
+        background: var(--surface);
+      }
+      .button-primary:hover { background: var(--accent); }
+      .job-row:hover { background: var(--surface); }
+      a:hover { text-decoration-thickness: 3px; }
+    }
+
+    @media (min-width: 768px) {
+      body { overflow: hidden; }
+      .app-frame { height: 100dvh; }
+      .onboarding, .workspace { height: 100%; }
+    }
+
+    @media (max-width: 1180px) {
+      .workspace { grid-template-columns: 224px 352px minmax(0, 1fr); }
+      .detail-facts { --od-cols: 2; }
+    }
+
+    @media (max-width: 1060px) {
+      .workspace { grid-template-columns: minmax(320px, 380px) minmax(0, 1fr); }
+      .filters-panel { display: none; }
+      .mobile-filter { display: inline-flex; }
+    }
+
+    @media (max-width: 860px) {
+      .onboarding-grid {
+        grid-template-columns: 1fr;
+        gap: var(--space-5);
+      }
+      .workflow-card { max-width: 680px; }
+      .score-grid { --od-cols: 2; }
+      .score-card:last-child { grid-column: 1 / -1; }
+    }
+
+    @media (max-width: 767px) {
+      .topbar {
+        position: sticky;
+        top: 0;
+        padding-inline: var(--space-2);
+      }
+      .dataset-state { display: none; }
+      .top-actions { margin-left: auto; }
+      .workspace {
+        min-height: calc(100dvh - 64px);
+        grid-template-columns: minmax(0, 1fr);
+      }
+      .list-panel, .detail-panel { min-height: calc(100dvh - 64px); }
+      .detail-panel { display: none; }
+      .workspace.show-detail .list-panel { display: none; }
+      .workspace.show-detail .detail-panel { display: block; }
+      .mobile-back { display: inline-flex; }
+      .detail-scroll, .job-list { overflow-y: visible; }
+      .list-panel { display: block; border-right: 0; }
+      .list-header { position: sticky; top: 64px; z-index: 5; }
+      .detail-content { padding-bottom: var(--space-5); }
+      .compare-grid { --od-cols: 1; }
+    }
+
+    @media (max-width: 560px) {
+      .topbar { gap: var(--space-1); padding-inline: var(--space-1); }
+      .product-name, .button-copy { display: none; }
+      .button { padding-inline: 12px; }
+      .onboarding { padding: var(--space-4) var(--space-2); }
+      .onboarding-copy h1 { font-size: 2.25rem; }
+      .command-box { grid-template-columns: 1fr; }
+      .command-box .button { width: 100%; }
+      .list-title-row { align-items: start; }
+      .result-count { white-space: normal; text-align: right; }
+      .sort-row { grid-template-columns: 1fr; }
+      .detail-facts, .score-grid { --od-cols: 1; }
+      .score-card:last-child { grid-column: auto; }
+      .board-source-note { align-items: flex-start; flex-direction: column; }
+      .detail-actions { display: grid; }
+      .detail-actions .button { width: 100%; }
+      .dialog-footer { align-items: stretch; flex-direction: column-reverse; }
+      .dialog-footer .button { width: 100%; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after {
+        scroll-behavior: auto !important;
+        transition-duration: 0.01ms !important;
+      }
+    }
+  </style>
+</head>
+<body>
+  <a class="skip-link" href="#mainContent">Skip to main content</a>
+
+  <div class="app-frame">
+    <header class="topbar">
+      <div class="brand" aria-label="Its a free tool, Career Fleet Jobs">
+        <span class="brand-name">Its a free tool</span>
+        <span class="product-name">Career Fleet Jobs</span>
+      </div>
+
+      <div class="dataset-state" id="datasetState" aria-live="polite">No sourced jobs loaded</div>
+
+      <div class="top-actions">
+        <button class="button button-quiet theme-button" id="themeButton" type="button" data-action="toggle-theme" aria-pressed="false" aria-label="Use dark mode">
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18Zm0 0v18"></path></svg>
+          <span class="button-copy" id="themeButtonLabel">Dark mode</span>
+        </button>
+        <button class="button button-quiet" type="button" data-action="open-filters" aria-haspopup="dialog" aria-controls="filtersDialog">
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M7 12h10M10 18h4"></path></svg>
+          <span class="button-copy">Filters</span>
+        </button>
+        <button class="button button-primary" type="button" data-action="refresh-data">
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 16V4m0 0-5 5m5-5 5 5M5 20h14"></path></svg>
+          <span class="button-copy">Refresh jobs</span>
+        </button>
+        <button class="button button-quiet" id="compareButton" type="button" data-action="open-compare" aria-haspopup="dialog" aria-controls="compareDialog" disabled>
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 4h12v16l-6-4-6 4V4Z"></path></svg>
+          <span class="button-copy">Saved</span>
+          <span class="count-badge" id="savedCount" aria-label="0 saved roles">0</span>
+        </button>
+      </div>
+    </header>
+
+    <main id="mainContent" tabindex="-1">
+      <section class="workspace" id="workspace" aria-label="Career Fleet sourced job board">
+        <aside class="filters-panel" aria-labelledby="filtersTitle">
+          <div class="panel-heading">
+            <h2 id="filtersTitle">Board filters</h2>
+            <button class="button button-text button-small" type="button" data-action="reset-filters">Reset</button>
+          </div>
+
+          <div class="od-grid stat-grid" aria-label="Dataset summary">
+            <div class="od-stat mini-stat">
+              <strong id="companyTotal">0</strong>
+              <span>Companies</span>
+            </div>
+            <div class="od-stat mini-stat">
+              <strong id="roleTotal">0</strong>
+              <span>Sourced jobs</span>
+            </div>
+          </div>
+
+          <section class="filter-group" aria-labelledby="workFilterTitle">
+            <h3 id="workFilterTitle">Work setup</h3>
+            <div class="filter-options">
+              <button class="filter-option" type="button" data-action="set-work" data-work="all" aria-pressed="true">
+                <span>Any setup</span><span class="option-mark" aria-hidden="true"></span>
+              </button>
+              <button class="filter-option" type="button" data-action="set-work" data-work="remote" aria-pressed="false">
+                <span>Marked remote</span><span class="option-mark" aria-hidden="true"></span>
+              </button>
+              <button class="filter-option" type="button" data-action="set-work" data-work="not_marked" aria-pressed="false">
+                <span>Not marked remote</span><span class="option-mark" aria-hidden="true"></span>
+              </button>
+            </div>
+          </section>
+
+          <section class="filter-group">
+            <label class="field-label" for="sourceFilter">Source</label>
+            <select class="select-input" id="sourceFilter" data-filter-source>
+              <option value="all">All sources</option>
+            </select>
+          </section>
+
+          <section class="filter-group">
+            <label class="check-row">
+              <input type="checkbox" data-filter-link>
+              <span>Only roles with a job link</span>
+            </label>
+          </section>
+
+          <section class="filter-group">
+            <button class="button button-quiet" id="restoreHiddenButton" type="button" data-action="restore-hidden" disabled>Restore hidden roles</button>
+          </section>
+
+          <p class="filter-note">Career Fleet scores describe captured company evidence. They are not hiring probabilities or guarantees.</p>
+        </aside>
+
+        <section class="list-panel" aria-labelledby="matchesHeading">
+          <header class="list-header">
+            <div class="list-title-row">
+              <div class="od-stack" style="--od-gap: 2px;">
+                <span class="eyebrow">Career Fleet job board</span>
+                <h1 id="matchesHeading" tabindex="-1">Matched jobs</h1>
+              </div>
+              <div class="od-row">
+                <span class="result-count" id="resultCount" aria-live="polite">0 roles</span>
+                <button class="button button-quiet button-small mobile-filter" type="button" data-action="open-filters" aria-haspopup="dialog" aria-controls="filtersDialog">
+                  <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M7 12h10M10 18h4"></path></svg>
+                  <span>Refine</span>
+                </button>
+              </div>
+            </div>
+
+            <div>
+                <label class="field-label" for="jobSearch">Search jobs</label>
+              <div class="search-wrap">
+                <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-4-4"></path></svg>
+                <input class="search-input" id="jobSearch" type="search" placeholder="Role, company, location, or source" autocomplete="off">
+              </div>
+            </div>
+
+            <div class="sort-row">
+              <label for="jobSort">Sort by</label>
+              <select class="select-input" id="jobSort">
+                  <option value="evidence">Strongest screening signal</option>
+                <option value="company">Company name</option>
+                <option value="title">Role title</option>
+              </select>
+            </div>
+            <p class="sort-note">Screening signal averages available company evaluations. It helps you choose what to inspect, not predict hiring.</p>
+            <div class="board-source-note">
+              <p><strong>Data source:</strong> persistent Career Fleet tables, with the latest company screening context attached to each role.</p>
+              <button class="button button-quiet button-small" type="button" data-action="refresh-data">
+                <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 16V4m0 0-5 5m5-5 5 5M5 20h14"></path></svg>
+                <span>Refresh jobs</span>
+              </button>
+            </div>
+            <div class="import-outcome" id="importOutcome" role="alert" hidden>
+              <strong id="importOutcomeTitle"></strong>
+              <p id="importOutcomeMessage"></p>
+            </div>
+          </header>
+
+          <div class="job-list" id="jobList" role="list" aria-label="Career Fleet sourced job postings"></div>
+        </section>
+
+        <section class="detail-panel" aria-label="Selected role details">
+          <div class="detail-scroll" id="jobDetail"></div>
+        </section>
+      </section>
+
+      <noscript>
+        <div class="noscript">
+          <h1>JavaScript is required</h1>
+          <p>Enable JavaScript to load persistent Career Fleet jobs, review evidence, and compare roles.</p>
+        </div>
+      </noscript>
+    </main>
+  </div>
+
+  <dialog id="filtersDialog" aria-labelledby="filterDialogTitle">
+    <div class="dialog-shell">
+      <header class="dialog-header">
+        <div class="dialog-title">
+          <h2 id="filterDialogTitle">Refine roles</h2>
+          <p id="filterDialogCount">0 roles visible</p>
+        </div>
+        <button class="button button-quiet button-small" type="button" data-action="close-filters" aria-label="Close filters">
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"></path></svg>
+        </button>
+      </header>
+
+      <div class="dialog-body">
+        <section class="filter-group" aria-labelledby="dialogWorkTitle">
+          <h3 id="dialogWorkTitle">Work setup</h3>
+          <div class="filter-options">
+            <button class="filter-option" type="button" data-action="set-work" data-work="all" aria-pressed="true">
+              <span>Any setup</span><span class="option-mark" aria-hidden="true"></span>
+            </button>
+            <button class="filter-option" type="button" data-action="set-work" data-work="remote" aria-pressed="false">
+              <span>Marked remote</span><span class="option-mark" aria-hidden="true"></span>
+            </button>
+            <button class="filter-option" type="button" data-action="set-work" data-work="not_marked" aria-pressed="false">
+              <span>Not marked remote</span><span class="option-mark" aria-hidden="true"></span>
+            </button>
+          </div>
+        </section>
+
+        <section class="filter-group">
+          <label class="field-label" for="dialogSourceFilter">Source</label>
+          <select class="select-input" id="dialogSourceFilter" data-filter-source>
+            <option value="all">All sources</option>
+          </select>
+        </section>
+
+        <section class="filter-group">
+          <label class="check-row">
+            <input type="checkbox" data-filter-link>
+            <span>Only roles with a job link</span>
+          </label>
+        </section>
+
+        <section class="filter-group">
+          <button class="button button-quiet" id="dialogRestoreHiddenButton" type="button" data-action="restore-hidden" disabled>Restore hidden roles</button>
+        </section>
+
+        <p class="filter-note">A role marked remote carries an explicit is_remote value in the export. Other roles are not assumed to be on-site.</p>
+      </div>
+
+      <footer class="dialog-footer">
+        <button class="button button-text" type="button" data-action="reset-filters">Reset filters</button>
+        <button class="button button-primary" type="button" data-action="close-filters">View roles</button>
+      </footer>
+    </div>
+  </dialog>
+
+  <dialog class="compare-dialog" id="compareDialog" aria-labelledby="compareDialogTitle">
+    <div class="dialog-shell">
+      <header class="dialog-header">
+        <div class="dialog-title">
+          <h2 id="compareDialogTitle">Compare saved roles</h2>
+          <p id="compareDialogSummary">Save roles to compare their evidence.</p>
+        </div>
+        <button class="button button-quiet button-small" type="button" data-action="close-compare" aria-label="Close comparison">
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"></path></svg>
+        </button>
+      </header>
+      <div class="dialog-body" id="compareBody"></div>
+      <footer class="dialog-footer">
+        <span class="filter-note">Up to three saved roles are shown side by side.</span>
+        <button class="button button-primary" type="button" data-action="close-compare">Done</button>
+      </footer>
+    </div>
+  </dialog>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+  <script>
+    (function () {
+      "use strict";
+
+      var API_URL = "/api/jobs";
+
+      var elements = {
+        workspace: document.getElementById("workspace"),
+        datasetState: document.getElementById("datasetState"),
+        themeButton: document.getElementById("themeButton"),
+        themeButtonLabel: document.getElementById("themeButtonLabel"),
+        importOutcome: document.getElementById("importOutcome"),
+        importOutcomeTitle: document.getElementById("importOutcomeTitle"),
+        importOutcomeMessage: document.getElementById("importOutcomeMessage"),
+        compareButton: document.getElementById("compareButton"),
+        savedCount: document.getElementById("savedCount"),
+        companyTotal: document.getElementById("companyTotal"),
+        roleTotal: document.getElementById("roleTotal"),
+        restoreHiddenButton: document.getElementById("restoreHiddenButton"),
+        dialogRestoreHiddenButton: document.getElementById("dialogRestoreHiddenButton"),
+        resultCount: document.getElementById("resultCount"),
+        jobSearch: document.getElementById("jobSearch"),
+        jobSort: document.getElementById("jobSort"),
+        jobList: document.getElementById("jobList"),
+        jobDetail: document.getElementById("jobDetail"),
+        filtersDialog: document.getElementById("filtersDialog"),
+        filterDialogCount: document.getElementById("filterDialogCount"),
+        compareDialog: document.getElementById("compareDialog"),
+        compareDialogSummary: document.getElementById("compareDialogSummary"),
+        compareBody: document.getElementById("compareBody"),
+        toast: document.getElementById("toast"),
+        matchesHeading: document.getElementById("matchesHeading")
+      };
+
+      var state = {
+        companies: [],
+        jobs: [],
+        selectedKey: null,
+        saved: new Set(),
+        hidden: new Set(),
+        query: "",
+        work: "all",
+        source: "all",
+        linkOnly: false,
+        sort: "evidence",
+        sourceLabel: "",
+        storageKey: "",
+        mobileDetail: false
+      };
+
+      var toastTimer = null;
+      var THEME_KEY = "career-fleet-theme";
+
+      function applyTheme(theme, persist) {
+        var nextTheme = theme === "dark" ? "dark" : "light";
+        document.documentElement.dataset.theme = nextTheme;
+        if (persist) {
+          try {
+            localStorage.setItem(THEME_KEY, nextTheme);
+          } catch (error) {
+            /* Theme remains active for this session when storage is unavailable. */
+          }
+        }
+        var darkMode = nextTheme === "dark";
+        elements.themeButton.setAttribute("aria-pressed", String(darkMode));
+        elements.themeButton.setAttribute("aria-label", darkMode ? "Use light mode" : "Use dark mode");
+        elements.themeButtonLabel.textContent = darkMode ? "Light mode" : "Dark mode";
+        document.getElementById("themeColorMeta").setAttribute("content", darkMode ? "#26251e" : "#f2f1ed");
+      }
+
+      function initializeTheme() {
+        var storedTheme = null;
+        try {
+          storedTheme = localStorage.getItem(THEME_KEY);
+        } catch (error) {
+          storedTheme = null;
+        }
+        var media = window.matchMedia("(prefers-color-scheme: dark)");
+        applyTheme(storedTheme === "dark" || storedTheme === "light"
+          ? storedTheme
+          : (media.matches ? "dark" : "light"), false);
+        if (typeof media.addEventListener === "function") {
+          media.addEventListener("change", function (event) {
+            try {
+              if (localStorage.getItem(THEME_KEY)) {
+                return;
+              }
+            } catch (error) {
+              /* Follow the system preference when storage is unavailable. */
+            }
+            applyTheme(event.matches ? "dark" : "light", false);
+          });
+        }
+      }
+
+      function toggleTheme() {
+        applyTheme(document.documentElement.dataset.theme === "dark" ? "light" : "dark", true);
+      }
+
+      function make(tagName, className, textValue) {
+        var item = document.createElement(tagName);
+        if (className) {
+          item.className = className;
+        }
+        if (textValue !== undefined && textValue !== null) {
+          item.textContent = String(textValue);
+        }
+        return item;
+      }
+
+      function makeIcon(name) {
+        var paths = {
+          external: ["M14 5h5v5", "M19 5l-9 9", "M19 13v6H5V5h6"],
+          back: ["m15 18-6-6 6-6"],
+          bookmark: ["M6 4h12v16l-6-4-6 4V4Z"],
+          hide: ["M3 3l18 18", "M10.6 10.6a2 2 0 0 0 2.8 2.8", "M9.9 4.2A10.8 10.8 0 0 1 12 4c5 0 8.5 4.5 9.5 6-.4.7-1.4 2-2.8 3.2", "M6.2 6.2C4.3 7.4 3.1 9.2 2.5 10c1 1.5 4.5 6 9.5 6 .7 0 1.4-.1 2-.3"],
+          review: ["M8 6h11", "M8 12h11", "M8 18h7", "M4 6h.01", "M4 12h.01", "M4 18h.01"]
+        };
+        var svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+        svg.setAttribute("class", "icon");
+        svg.setAttribute("viewBox", "0 0 24 24");
+        svg.setAttribute("aria-hidden", "true");
+        (paths[name] || []).forEach(function (pathData) {
+          var path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+          path.setAttribute("d", pathData);
+          svg.appendChild(path);
+        });
+        return svg;
+      }
+
+      function button(label, action, className, iconName) {
+        var control = make("button", "button " + (className || "button-quiet"));
+        control.type = "button";
+        control.dataset.action = action;
+        if (iconName) {
+          control.appendChild(makeIcon(iconName));
+        }
+        control.appendChild(make("span", "", label));
+        return control;
+      }
+
+      function textValue(value, fallback) {
+        if (value === null || value === undefined) {
+          return fallback || "";
+        }
+        var result = String(value).trim();
+        return result || fallback || "";
+      }
+
+      function exactString(value) {
+        return typeof value === "string" ? value : "";
+      }
+
+      function safeHttpUrl(value) {
+        var raw = textValue(value, "");
+        if (!raw) {
+          return null;
+        }
+        try {
+          var parsed = new URL(raw);
+          return parsed.protocol === "http:" || parsed.protocol === "https:" ? parsed.href : null;
+        } catch (error) {
+          return null;
+        }
+      }
+
+      function finiteScore(value) {
+        var number = Number(value);
+        return Number.isFinite(number) ? number : null;
+      }
+
+      function parseStringArray(value, jsonFallback) {
+        if (Array.isArray(value)) {
+          return value.filter(function (item) { return typeof item === "string"; });
+        }
+        if (typeof jsonFallback === "string" && jsonFallback) {
+          try {
+            var parsed = JSON.parse(jsonFallback);
+            return Array.isArray(parsed) ? parsed.filter(function (item) { return typeof item === "string"; }) : [];
+          } catch (error) {
+            return [];
+          }
+        }
+        return [];
+      }
+
+      function normalizeEvaluation(raw) {
+        return {
+          lane: textValue(raw.lane, "unknown"),
+          status: textValue(raw.status, "Status not provided"),
+          score: finiteScore(raw.score),
+          verdict: textValue(raw.verdict, "Not evaluated"),
+          rationale: textValue(raw.rationale, "No rationale was included in this persistent record."),
+          quotes: parseStringArray(raw.quotes, raw.quotes_json),
+          method: textValue(raw.model_used, "Method not provided"),
+          profileRevision: textValue(raw.profile_revision_id, "")
+        };
+      }
+
+      function latestEvaluation(evaluations, lane) {
+        var result = null;
+        evaluations.forEach(function (evaluation) {
+          if (evaluation.lane === lane) {
+            result = evaluation;
+          }
+        });
+        return result;
+      }
+
+      function normalizeSignal(raw) {
+        return {
+          title: textValue(raw.title, "Untitled signal"),
+          sourceType: textValue(raw.source_type, "Source not provided"),
+          sourceUri: safeHttpUrl(raw.source_uri),
+          signalTypes: parseStringArray(raw.signal_types, raw.signal_types_json),
+          relevanceScore: finiteScore(raw.relevance_score)
+        };
+      }
+
+      function normalizeDossiers(payload) {
+        if (!Array.isArray(payload)) {
+          throw new Error("The persistent Career Fleet response was not a dossier list.");
+        }
+
+        var companies = [];
+        var jobs = [];
+        var usedKeys = new Set();
+
+        payload.forEach(function (rawCompany, companyIndex) {
+          if (!rawCompany || typeof rawCompany !== "object" || Array.isArray(rawCompany)) {
+            throw new Error("Company record " + (companyIndex + 1) + " is not a dossier object.");
+          }
+          if (!Array.isArray(rawCompany.jobs) || !Array.isArray(rawCompany.evaluations)) {
+            throw new Error("Company record " + (companyIndex + 1) + " is missing jobs or evaluations.");
+          }
+
+          var evaluations = rawCompany.evaluations.map(function (rawEvaluation, evaluationIndex) {
+            if (!rawEvaluation || typeof rawEvaluation !== "object" || Array.isArray(rawEvaluation)) {
+              throw new Error("Evaluation " + (evaluationIndex + 1) + " in company record " + (companyIndex + 1) + " is invalid.");
+            }
+            return normalizeEvaluation(rawEvaluation);
+          });
+
+          var companyId = textValue(rawCompany.id, "company-" + (companyIndex + 1));
+          var company = {
+            id: companyId,
+            name: textValue(rawCompany.name, "Company name not provided"),
+            status: textValue(rawCompany.status, "Status not provided"),
+            domain: textValue(rawCompany.domain, ""),
+            stage: textValue(rawCompany.stage, ""),
+            headcount: rawCompany.headcount === null || rawCompany.headcount === undefined ? null : textValue(rawCompany.headcount, ""),
+            hqLocation: textValue(rawCompany.hq_location, ""),
+            timezone: textValue(rawCompany.timezone, ""),
+            websiteUrl: safeHttpUrl(rawCompany.website_url),
+            evaluations: evaluations,
+            triage: latestEvaluation(evaluations, "lane2_triage"),
+            systems: latestEvaluation(evaluations, "lane3_systems"),
+            culture: latestEvaluation(evaluations, "lane4_culture"),
+            signals: Array.isArray(rawCompany.community_signals)
+              ? rawCompany.community_signals.filter(function (item) {
+                  return item && typeof item === "object" && !Array.isArray(item);
+                }).map(normalizeSignal)
+              : []
+          };
+          companies.push(company);
+
+          rawCompany.jobs.forEach(function (rawJob, jobIndex) {
+            if (!rawJob || typeof rawJob !== "object" || Array.isArray(rawJob)) {
+              throw new Error("Job record " + (jobIndex + 1) + " in company record " + (companyIndex + 1) + " is invalid.");
+            }
+            var jobId = textValue(rawJob.id, "posting-" + (jobIndex + 1));
+            var key = companyId + "::" + jobId;
+            if (usedKeys.has(key)) {
+              key = key + "::" + (jobIndex + 1);
+            }
+            usedKeys.add(key);
+
+            var isRemote = rawJob.is_remote === true || rawJob.is_remote === 1 || rawJob.is_remote === "1";
+            jobs.push({
+              key: key,
+              id: jobId,
+              title: textValue(rawJob.title, "Untitled posting"),
+              location: textValue(rawJob.location, "Location not provided"),
+              timezone: textValue(rawJob.timezone, ""),
+              isRemote: isRemote,
+              workKey: isRemote ? "remote" : "not_marked",
+              workLabel: isRemote ? "Marked remote" : "Not marked remote",
+              jobUrl: safeHttpUrl(rawJob.job_url),
+              sourceType: textValue(rawJob.source_type, "Source not provided"),
+              rawText: exactString(rawJob.raw_text),
+              company: company
+            });
+          });
+        });
+
+        return { companies: companies, jobs: jobs };
+      }
+
+      function scoreText(evaluation) {
+        if (!evaluation || evaluation.score === null) {
+          return "—";
+        }
+        return Math.round(evaluation.score * 100) + "/100";
+      }
+
+      function screeningScore(job) {
+        var scores = [job.company.systems, job.company.culture]
+          .filter(function (evaluation) { return evaluation && evaluation.score !== null; })
+          .map(function (evaluation) { return evaluation.score; });
+        if (!scores.length) {
+          return null;
+        }
+        return scores.reduce(function (total, score) { return total + score; }, 0) / scores.length;
+      }
+
+      function screeningScoreText(job) {
+        var score = screeningScore(job);
+        return score === null ? "Not scored" : Math.round(score * 100) + "/100";
+      }
+
+      function evidenceSortValue(job) {
+        var score = screeningScore(job);
+        return score === null ? -1 : score;
+      }
+
+      function datasetHash(companies, jobs) {
+        var input = companies.map(function (company) { return company.id; })
+          .concat(jobs.map(function (job) { return job.key; }))
+          .sort()
+          .join("|");
+        var hash = 2166136261;
+        for (var index = 0; index < input.length; index += 1) {
+          hash ^= input.charCodeAt(index);
+          hash = Math.imul(hash, 16777619);
+        }
+        return (hash >>> 0).toString(16);
+      }
+
+      function loadPreferences() {
+        state.saved = new Set();
+        state.hidden = new Set();
+        if (!state.storageKey) {
+          return;
+        }
+        try {
+          var stored = JSON.parse(localStorage.getItem(state.storageKey) || "{}");
+          var validKeys = new Set(state.jobs.map(function (job) { return job.key; }));
+          (Array.isArray(stored.saved) ? stored.saved : []).forEach(function (key) {
+            if (validKeys.has(key)) {
+              state.saved.add(key);
+            }
+          });
+          (Array.isArray(stored.hidden) ? stored.hidden : []).forEach(function (key) {
+            if (validKeys.has(key)) {
+              state.hidden.add(key);
+            }
+          });
+        } catch (error) {
+          state.saved = new Set();
+          state.hidden = new Set();
+        }
+      }
+
+      function savePreferences() {
+        if (!state.storageKey) {
+          return;
+        }
+        try {
+          localStorage.setItem(state.storageKey, JSON.stringify({
+            saved: Array.from(state.saved),
+            hidden: Array.from(state.hidden)
+          }));
+        } catch (error) {
+          showToast("Review choices could not be saved on this device.");
+        }
+      }
+
+      function filteredJobs() {
+        var query = state.query.trim().toLowerCase();
+        var items = state.jobs.filter(function (job) {
+          if (state.hidden.has(job.key)) {
+            return false;
+          }
+          var searchable = [job.title, job.company.name, job.location, job.sourceType].join(" ").toLowerCase();
+          var matchesQuery = !query || searchable.indexOf(query) !== -1;
+          var matchesWork = state.work === "all" || job.workKey === state.work;
+          var matchesSource = state.source === "all" || job.sourceType === state.source;
+          var matchesLink = !state.linkOnly || Boolean(job.jobUrl);
+          return matchesQuery && matchesWork && matchesSource && matchesLink;
+        });
+
+        items.sort(function (left, right) {
+          if (state.sort === "company") {
+            return left.company.name.localeCompare(right.company.name) || left.title.localeCompare(right.title);
+          }
+          if (state.sort === "title") {
+            return left.title.localeCompare(right.title) || left.company.name.localeCompare(right.company.name);
+          }
+          return evidenceSortValue(right) - evidenceSortValue(left)
+            || left.company.name.localeCompare(right.company.name)
+            || left.title.localeCompare(right.title);
+        });
+
+        return items;
+      }
+
+      function getJob(key) {
+        return state.jobs.find(function (job) { return job.key === key; }) || null;
+      }
+
+      function showToast(message) {
+        clearTimeout(toastTimer);
+        elements.toast.textContent = message;
+        elements.toast.classList.add("is-visible");
+        toastTimer = setTimeout(function () {
+          elements.toast.classList.remove("is-visible");
+        }, 2600);
+      }
+
+      function setImportOutcome(title, message, isError) {
+        elements.importOutcomeTitle.textContent = title;
+        elements.importOutcomeMessage.textContent = message;
+        elements.importOutcome.classList.toggle("is-error", Boolean(isError));
+        elements.importOutcome.hidden = false;
+      }
+
+      function setLoading(isLoading) {
+        elements.workspace.setAttribute("aria-busy", String(isLoading));
+        document.querySelectorAll('[data-action="refresh-data"]').forEach(function (control) {
+          control.disabled = isLoading;
+        });
+        if (isLoading) {
+          setImportOutcome("Refreshing jobs", "Reading the persistent Career Fleet tables.", false);
+        }
+      }
+
+      function renderHeader() {
+        var savedTotal = state.jobs.filter(function (job) { return state.saved.has(job.key); }).length;
+        elements.savedCount.textContent = String(savedTotal);
+        elements.savedCount.setAttribute("aria-label", savedTotal + (savedTotal === 1 ? " saved role" : " saved roles"));
+        elements.compareButton.disabled = savedTotal === 0;
+        elements.datasetState.textContent = state.jobs.length
+          ? state.sourceLabel + " · " + state.jobs.length + (state.jobs.length === 1 ? " sourced job" : " sourced jobs")
+          : (state.sourceLabel ? state.sourceLabel + " · no qualified jobs" : "Waiting for Career Fleet");
+      }
+
+      function updateSourceControls() {
+        var sources = Array.from(new Set(state.jobs.map(function (job) { return job.sourceType; })))
+          .sort(function (left, right) { return left.localeCompare(right); });
+        if (state.source !== "all" && sources.indexOf(state.source) === -1) {
+          state.source = "all";
+        }
+        document.querySelectorAll("[data-filter-source]").forEach(function (select) {
+          var options = [make("option", "", "All sources")];
+          options[0].value = "all";
+          sources.forEach(function (source) {
+            var option = make("option", "", source);
+            option.value = source;
+            options.push(option);
+          });
+          select.replaceChildren.apply(select, options);
+          select.value = state.source;
+        });
+      }
+
+      function renderFilters() {
+        elements.companyTotal.textContent = String(state.companies.length);
+        elements.roleTotal.textContent = String(state.jobs.length);
+        document.querySelectorAll("[data-work]").forEach(function (control) {
+          control.setAttribute("aria-pressed", String(control.dataset.work === state.work));
+        });
+        document.querySelectorAll("[data-filter-link]").forEach(function (control) {
+          control.checked = state.linkOnly;
+        });
+        updateSourceControls();
+        elements.jobSearch.value = state.query;
+        elements.jobSort.value = state.sort;
+
+        var hiddenTotal = state.jobs.filter(function (job) { return state.hidden.has(job.key); }).length;
+        [elements.restoreHiddenButton, elements.dialogRestoreHiddenButton].forEach(function (control) {
+          control.disabled = hiddenTotal === 0;
+          control.textContent = hiddenTotal
+            ? "Restore " + hiddenTotal + (hiddenTotal === 1 ? " hidden role" : " hidden roles")
+            : "Restore hidden roles";
+        });
+
+        var visibleTotal = filteredJobs().length;
+        elements.filterDialogCount.textContent = visibleTotal + (visibleTotal === 1 ? " role visible" : " roles visible");
+      }
+
+      function makeTag(label, emphasized) {
+        return make("span", "tag" + (emphasized ? " tag-accent" : ""), label);
+      }
+
+      function makeMiniEvidence(label, evaluation) {
+        var item = make("div", "od-field mini-evidence");
+        item.appendChild(make("span", "", label));
+        item.appendChild(make("strong", "od-nowrap", evaluation ? scoreText(evaluation) + " · " + evaluation.verdict : "Not evaluated"));
+        return item;
+      }
+
+      function selectJob(key, moveToDetail) {
+        if (!getJob(key)) {
+          return;
+        }
+        state.selectedKey = key;
+        state.mobileDetail = Boolean(moveToDetail);
+        renderAll();
+        if (moveToDetail && window.matchMedia("(max-width: 767px)").matches) {
+          window.requestAnimationFrame(function () {
+            var title = document.getElementById("detailTitle");
+            if (title) {
+              title.focus();
+            }
+          });
+        }
+      }
+
+      function renderList() {
+        var jobs = filteredJobs();
+        if (!jobs.some(function (job) { return job.key === state.selectedKey; })) {
+          state.selectedKey = jobs.length ? jobs[0].key : null;
+        }
+
+        var companyCount = new Set(jobs.map(function (job) { return job.company.id; })).size;
+        elements.resultCount.textContent = jobs.length + (jobs.length === 1 ? " role" : " roles")
+          + (jobs.length ? " · " + companyCount + (companyCount === 1 ? " company" : " companies") : "");
+
+        if (!jobs.length) {
+          var empty = make("div", "empty-state");
+          var inner = make("div", "empty-state-inner");
+          var hasHidden = state.hidden.size > 0;
+          var hasData = state.jobs.length > 0;
+          inner.appendChild(make("h2", "", hasData
+            ? (hasHidden ? "No visible jobs" : "No jobs match these filters")
+            : "Your sourced jobs will appear here"));
+          inner.appendChild(make("p", "", hasData
+            ? (hasHidden
+              ? "Restore hidden jobs or adjust the filters to bring opportunities back into view."
+              : "Clear the search and filters to see the imported opportunities.")
+            : "Refresh from Career Fleet to see the postings currently stored and screened in its persistent tables."));
+          inner.appendChild(button(hasData
+            ? (hasHidden ? "Restore hidden jobs" : "Reset filters")
+            : "Load Career Fleet export", hasData
+            ? (hasHidden ? "restore-hidden" : "reset-filters")
+            : "pick-file", "button-primary"));
+          empty.appendChild(inner);
+          elements.jobList.replaceChildren(empty);
+          return;
+        }
+
+        var fragment = document.createDocumentFragment();
+        jobs.forEach(function (job) {
+          var row = make("article", "job-row" + (job.key === state.selectedKey ? " is-selected" : ""));
+          row.setAttribute("role", "listitem");
+
+          var top = make("div", "job-row-top");
+          var heading = make("div", "job-heading");
+          var title = make("h2", "job-title");
+          var titleButton = make("button", "job-title-button");
+          titleButton.type = "button";
+          titleButton.dataset.action = "select-job";
+          titleButton.dataset.key = job.key;
+          titleButton.setAttribute("aria-current", job.key === state.selectedKey ? "true" : "false");
+          titleButton.appendChild(make("span", "od-clamp-2", job.title));
+          title.appendChild(titleButton);
+          heading.appendChild(title);
+          heading.appendChild(make("span", "company-line od-truncate", job.company.name));
+          top.appendChild(heading);
+
+          var save = button(state.saved.has(job.key) ? "Saved" : "Save", "toggle-save", "button-quiet button-small", "bookmark");
+          save.dataset.key = job.key;
+          save.setAttribute("aria-pressed", String(state.saved.has(job.key)));
+          save.setAttribute("aria-label", (state.saved.has(job.key) ? "Remove saved role " : "Save role ") + job.title);
+          top.appendChild(save);
+          row.appendChild(top);
+
+          var tags = make("div", "od-cluster tag-row");
+          tags.appendChild(makeTag(job.company.status, job.company.status === "qualified"));
+          tags.appendChild(makeTag(job.workLabel, job.isRemote));
+          tags.appendChild(makeTag(job.sourceType, false));
+          row.appendChild(tags);
+
+          var meta = make("div", "od-row job-meta-row");
+          var signal = make("div", "od-field job-signal");
+          signal.appendChild(make("span", "", "Screening signal"));
+          signal.appendChild(make("strong", "od-nowrap", screeningScoreText(job)));
+          meta.appendChild(signal);
+
+          var facts = make("div", "od-cluster job-facts od-fill");
+          facts.appendChild(make("span", "", job.location));
+          if (job.timezone) {
+            facts.appendChild(make("span", "", job.timezone));
+          }
+          facts.appendChild(make("span", "", job.jobUrl ? "Posting link available" : "No posting link"));
+          meta.appendChild(facts);
+          row.appendChild(meta);
+
+          var evidence = make("div", "od-grid mini-evidence-grid");
+          evidence.appendChild(makeMiniEvidence("Systems", job.company.systems));
+          evidence.appendChild(makeMiniEvidence("Culture", job.company.culture));
+          row.appendChild(evidence);
+
+          var review = button("Review evidence", "select-job", "button-quiet button-small", "review");
+          review.dataset.key = job.key;
+          row.appendChild(review);
+
+          fragment.appendChild(row);
+        });
+        elements.jobList.replaceChildren(fragment);
+      }
+
+      function makeFact(label, value) {
+        var fact = make("div", "od-field detail-fact");
+        fact.appendChild(make("span", "", label));
+        fact.appendChild(make("strong", "", value));
+        return fact;
+      }
+
+      function renderEvaluation(label, evaluation) {
+        var section = make("section", "evaluation");
+        var header = make("div", "evaluation-header");
+        var title = make("div", "evaluation-title");
+        title.appendChild(make("h3", "", label));
+        title.appendChild(make("span", "evaluation-meta", evaluation
+          ? "Score " + scoreText(evaluation) + " · " + evaluation.method
+          : "No evaluation in this export"));
+        header.appendChild(title);
+        header.appendChild(makeTag(evaluation ? evaluation.verdict : "Not evaluated", Boolean(evaluation)));
+        section.appendChild(header);
+
+        if (!evaluation) {
+          section.appendChild(make("p", "", "Career Fleet did not include a current result for this lane."));
+          return section;
+        }
+
+        section.appendChild(make("p", "", evaluation.rationale));
+        if (evaluation.quotes.length) {
+          var quoteList = make("div", "quote-list");
+          quoteList.appendChild(make("h4", "", "Source quotes"));
+          evaluation.quotes.forEach(function (quote) {
+            quoteList.appendChild(make("blockquote", "", quote));
+          });
+          section.appendChild(quoteList);
+        } else {
+          section.appendChild(make("p", "evaluation-meta", "No source quote was included for this lane."));
+        }
+        return section;
+      }
+
+      function renderDetail() {
+        var job = getJob(state.selectedKey);
+        elements.workspace.classList.toggle("show-detail", state.mobileDetail);
+
+        if (!job) {
+          var empty = make("div", "empty-state");
+          var inner = make("div", "empty-state-inner");
+          inner.appendChild(make("h2", "", "Choose a role to review"));
+          inner.appendChild(make("p", "", "Select a sourced job to see its screening context, evidence, and real employer link."));
+          empty.appendChild(inner);
+          elements.jobDetail.replaceChildren(empty);
+          return;
+        }
+
+        var article = make("article", "detail-content");
+        var back = button("Back to roles", "back-list", "button-text mobile-back", "back");
+        article.appendChild(back);
+
+        var header = make("header", "detail-header");
+        var kicker = make("div", "od-cluster detail-kicker");
+        kicker.appendChild(makeTag(job.company.status, job.company.status === "qualified"));
+        kicker.appendChild(makeTag("Company-level evidence", false));
+        header.appendChild(kicker);
+
+        var titleBlock = make("div", "detail-title-block");
+        var title = make("h2", "", job.title);
+        title.id = "detailTitle";
+        title.tabIndex = -1;
+        titleBlock.appendChild(title);
+        titleBlock.appendChild(make("p", "detail-company", job.company.name));
+        header.appendChild(titleBlock);
+
+        var facts = make("div", "od-grid detail-facts");
+        facts.appendChild(makeFact("Location", job.location));
+        facts.appendChild(makeFact("Work setup", job.workLabel));
+        facts.appendChild(makeFact("Source", job.sourceType));
+        facts.appendChild(makeFact("Posting", job.jobUrl ? "Link available" : "Link missing"));
+        header.appendChild(facts);
+        article.appendChild(header);
+
+        var actions = make("div", "od-cluster detail-actions");
+        if (job.jobUrl) {
+          var openPosting = make("a", "button button-primary");
+          openPosting.href = job.jobUrl;
+          openPosting.target = "_blank";
+          openPosting.rel = "noopener noreferrer";
+          openPosting.appendChild(make("span", "", "Open job posting"));
+          openPosting.appendChild(makeIcon("external"));
+          actions.appendChild(openPosting);
+        } else {
+          var disabledAction = make("button", "button button-primary", "Posting link unavailable");
+          disabledAction.type = "button";
+          disabledAction.disabled = true;
+          actions.appendChild(disabledAction);
+        }
+
+        var save = button(state.saved.has(job.key) ? "Remove from saved" : "Save role", "toggle-save", "button-quiet", "bookmark");
+        save.dataset.key = job.key;
+        save.setAttribute("aria-pressed", String(state.saved.has(job.key)));
+        actions.appendChild(save);
+
+        var hide = button("Hide role", "hide-job", "button-text", "hide");
+        hide.dataset.key = job.key;
+        actions.appendChild(hide);
+        article.appendChild(actions);
+
+        var callout = make("div", "evidence-callout");
+        callout.appendChild(make("strong", "", "Use the evidence as a decision aid"));
+        callout.appendChild(make("p", "", "The scores and quotes describe signals captured about the company. They do not measure your personal candidacy or predict a hiring decision."));
+        article.appendChild(callout);
+
+        var scores = make("div", "od-grid score-grid", null);
+        var systemsScore = make("div", "od-stat score-card");
+        systemsScore.appendChild(make("strong", "od-nowrap", scoreText(job.company.systems)));
+        systemsScore.appendChild(make("span", "", job.company.systems ? "Systems · " + job.company.systems.verdict : "Systems not evaluated"));
+        scores.appendChild(systemsScore);
+
+        var cultureScore = make("div", "od-stat score-card");
+        cultureScore.appendChild(make("strong", "od-nowrap", scoreText(job.company.culture)));
+        cultureScore.appendChild(make("span", "", job.company.culture ? "Culture · " + job.company.culture.verdict : "Culture not evaluated"));
+        scores.appendChild(cultureScore);
+
+        var quoteTotal = [job.company.triage, job.company.systems, job.company.culture]
+          .filter(Boolean)
+          .reduce(function (total, evaluation) { return total + evaluation.quotes.length; }, 0);
+        var quoteScore = make("div", "od-stat score-card");
+        quoteScore.appendChild(make("strong", "od-nowrap", String(quoteTotal)));
+        quoteScore.appendChild(make("span", "", quoteTotal === 1 ? "Source quote" : "Source quotes"));
+        scores.appendChild(quoteScore);
+
+        var screeningCard = make("div", "od-stat score-card");
+        screeningCard.appendChild(make("strong", "od-nowrap", screeningScoreText(job)));
+        screeningCard.appendChild(make("span", "", "Screening signal · company context"));
+        scores.appendChild(screeningCard);
+        article.appendChild(scores);
+
+        var evidenceSection = make("section", "detail-section");
+        evidenceSection.appendChild(make("h2", "", "Screening evidence"));
+        evidenceSection.appendChild(renderEvaluation("Lane 2 · Gatekeeper triage", job.company.triage));
+        evidenceSection.appendChild(renderEvaluation("Lane 3 · Systems wedge", job.company.systems));
+        evidenceSection.appendChild(renderEvaluation("Lane 4 · Founder and culture", job.company.culture));
+        article.appendChild(evidenceSection);
+
+        var companySection = make("section", "detail-section");
+        companySection.appendChild(make("h2", "", "Company context"));
+        var companyFacts = make("div", "od-grid detail-facts");
+        companyFacts.appendChild(makeFact("Domain", job.company.domain || "Not provided"));
+        companyFacts.appendChild(makeFact("Stage", job.company.stage || "Not provided"));
+        companyFacts.appendChild(makeFact("Headcount", job.company.headcount || "Not provided"));
+        companyFacts.appendChild(makeFact("Headquarters", job.company.hqLocation || "Not provided"));
+        companySection.appendChild(companyFacts);
+        if (job.company.websiteUrl) {
+          var website = make("a", "button button-quiet");
+          website.href = job.company.websiteUrl;
+          website.target = "_blank";
+          website.rel = "noopener noreferrer";
+          website.appendChild(make("span", "", "Open company website"));
+          website.appendChild(makeIcon("external"));
+          companySection.appendChild(website);
+        }
+        article.appendChild(companySection);
+
+        if (job.company.signals.length) {
+          var signalsSection = make("section", "detail-section");
+          signalsSection.appendChild(make("h2", "", "Linked community signals"));
+          var signalList = make("div", "signal-list");
+          job.company.signals.forEach(function (signal) {
+            var signalRow = make("article", "signal-row");
+            if (signal.sourceUri) {
+              var signalLink = make("a", "", signal.title);
+              signalLink.href = signal.sourceUri;
+              signalLink.target = "_blank";
+              signalLink.rel = "noopener noreferrer";
+              signalRow.appendChild(signalLink);
+            } else {
+              signalRow.appendChild(make("strong", "", signal.title));
+            }
+            var signalMeta = signal.sourceType;
+            if (signal.signalTypes.length) {
+              signalMeta += " · " + signal.signalTypes.join(", ");
+            }
+            signalRow.appendChild(make("p", "", signalMeta));
+            signalList.appendChild(signalRow);
+          });
+          signalsSection.appendChild(signalList);
+          article.appendChild(signalsSection);
+        }
+
+        var postingSection = make("section", "detail-section");
+        postingSection.appendChild(make("h2", "", "Captured posting"));
+        var postingDetails = make("details");
+        postingDetails.appendChild(make("summary", "", "Read captured source text"));
+        var postingBody = make("div", "details-body");
+        postingBody.appendChild(make("p", "posting-copy", job.rawText || "No captured posting text was included in this export."));
+        postingDetails.appendChild(postingBody);
+        postingSection.appendChild(postingDetails);
+        article.appendChild(postingSection);
+
+        elements.jobDetail.replaceChildren(article);
+      }
+
+      function makeCompareFact(label, value) {
+        var row = make("div", "compare-fact");
+        row.appendChild(make("dt", "", label));
+        row.appendChild(make("dd", "", value));
+        return row;
+      }
+
+      function firstEvidenceQuote(job) {
+        var evaluations = [job.company.systems, job.company.culture, job.company.triage].filter(Boolean);
+        for (var index = 0; index < evaluations.length; index += 1) {
+          if (evaluations[index].quotes.length) {
+            return evaluations[index].quotes[0];
+          }
+        }
+        return "";
+      }
+
+      function renderCompare() {
+        var savedJobs = state.jobs.filter(function (job) { return state.saved.has(job.key); });
+        elements.compareDialogSummary.textContent = savedJobs.length
+          ? savedJobs.length + (savedJobs.length === 1 ? " saved role" : " saved roles")
+          : "Save roles to compare their evidence.";
+
+        if (!savedJobs.length) {
+          var empty = make("div", "empty-state");
+          var inner = make("div", "empty-state-inner");
+          inner.appendChild(make("h2", "", "No saved roles yet"));
+          inner.appendChild(make("p", "", "Save a role from the list or detail view, then return here to compare the evidence."));
+          empty.appendChild(inner);
+          elements.compareBody.replaceChildren(empty);
+          return;
+        }
+
+        var wrapper = make("div");
+        if (savedJobs.length > 3) {
+          wrapper.appendChild(make("p", "compare-note", "Showing the first three saved roles. Every saved role remains available in the main list."));
+        }
+
+        var grid = make("div", "od-grid compare-grid");
+        savedJobs.slice(0, 3).forEach(function (job) {
+          var card = make("article", "compare-card");
+          var heading = make("div", "od-stack");
+          heading.style.setProperty("--od-gap", "4px");
+          heading.appendChild(make("h3", "", job.title));
+          heading.appendChild(make("p", "compare-company", job.company.name));
+          card.appendChild(heading);
+
+          var tags = make("div", "od-cluster tag-row");
+          tags.appendChild(makeTag(job.company.status, job.company.status === "qualified"));
+          tags.appendChild(makeTag(job.workLabel, job.isRemote));
+          card.appendChild(tags);
+
+          var facts = make("dl", "compare-facts");
+          facts.appendChild(makeCompareFact("Location", job.location));
+          facts.appendChild(makeCompareFact("Screening signal", screeningScoreText(job)));
+          facts.appendChild(makeCompareFact("Systems", job.company.systems ? scoreText(job.company.systems) + " · " + job.company.systems.verdict : "Not evaluated"));
+          facts.appendChild(makeCompareFact("Culture", job.company.culture ? scoreText(job.company.culture) + " · " + job.company.culture.verdict : "Not evaluated"));
+          facts.appendChild(makeCompareFact("Source", job.sourceType));
+          card.appendChild(facts);
+
+          var quote = firstEvidenceQuote(job);
+          if (quote) {
+            card.appendChild(make("p", "compare-quote od-clamp-3", quote));
+          }
+
+          var actions = make("div", "compare-actions");
+          var review = button("Review full evidence", "review-saved", "button-quiet");
+          review.dataset.key = job.key;
+          actions.appendChild(review);
+
+          if (job.jobUrl) {
+            var openPosting = make("a", "button button-primary");
+            openPosting.href = job.jobUrl;
+            openPosting.target = "_blank";
+            openPosting.rel = "noopener noreferrer";
+            openPosting.appendChild(make("span", "", "Open posting"));
+            openPosting.appendChild(makeIcon("external"));
+            actions.appendChild(openPosting);
+          }
+
+          var remove = button("Remove from saved", "remove-saved", "button-text");
+          remove.dataset.key = job.key;
+          actions.appendChild(remove);
+          card.appendChild(actions);
+          grid.appendChild(card);
+        });
+
+        wrapper.appendChild(grid);
+        elements.compareBody.replaceChildren(wrapper);
+      }
+
+      function renderAll() {
+        renderHeader();
+        renderFilters();
+        renderList();
+        renderDetail();
+        if (elements.compareDialog.open) {
+          renderCompare();
+        }
+      }
+
+      function resetFilters() {
+        state.query = "";
+        state.work = "all";
+        state.source = "all";
+        state.linkOnly = false;
+        state.sort = "evidence";
+        renderAll();
+      }
+
+      function restoreHidden() {
+        if (!state.hidden.size) {
+          return;
+        }
+        state.hidden.clear();
+        savePreferences();
+        renderAll();
+        showToast("Hidden roles restored.");
+      }
+
+      function toggleSaved(key) {
+        var job = getJob(key);
+        if (!job) {
+          return;
+        }
+        var wasSaved = state.saved.has(key);
+        if (wasSaved) {
+          state.saved.delete(key);
+        } else {
+          state.saved.add(key);
+        }
+        savePreferences();
+        renderAll();
+        showToast(wasSaved ? "Role removed from saved." : "Role saved for comparison.");
+      }
+
+      function hideJob(key) {
+        var job = getJob(key);
+        if (!job) {
+          return;
+        }
+        state.hidden.add(key);
+        savePreferences();
+        var remaining = filteredJobs();
+        state.selectedKey = remaining.length ? remaining[0].key : null;
+        state.mobileDetail = false;
+        renderAll();
+        showToast("Role hidden. You can restore it from filters.");
+      }
+
+      function commitDataset(data, fileName) {
+        state.companies = data.companies;
+        state.jobs = data.jobs;
+        state.sourceLabel = fileName;
+        state.query = "";
+        state.work = "all";
+        state.source = "all";
+        state.linkOnly = false;
+        state.sort = "evidence";
+        state.storageKey = "career-fleet-review:" + datasetHash(data.companies, data.jobs);
+        loadPreferences();
+        var firstVisible = state.jobs.find(function (job) { return !state.hidden.has(job.key); });
+        state.selectedKey = firstVisible ? firstVisible.key : null;
+        state.mobileDetail = false;
+
+        elements.importOutcome.hidden = true;
+        document.title = "Career Fleet Jobs — " + data.jobs.length + (data.jobs.length === 1 ? " job" : " jobs");
+        renderAll();
+        window.requestAnimationFrame(function () {
+          elements.matchesHeading.focus();
+        });
+      }
+
+      async function loadPersistentJobs() {
+        setLoading(true);
+        try {
+          var response = await fetch(API_URL, {
+            cache: "no-store",
+            headers: { "Accept": "application/json" }
+          });
+          var payload;
+          try {
+            payload = await response.json();
+          } catch (error) {
+            throw new Error("The Career Fleet bridge returned an unreadable response.");
+          }
+          if (!response.ok) {
+            throw new Error(payload && payload.message ? payload.message : "The persistent Career Fleet tables could not be read.");
+          }
+          var data = normalizeDossiers(payload);
+          commitDataset(data, "Persistent Career Fleet tables");
+          if (!data.jobs.length) {
+            var emptyMessage = data.companies.length
+              ? "The persistent tables contain " + data.companies.length + (data.companies.length === 1 ? " qualified company" : " qualified companies") + " but no sourced job postings."
+              : "No qualified companies or sourced job postings are present in the persistent tables yet.";
+            setImportOutcome("No matched jobs yet", emptyMessage, false);
+          } else {
+            showToast(data.jobs.length + (data.jobs.length === 1 ? " sourced job loaded." : " sourced jobs loaded."));
+          }
+        } catch (error) {
+          var message = error instanceof Error
+            ? error.message
+            : "The persistent Career Fleet tables could not be read.";
+          if (state.jobs.length) {
+            showToast("Could not refresh jobs: " + message);
+          } else {
+            setImportOutcome("Persistent data unavailable", message, true);
+          }
+        } finally {
+          setLoading(false);
+        }
+      }
+
+      document.addEventListener("click", async function (event) {
+        var control = event.target.closest("[data-action]");
+        if (!control) {
+          return;
+        }
+        var action = control.dataset.action;
+        var key = control.dataset.key;
+
+        if (action === "toggle-theme") {
+          toggleTheme();
+        } else if (action === "refresh-data") {
+          await loadPersistentJobs();
+        } else if (action === "open-filters") {
+          renderFilters();
+          elements.filtersDialog.showModal();
+        } else if (action === "close-filters") {
+          elements.filtersDialog.close();
+        } else if (action === "open-compare") {
+          renderCompare();
+          elements.compareDialog.showModal();
+        } else if (action === "close-compare") {
+          elements.compareDialog.close();
+        } else if (action === "set-work") {
+          state.work = control.dataset.work || "all";
+          renderAll();
+        } else if (action === "reset-filters") {
+          resetFilters();
+        } else if (action === "restore-hidden") {
+          restoreHidden();
+        } else if (action === "select-job") {
+          selectJob(key, true);
+        } else if (action === "toggle-save") {
+          toggleSaved(key);
+        } else if (action === "hide-job") {
+          hideJob(key);
+        } else if (action === "back-list") {
+          state.mobileDetail = false;
+          renderAll();
+          window.requestAnimationFrame(function () {
+            elements.matchesHeading.focus();
+          });
+        } else if (action === "review-saved") {
+          elements.compareDialog.close();
+          selectJob(key, true);
+        } else if (action === "remove-saved") {
+          toggleSaved(key);
+        }
+      });
+
+      elements.jobSearch.addEventListener("input", function () {
+        state.query = elements.jobSearch.value;
+        renderAll();
+      });
+
+      elements.jobSort.addEventListener("change", function () {
+        state.sort = elements.jobSort.value;
+        renderAll();
+      });
+
+      document.querySelectorAll("[data-filter-source]").forEach(function (control) {
+        control.addEventListener("change", function () {
+          state.source = control.value;
+          renderAll();
+        });
+      });
+
+      document.querySelectorAll("[data-filter-link]").forEach(function (control) {
+        control.addEventListener("change", function () {
+          state.linkOnly = control.checked;
+          renderAll();
+        });
+      });
+
+      [elements.filtersDialog, elements.compareDialog].forEach(function (dialog) {
+        dialog.addEventListener("click", function (event) {
+          if (event.target === dialog) {
+            dialog.close();
+          }
+        });
+      });
+
+      initializeTheme();
+      renderHeader();
+      renderFilters();
+      renderList();
+      renderDetail();
+      loadPersistentJobs();
+    }());
+  </script>
+</body>
+</html>

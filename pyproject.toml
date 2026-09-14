@@ -61,6 +61,7 @@ include = ["harness_fleet*", "career_fleet*"]
 career_fleet = [
     "resources/skill/career-fleet/*.md",
     "resources/skill/career-fleet/references/*.md",
+    "resources/board/*.html",
 ]
 harness_fleet = [
     "migrations/*.sql",
