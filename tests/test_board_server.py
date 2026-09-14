@@ -4,12 +4,13 @@ from __future__ import annotations
 import json
 import tempfile
 import threading
+import urllib.error
+import urllib.request
 from http.server import ThreadingHTTPServer
 from pathlib import Path
 from urllib.request import urlopen
 
 from career_fleet.board import (
-    BOARD_HTML_PATH,
     CareerFleetBoardHandler,
     detect_schema_kind,
     load_job_dossiers,
@@ -101,7 +102,7 @@ def test_board_http_server():
     assert research_db.is_file()
 
     CareerFleetBoardHandler.database_target = research_db
-    CareerFleetBoardHandler.html_page_content = BOARD_HTML_PATH.read_bytes()
+    CareerFleetBoardHandler.research_database_target = research_db
 
     server = ThreadingHTTPServer(("127.0.0.1", 0), CareerFleetBoardHandler)
     host, port = server.server_address
@@ -115,8 +116,14 @@ def test_board_http_server():
             content_type = resp.headers.get("Content-Type", "")
             assert "text/html" in content_type
             body = resp.read().decode("utf-8")
-            assert "Career Fleet Jobs" in body
-            assert "Matched jobs" in body
+            assert "Career Fleet" in body
+            assert "Find a better fit" in body
+
+        # The CRM page ships alongside the board and links back to it.
+        with urlopen(f"http://127.0.0.1:{port}/crm.html") as resp:
+            assert resp.status == 200
+            assert "text/html" in resp.headers.get("Content-Type", "")
+            assert "index.html" in resp.read().decode("utf-8")
 
         # Test GET /api/jobs
         with urlopen(f"http://127.0.0.1:{port}/api/jobs") as resp:
@@ -137,6 +144,66 @@ def test_board_http_server():
                 for j in c["jobs"]:
                     assert j["is_remote"] is True
 
+        # Test GET /api/crm against the same research database.
+        with urlopen(f"http://127.0.0.1:{port}/api/crm") as resp:
+            assert resp.status == 200
+            snapshot = json.loads(resp.read().decode("utf-8"))
+            assert set(snapshot) >= {"as_of", "summary", "targets", "touches", "interactions"}
+            assert isinstance(snapshot["summary"]["targets"], int)
+
     finally:
         server.shutdown()
         server.server_close()
+
+
+def test_board_serves_only_its_own_assets():
+    """Unknown paths must 404 instead of exposing the process working directory."""
+    server = ThreadingHTTPServer(("127.0.0.1", 0), CareerFleetBoardHandler)
+    _, port = server.server_address
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        for path in ("/pyproject.toml", "/../pyproject.toml", "/board.py"):
+            try:
+                with urlopen(f"http://127.0.0.1:{port}{path}") as resp:
+                    raise AssertionError(f"{path} unexpectedly served {resp.status}")
+            except urllib.error.HTTPError as error:
+                assert error.code == 404, (path, error.code)
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+def test_board_rejects_a_foreign_host_header():
+    """A DNS-rebinding page must not be able to read the databases."""
+    server = ThreadingHTTPServer(("127.0.0.1", 0), CareerFleetBoardHandler)
+    _, port = server.server_address
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        request = urllib.request.Request(
+            f"http://127.0.0.1:{port}/api/jobs", headers={"Host": "evil.example"}
+        )
+        try:
+            urlopen(request)
+            raise AssertionError("foreign Host was accepted")
+        except urllib.error.HTTPError as error:
+            assert error.code == 403
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+def test_wave_evaluations_are_not_scored_with_invented_numbers():
+    """wave_assessments has no score column, so the board must not fabricate one."""
+    research_db = resolve_database_path("career-public-research-worker/career_research.db")
+    if not research_db.is_file():
+        return
+    waves = [e for d in load_job_dossiers(research_db) for e in d["evaluations"] if str(e["id"]).startswith("wave-")]
+    assert waves, "expected wave-derived evaluations in the research database"
+    assert all(e["score"] is None for e in waves), "wave scores must not be invented"
+    assert all(e["verdict"] for e in waves), "the categorical verdict must be surfaced"
+
+
+def test_board_module_has_no_hardcoded_personal_paths():
+    source = (Path(__file__).resolve().parents[1] / "career_fleet" / "board.py").read_text(encoding="utf-8")
+    assert "/Users/" not in source, "board.py must not hardcode a personal absolute path"
+    assert "Open Design" not in source

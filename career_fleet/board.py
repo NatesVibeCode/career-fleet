@@ -1,30 +1,41 @@
-"""Read-only Career Fleet and Research DB job-board bridge.
+"""Read-only Career Fleet and Research DB board bridge.
 
-Serves the interactive Career Fleet Jobs dashboard and exposes GET /api/jobs
-over persistent SQLite databases (either career_fleet.db or career_research.db).
+Serves the packaged Career Fleet dashboards (jobs board and CRM targets) and
+exposes GET /api/jobs and GET /api/crm over the persistent SQLite databases.
+Every route is read-only; discovery, sourcing, and scoring stay owned by the
+Career Fleet CLI.
 """
 from __future__ import annotations
 
 import argparse
 import json
 import os
+import re
 import sqlite3
 import sys
 import webbrowser
-from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
+from datetime import date
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, quote, urlparse
 
-# Resource paths
-BOARD_HTML_PATH = Path(__file__).resolve().parent / "resources" / "board" / "index.html"
-OPEN_DESIGN_HTML_PATH = Path(
-    "/Users/nate/Library/Application Support/Open Design/namespaces/release-stable/data/projects/b4bfb7f9-394b-4f13-ab21-231140b00c10/index.html"
-)
+# Packaged dashboards. Everything served comes from here, so the repo is the
+# single source of truth for what an operator sees.
+BOARD_DIR = Path(__file__).resolve().parent / "resources" / "board"
+BOARD_HTML_PATH = BOARD_DIR / "index.html"
+STATIC_PAGES = {
+    "/": BOARD_HTML_PATH,
+    "/index.html": BOARD_HTML_PATH,
+    "/crm.html": BOARD_DIR / "crm.html",
+}
+# Localhost-only guard: refuse requests whose Host header claims another site,
+# which is how a DNS-rebinding page would try to read the databases.
+_ALLOWED_HOSTS = re.compile(r"^(127\.0\.0\.1|localhost|\[::1\])(:\d+)?$", re.IGNORECASE)
 
 
 def resolve_board_html_path(custom_path: str | Path | None = None) -> Path:
-    """Resolve dashboard HTML path, prioritizing newest edit between Open Design and packaged."""
+    """Resolve the dashboard HTML: explicit argument, env override, or packaged."""
     if custom_path:
         p = Path(custom_path).expanduser().resolve()
         if p.is_file():
@@ -34,15 +45,8 @@ def resolve_board_html_path(custom_path: str | Path | None = None) -> Path:
         p = Path(env_path).expanduser().resolve()
         if p.is_file():
             return p
-    # If Open Design file exists and is newer than packaged, prefer the live design file
-    if OPEN_DESIGN_HTML_PATH.is_file():
-        if not BOARD_HTML_PATH.is_file() or OPEN_DESIGN_HTML_PATH.stat().st_mtime >= BOARD_HTML_PATH.stat().st_mtime:
-            return OPEN_DESIGN_HTML_PATH
-    if BOARD_HTML_PATH.is_file():
-        return BOARD_HTML_PATH
-    if OPEN_DESIGN_HTML_PATH.is_file():
-        return OPEN_DESIGN_HTML_PATH
     return BOARD_HTML_PATH
+
 
 
 def resolve_database_path(custom_path: str | Path | None = None) -> Path:
@@ -110,6 +114,15 @@ def parse_json_array(value: object) -> list[object]:
     return []
 
 
+def row_value(row: sqlite3.Row, column: str, default: Any = None) -> Any:
+    """Read a column that an older database revision may not have yet.
+
+    Several loaders run against databases created by earlier schema versions,
+    so a plain row[column] would raise IndexError instead of degrading.
+    """
+    return row[column] if column in row.keys() else default
+
+
 def detect_schema_kind(connection: sqlite3.Connection) -> str:
     """Determine whether the DB matches career_fleet or career_research schema."""
     cursor = connection.cursor()
@@ -154,10 +167,21 @@ def load_career_fleet_dossiers(
 
     params = (status_filter,) if where_clause == "WHERE status = ?" else ()
 
+    company_columns = {
+        row[1] for row in connection.execute("PRAGMA table_info(companies)").fetchall()
+    }
+
+    def company_column(name: str, expression: str | None = None) -> str:
+        return name if name in company_columns else f"{expression or 'NULL'} AS {name}"
+
     company_rows = connection.execute(
         f"""
         SELECT id, name, domain, stage, headcount, hq_location, timezone,
-               website_url, status
+               website_url, status,
+               {company_column('careers_url')},
+               {company_column('primary_contact_email')},
+               {company_column('primary_contact_name')},
+               {company_column('source_class')}
         FROM companies
         {where_clause}
         ORDER BY name COLLATE NOCASE ASC
@@ -191,13 +215,42 @@ def load_career_fleet_dossiers(
         """
     ).fetchall()
 
+    # career_fleet.db is opened read-only, so the store's own migrations never
+    # run here: columns added by newer revisions may be absent and must be
+    # selected only when present.
+    job_columns = {
+        row[1] for row in connection.execute("PRAGMA table_info(job_postings)").fetchall()
+    }
+
+    def job_column(name: str, expression: str | None = None) -> str:
+        return f"j.{name}" if name in job_columns else f"{expression or 'NULL'} AS {name}"
+
+    optional_job_columns = [
+        job_column("posting_status", "'active'"),
+        job_column("compensation_text"),
+        job_column("min_comp"),
+        job_column("max_comp"),
+        job_column("currency", "'USD'"),
+        job_column("apply_email"),
+        job_column("contact_name"),
+        job_column("contact_title"),
+        job_column("source_class"),
+    ]
+
+    # Closed postings should not be presented as live roles.
+    posting_filter = ""
+    if status_filter != "all_including_closed" and "posting_status" in job_columns:
+        posting_filter = "AND COALESCE(j.posting_status, 'active') NOT IN ('closed', 'expired', 'filled')"
+
     jobs = connection.execute(
         f"""
         SELECT j.id, j.company_id, j.title, j.location, j.timezone,
-               j.is_remote, j.job_url, j.raw_text, j.source_type
+               j.is_remote, j.job_url, j.raw_text, j.source_type,
+               {', '.join(optional_job_columns)}
         FROM job_postings AS j
         INNER JOIN companies AS c ON c.id = j.company_id
         {where_clause.replace('WHERE status', 'WHERE c.status')}
+        {posting_filter}
         ORDER BY c.name COLLATE NOCASE ASC, j.title COLLATE NOCASE ASC
         """,
         params,
@@ -227,6 +280,10 @@ def load_career_fleet_dossiers(
             "hq_location": row["hq_location"] or "",
             "timezone": row["timezone"] or "",
             "website_url": row["website_url"] or "",
+            "careers_url": row_value(row, "careers_url") or "",
+            "primary_contact_email": row_value(row, "primary_contact_email") or "",
+            "primary_contact_name": row_value(row, "primary_contact_name") or "",
+            "source_class": row_value(row, "source_class") or "",
             "status": row["status"] or "",
             "jobs": [],
             "evaluations": [],
@@ -236,6 +293,15 @@ def load_career_fleet_dossiers(
     for row in jobs:
         company = dossiers.get(str(row["company_id"]))
         if company is not None:
+            comp_summary = ""
+            if row["min_comp"] and row["max_comp"]:
+                comp_summary = (
+                    f"\n\nCompensation: ${row['min_comp']:,.0f} - "
+                    f"${row['max_comp']:,.0f} {row['currency'] or 'USD'}"
+                )
+            elif row_value(row, "compensation_text"):
+                comp_summary = f"\n\nCompensation: {row['compensation_text']}"
+            raw_text = (row["raw_text"] or "") + comp_summary
             company["jobs"].append(
                 {
                     "id": row["id"],
@@ -244,8 +310,13 @@ def load_career_fleet_dossiers(
                     "timezone": row["timezone"] or "",
                     "is_remote": bool(row["is_remote"]),
                     "job_url": row["job_url"] or "",
-                    "raw_text": row["raw_text"] or "",
+                    "raw_text": raw_text.strip(),
                     "source_type": row["source_type"] or "ATS",
+                    "posting_status": row_value(row, "posting_status", "active") or "active",
+                    "apply_email": row_value(row, "apply_email") or "",
+                    "contact_name": row_value(row, "contact_name") or "",
+                    "contact_title": row_value(row, "contact_title") or "",
+                    "source_class": row_value(row, "source_class") or "",
                 }
             )
 
@@ -380,42 +451,52 @@ def load_career_research_dossiers(
 
         w = waves_by_company.get(cid)
         if w:
-            wedge_v = w["wedge_verdict"] or ""
-            geo_v = w["geographic_receptivity"] or ""
+            wedge_v = row_value(w, "wedge_verdict", "") or ""
+            geo_v = row_value(w, "geographic_receptivity", "") or ""
             is_hardened = "HARDENED" in wedge_v
             is_geo_fit = "REMOTE" in geo_v
+            wave_id = row_value(w, "id", cid)
+            model_used = row_value(w, "model_used") or "wave-model"
+            created_at = row_value(w, "created_at") or ""
 
+            # wave_assessments stores categorical verdicts, not numeric scores,
+            # so score stays null rather than being invented. The UI renders
+            # "Not scored" and keeps these out of the screening average.
+            incumbent = row_value(w, "incumbent_displaced")
             evals.append(
                 {
-                    "id": f"wave-{w['id']}-lane3",
+                    "id": f"wave-{wave_id}-lane3",
                     "company_id": cid,
                     "lane": "lane3_systems",
                     "status": "qualified" if is_hardened else "disqualified",
-                    "score": 0.92 if is_hardened else 0.35,
+                    "score": None,
                     "verdict": wedge_v or "Evaluated",
-                    "rationale": w["wedge_rationale"] or "Systems moat evaluated.",
-                    "quotes": [w["incumbent_displaced"]] if w["incumbent_displaced"] else [],
-                    "model_used": w["model_used"] or "wave-model",
+                    "rationale": row_value(w, "wedge_rationale") or "Systems moat evaluated.",
+                    "quotes": [incumbent] if incumbent else [],
+                    "model_used": model_used,
                     "profile_revision_id": "wave-intelligence-v1",
-                    "created_at": w["created_at"] or "",
+                    "created_at": created_at,
                 }
             )
+            hours = row_value(w, "operational_hours_reality")
+            blindspot = row_value(w, "founder_gtm_blindspot")
+            pitch = row_value(w, "diagnostic_pitch")
             evals.append(
                 {
-                    "id": f"wave-{w['id']}-lane4",
+                    "id": f"wave-{wave_id}-lane4",
                     "company_id": cid,
                     "lane": "lane4_culture",
                     "status": "qualified" if is_geo_fit else "disqualified",
-                    "score": 0.90 if is_geo_fit else 0.30,
+                    "score": None,
                     "verdict": geo_v or "Evaluated",
                     "rationale": (
-                        (f"Hours: {w['operational_hours_reality']}. " if w["operational_hours_reality"] else "")
-                        + (f"GTM blindspot: {w['founder_gtm_blindspot']}" if w["founder_gtm_blindspot"] else "")
+                        (f"Hours: {hours}. " if hours else "")
+                        + (f"GTM blindspot: {blindspot}" if blindspot else "")
                     ) or "Culture & operational hours evaluated.",
-                    "quotes": [w["diagnostic_pitch"]] if w["diagnostic_pitch"] else [],
-                    "model_used": w["model_used"] or "wave-model",
+                    "quotes": [pitch] if pitch else [],
+                    "model_used": model_used,
                     "profile_revision_id": "wave-intelligence-v1",
-                    "created_at": w["created_at"] or "",
+                    "created_at": created_at,
                 }
             )
 
@@ -464,10 +545,158 @@ def load_job_dossiers(
             return load_career_research_dossiers(conn, remote_only=remote_only)
 
 
-class CareerFleetBoardHandler(SimpleHTTPRequestHandler):
+def resolve_research_database_path(custom_path: str | Path | None = None) -> Path:
+    """Resolve the career-research CRM database (holds outreach/touch tables)."""
+    cwd = Path.cwd().resolve()
+    candidates: list[Path] = []
+    if custom_path:
+        candidates.append(Path(custom_path).expanduser())
+    env_val = os.environ.get("CAREER_RESEARCH_DB")
+    if env_val:
+        candidates.append(Path(env_val).expanduser())
+    candidates.extend([
+        cwd / "career_research.db",
+        cwd / "career-public-research-worker" / "career_research.db",
+        cwd.parent / "career-public-research-worker" / "career_research.db",
+        BOARD_DIR.parent.parent / "career-public-research-worker" / "career_research.db",
+    ])
+    for candidate in candidates:
+        path = candidate if candidate.is_absolute() else (cwd / candidate)
+        if path.is_file():
+            return path.resolve()
+    return (cwd / "career_research.db").resolve()
+
+
+def load_crm_snapshot(db_path: Path) -> dict[str, Any]:
+    """Read-only snapshot of the outreach CRM: targets, touches, interactions."""
+    today = date.today().isoformat()
+    with open_read_only_database(db_path) as connection:
+        tables = {
+            row[0]
+            for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            ).fetchall()
+        }
+        if "outreach_crm" not in tables:
+            raise FileNotFoundError(
+                f"{db_path} has no outreach_crm table; point --research-db at the CRM database."
+            )
+
+        def count(sql: str, params: tuple[Any, ...] = ()) -> int:
+            row = connection.execute(sql, params).fetchone()
+            return int(row[0]) if row else 0
+
+        summary = {
+            "targets": count("SELECT COUNT(*) FROM outreach_crm"),
+            "contacts": count("SELECT COUNT(*) FROM contacts WHERE status != 'opted_out'")
+            if "contacts" in tables else 0,
+            "active_sequences": count("SELECT COUNT(*) FROM sequences WHERE status = 'active'")
+            if "sequences" in tables else 0,
+            "touches": count("SELECT COUNT(*) FROM touches") if "touches" in tables else 0,
+            "due": count(
+                """
+                SELECT COUNT(*) FROM touches
+                WHERE due_date <= ?
+                  AND state NOT IN ('sent', 'completed_manually', 'skipped', 'paused', 'cancelled')
+                """,
+                (today,),
+            ) if "touches" in tables else 0,
+            "replies": count(
+                "SELECT COUNT(*) FROM interactions WHERE outcome IN ('reply', 'meeting')"
+            ) if "interactions" in tables else 0,
+        }
+
+        targets = [dict(row) for row in connection.execute(
+            """
+            SELECT o.id, o.company_name, o.founder_name, o.email, o.subject,
+                   o.body, o.channel, o.status, o.draft_id, o.message_id,
+                   o.drafted_at, o.sent_at, o.followup_due_at, o.notes,
+                   c.id AS contact_id, c.linkedin_url, c.affiliation,
+                   c.role_title, c.status AS contact_status,
+                   r.id AS relationship_id, r.why_matters,
+                   r.observed_context, r.last_meaningful_interaction_at,
+                   r.next_step, r.status AS relationship_status,
+                   s.id AS sequence_id, s.status AS sequence_status
+            FROM outreach_crm AS o
+            LEFT JOIN contacts AS c ON lower(c.email) = lower(o.email)
+            LEFT JOIN relationships AS r
+              ON r.contact_id = c.id AND r.company_name = o.company_name
+            LEFT JOIN sequences AS s ON s.relationship_id = r.id
+            ORDER BY
+              CASE o.status
+                WHEN 'replied' THEN 0
+                WHEN 'meeting' THEN 1
+                WHEN 'drafted' THEN 2
+                WHEN 'sent' THEN 3
+                ELSE 4
+              END,
+              o.company_name COLLATE NOCASE ASC
+            """
+        ).fetchall()] if all(t in tables for t in ("contacts", "relationships", "sequences")) else [
+            dict(row) for row in connection.execute("SELECT * FROM outreach_crm").fetchall()
+        ]
+
+        touches = [dict(row) for row in connection.execute(
+            """
+            SELECT t.id, t.step_number, t.channel, t.purpose, t.due_date,
+                   t.state, t.approved_at, t.completed_at, t.notes,
+                   c.id AS contact_id, c.name AS contact_name,
+                   c.email AS contact_email, c.linkedin_url,
+                   c.role_title, c.affiliation,
+                   r.id AS relationship_id, r.company_name,
+                   r.why_matters, r.observed_context, r.next_step,
+                   r.status AS relationship_status,
+                   s.id AS sequence_id, s.status AS sequence_status,
+                   d.id AS draft_id, d.resolved_text AS draft_text,
+                   d.fell_back AS draft_fell_back
+            FROM touches AS t
+            LEFT JOIN relationships AS r ON r.id = t.relationship_id
+            LEFT JOIN contacts AS c ON c.id = r.contact_id
+            LEFT JOIN sequences AS s ON s.id = t.sequence_id
+            LEFT JOIN drafts AS d ON d.id = t.draft_id
+            ORDER BY
+              CASE
+                WHEN t.state IN ('sent', 'completed_manually', 'skipped', 'paused', 'cancelled') THEN 1
+                ELSE 0
+              END,
+              CASE WHEN t.due_date < ? THEN 0 ELSE 1 END,
+              t.due_date ASC, t.step_number ASC, t.id ASC
+            """,
+            (today,),
+        ).fetchall()] if all(t in tables for t in ("relationships", "contacts", "sequences", "drafts")) else []
+
+        interactions = [dict(row) for row in connection.execute(
+            """
+            SELECT i.id, i.channel, i.outcome, i.notes, i.occurred_at,
+                   r.company_name, c.name AS contact_name
+            FROM interactions AS i
+            INNER JOIN relationships AS r ON r.id = i.relationship_id
+            INNER JOIN contacts AS c ON c.id = r.contact_id
+            ORDER BY i.occurred_at DESC, i.id DESC
+            LIMIT 12
+            """
+        ).fetchall()] if all(t in tables for t in ("interactions", "relationships", "contacts")) else []
+
+    open_states = {"planned", "due", "drafting", "ready_for_review", "approved"}
+    for touch in touches:
+        due_date = str(touch.get("due_date") or "")
+        state = str(touch.get("state") or "")
+        touch["is_overdue"] = bool(due_date) and due_date < today and state in open_states
+        touch["is_due"] = bool(due_date) and due_date <= today and state in open_states
+
+    return {
+        "as_of": today,
+        "summary": summary,
+        "targets": targets,
+        "touches": touches,
+        "interactions": interactions,
+    }
+
+
+class CareerFleetBoardHandler(BaseHTTPRequestHandler):
     server_version = "CareerFleetBoard/2.0"
     database_target: Path = Path("career_fleet.db")
-    html_page_content: bytes = b""
+    research_database_target: Path = Path("career_research.db")
 
     def send_json(self, status: int, payload: object) -> None:
         body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
@@ -478,23 +707,40 @@ class CareerFleetBoardHandler(SimpleHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def send_html(self, content: bytes) -> None:
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Cache-Control", "no-store, no-cache, must-revalidate")
+        self.send_header("Content-Length", str(len(content)))
+        self.end_headers()
+        self.wfile.write(content)
+
+    def _host_allowed(self) -> bool:
+        host = (self.headers.get("Host") or "").strip()
+        return not host or bool(_ALLOWED_HOSTS.match(host))
+
     def do_GET(self) -> None:  # noqa: N802
         parsed_url = urlparse(self.path)
         path = parsed_url.path
 
+        if not self._host_allowed():
+            self.send_json(403, {"error": "forbidden", "message": "board is localhost-only"})
+            return
+
         if path in ("/", "/index.html"):
             html_path = resolve_board_html_path()
             if not html_path.is_file():
-                self.send_error(404, f"Dashboard HTML resource not found at {html_path}")
+                self.send_json(404, {"error": "not_found", "message": f"dashboard HTML missing at {html_path}"})
                 return
+            self.send_html(html_path.read_bytes())
+            return
 
-            content = html_path.read_bytes()
-            self.send_response(200)
-            self.send_header("Content-Type", "text/html; charset=utf-8")
-            self.send_header("Cache-Control", "no-store, no-cache, must-revalidate")
-            self.send_header("Content-Length", str(len(content)))
-            self.end_headers()
-            self.wfile.write(content)
+        if path in STATIC_PAGES:
+            page = STATIC_PAGES[path]
+            if not page.is_file():
+                self.send_json(404, {"error": "not_found", "message": f"{path} is not shipped with this build"})
+                return
+            self.send_html(page.read_bytes())
             return
 
         if path == "/api/jobs":
@@ -520,8 +766,24 @@ class CareerFleetBoardHandler(SimpleHTTPRequestHandler):
                 )
             return
 
-        # Serve other static files if requested
-        super().do_GET()
+        if path == "/api/crm":
+            try:
+                self.send_json(200, load_crm_snapshot(self.research_database_target))
+            except FileNotFoundError as error:
+                self.send_json(503, {"error": "database_unavailable", "message": str(error)})
+            except (sqlite3.Error, OSError) as error:
+                self.send_json(
+                    503,
+                    {
+                        "error": "database_unavailable",
+                        "message": f"CRM database could not be read: {error}",
+                    },
+                )
+            return
+
+        # Everything else is a 404: the board serves only its own assets, so the
+        # process working directory is never exposed over HTTP.
+        self.send_json(404, {"error": "not_found", "message": f"no route for {path}"})
 
 
 def run_board_server(
@@ -529,6 +791,7 @@ def run_board_server(
     port: int = 8000,
     host: str = "127.0.0.1",
     open_browser: bool = False,
+    research_db_path: Path | str | None = None,
 ) -> None:
     resolved_db = resolve_database_path(db_path)
     if not resolved_db.is_file():
@@ -541,13 +804,15 @@ def run_board_server(
         sys.exit(1)
 
     CareerFleetBoardHandler.database_target = resolved_db
-    CareerFleetBoardHandler.html_page_content = BOARD_HTML_PATH.read_bytes()
+    CareerFleetBoardHandler.research_database_target = resolve_research_database_path(research_db_path)
 
     server_address = (host, port)
     server = ThreadingHTTPServer(server_address, CareerFleetBoardHandler)
     url = f"http://{host}:{port}"
     print(f"✓ Career Fleet Board active at: {url}")
     print(f"  Connected database: {resolved_db}")
+    print(f"  CRM database: {CareerFleetBoardHandler.research_database_target}"
+          f"{'' if CareerFleetBoardHandler.research_database_target.is_file() else ' (not found — /api/crm will report unavailable)'}")
     print("  Press Ctrl+C to stop.")
 
     if open_browser:
@@ -569,6 +834,7 @@ def main() -> None:
     parser.add_argument("--host", default="127.0.0.1", help="Host to listen on (default: 127.0.0.1)")
     parser.add_argument("--port", type=int, default=8000, help="Port to listen on (default: 8000)")
     parser.add_argument("--db", help="Path to SQLite database (career_fleet.db or career_research.db)")
+    parser.add_argument("--research-db", help="Path to the career-research CRM database (default: auto-detect)")
     parser.add_argument("--open", action="store_true", help="Automatically open the browser")
     args = parser.parse_args()
 
@@ -577,6 +843,7 @@ def main() -> None:
         port=args.port,
         host=args.host,
         open_browser=args.open,
+        research_db_path=args.research_db,
     )
 
 

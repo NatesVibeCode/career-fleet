@@ -3,9 +3,9 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="Review Career Fleet job opportunities with source-backed evidence and real employer links.">
+  <meta name="description" content="Find sourced Career Fleet roles, understand the fit, and decide what to pursue next.">
   <meta id="themeColorMeta" name="theme-color" content="#f2f1ed">
-  <title>Career Fleet Jobs — Its a free tool</title>
+  <title>Career Fleet Finder — Its a free tool</title>
   <script>
     (function () {
       try {
@@ -79,6 +79,13 @@
       --foreground: #26251e;
       --accent: #f54e00;
       --surface: #e6e5e0;
+      --surface-raised: #ebeae5;
+      --button-surface: #ebeae5;
+      --accent-deep: #cf2d56;
+      --accent-gradient: radial-gradient(circle at 18% 0%, rgba(255, 255, 255, 0.2), transparent 42%), linear-gradient(120deg, var(--accent) 0%, var(--accent-deep) 100%);
+      --accent-gradient-active: radial-gradient(circle at 82% 100%, rgba(255, 255, 255, 0.14), transparent 42%), linear-gradient(300deg, var(--accent-deep) 0%, var(--accent) 100%);
+      --surface-gradient: linear-gradient(135deg, var(--surface-raised) 0%, var(--surface) 74%, var(--background) 140%);
+      --accent-soft-gradient: radial-gradient(circle at 0% 0%, rgba(245, 78, 0, 0.14), transparent 58%), linear-gradient(135deg, rgba(245, 78, 0, 0.12), rgba(207, 45, 86, 0.09));
       --muted: rgba(38, 37, 30, 0.55);
       --border: rgba(38, 37, 30, 0.1);
       --primary-foreground: #ffffff;
@@ -103,6 +110,13 @@
       --foreground: #f2f1ed;
       --accent: #f54e00;
       --surface: #3a3932;
+      --surface-raised: #46443b;
+      --button-surface: #3a3932;
+      --accent-deep: #f08aa2;
+      --accent-gradient: radial-gradient(circle at 18% 0%, rgba(255, 255, 255, 0.16), transparent 42%), linear-gradient(120deg, var(--accent) 0%, var(--accent-deep) 100%);
+      --accent-gradient-active: radial-gradient(circle at 82% 100%, rgba(255, 255, 255, 0.12), transparent 42%), linear-gradient(300deg, var(--accent-deep) 0%, var(--accent) 100%);
+      --surface-gradient: linear-gradient(135deg, var(--surface-raised) 0%, var(--surface) 74%, var(--background) 140%);
+      --accent-soft-gradient: radial-gradient(circle at 0% 0%, rgba(245, 78, 0, 0.22), transparent 58%), linear-gradient(135deg, rgba(245, 78, 0, 0.2), rgba(240, 138, 162, 0.14));
       --muted: rgba(242, 241, 237, 0.72);
       --border: rgba(242, 241, 237, 0.2);
       --primary-foreground: #ffffff;
@@ -114,7 +128,7 @@
       margin: 0;
       min-width: 320px;
       min-height: 100dvh;
-      background: var(--background);
+      background: var(--button-surface);
       color: var(--foreground);
       font-family: var(--font);
       font-size: 1rem;
@@ -221,10 +235,11 @@
     }
     .button-primary {
       border-color: var(--accent);
-      background: var(--accent);
+      background: var(--accent-gradient);
       color: var(--primary-foreground);
     }
-    .button-quiet { background: var(--background); }
+    .button-primary:active { background: var(--accent-gradient-active); }
+    .button-quiet { background: var(--button-surface); }
     .button-text {
       min-height: 44px;
       padding-inline: var(--space-1);
@@ -486,13 +501,13 @@
       padding: 0 12px;
       border: var(--line) solid var(--border);
       border-radius: var(--radius);
-      background: var(--background);
+      background: var(--button-surface);
       color: var(--foreground);
       text-align: left;
     }
     .filter-option[aria-pressed="true"] {
       border-color: var(--accent);
-      background: var(--surface);
+      background: var(--accent-soft-gradient);
       font-weight: 700;
     }
     .option-mark {
@@ -609,7 +624,7 @@
       background: var(--background);
     }
     .job-row.is-selected {
-      background: var(--surface);
+      background: var(--surface-gradient);
       outline: 2px solid var(--accent);
       outline-offset: -2px;
     }
@@ -649,7 +664,7 @@
       font-size: 0.875rem;
       line-height: 1.2;
     }
-    .tag-accent { border-color: var(--accent); }
+    .tag-accent { border-color: var(--accent); background: var(--accent-soft-gradient); }
 
     .job-facts {
       --od-gap: 12px;
@@ -934,10 +949,10 @@
       .filter-option:hover,
       .job-title-button:hover {
         border-color: var(--accent);
-        background: var(--surface);
+        background: var(--surface-gradient);
       }
-      .button-primary:hover { background: var(--accent); }
-      .job-row:hover { background: var(--surface); }
+      .button-primary:hover { background: var(--accent-gradient); }
+      .job-row:hover { background: var(--surface-gradient); }
       a:hover { text-decoration-thickness: 3px; }
     }
 
@@ -987,7 +1002,9 @@
       .mobile-back { display: inline-flex; }
       .detail-scroll, .job-list { overflow-y: visible; }
       .list-panel { display: block; border-right: 0; }
-      .list-header { position: sticky; top: 64px; z-index: 5; }
+      /* The mobile top bar can wrap into two rows. Keeping the list header
+         in normal flow prevents a fixed 64px offset from covering content. */
+      .list-header { position: static; }
       .detail-content { padding-bottom: var(--space-5); }
       .compare-grid { --od-cols: 1; }
     }
@@ -1025,14 +1042,18 @@
 
   <div class="app-frame">
     <header class="topbar">
-      <div class="brand" aria-label="Its a free tool, Career Fleet Jobs">
+      <div class="brand" aria-label="Its a free tool, Career Fleet Finder">
         <span class="brand-name">Its a free tool</span>
-        <span class="product-name">Career Fleet Jobs</span>
+        <span class="product-name">Career Fleet Finder</span>
       </div>
 
       <div class="dataset-state" id="datasetState" aria-live="polite">No sourced jobs loaded</div>
 
       <div class="top-actions">
+        <a class="button button-quiet" href="crm.html">
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v11H4zM8 20h8M12 16v4"></path></svg>
+          <span class="button-copy">Targets</span>
+        </a>
         <button class="button button-quiet theme-button" id="themeButton" type="button" data-action="toggle-theme" aria-pressed="false" aria-label="Use dark mode">
           <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18Zm0 0v18"></path></svg>
           <span class="button-copy" id="themeButtonLabel">Dark mode</span>
@@ -1054,10 +1075,10 @@
     </header>
 
     <main id="mainContent" tabindex="-1">
-      <section class="workspace" id="workspace" aria-label="Career Fleet sourced job board">
+      <section class="workspace" id="workspace" aria-label="Career Fleet matched jobs">
         <aside class="filters-panel" aria-labelledby="filtersTitle">
           <div class="panel-heading">
-            <h2 id="filtersTitle">Board filters</h2>
+            <h2 id="filtersTitle">Refine matches</h2>
             <button class="button button-text button-small" type="button" data-action="reset-filters">Reset</button>
           </div>
 
@@ -1112,8 +1133,8 @@
           <header class="list-header">
             <div class="list-title-row">
               <div class="od-stack" style="--od-gap: 2px;">
-                <span class="eyebrow">Career Fleet job board</span>
-                <h1 id="matchesHeading" tabindex="-1">Matched jobs</h1>
+                <span class="eyebrow">Career Fleet role matching</span>
+                <h1 id="matchesHeading" tabindex="-1">Find a better fit</h1>
               </div>
               <div class="od-row">
                 <span class="result-count" id="resultCount" aria-live="polite">0 roles</span>
@@ -1125,10 +1146,10 @@
             </div>
 
             <div>
-                <label class="field-label" for="jobSearch">Search jobs</label>
+                <label class="field-label" for="jobSearch">Search roles</label>
               <div class="search-wrap">
                 <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-4-4"></path></svg>
-                <input class="search-input" id="jobSearch" type="search" placeholder="Role, company, location, or source" autocomplete="off">
+                <input class="search-input" id="jobSearch" type="search" placeholder="Role, employer, location, or source" autocomplete="off">
               </div>
             </div>
 
@@ -1140,7 +1161,7 @@
                 <option value="title">Role title</option>
               </select>
             </div>
-            <p class="sort-note">Screening signal averages available company evaluations. It helps you choose what to inspect, not predict hiring.</p>
+            <p class="sort-note">Screening signal averages each company's systems and culture evaluations. It helps you choose what to inspect, not predict hiring.</p>
             <div class="board-source-note">
               <p><strong>Data source:</strong> persistent Career Fleet tables, with the latest company screening context attached to each role.</p>
               <button class="button button-quiet button-small" type="button" data-action="refresh-data">
@@ -1415,6 +1436,12 @@
       }
 
       function finiteScore(value) {
+        // A missing score must stay missing: Number(null) and Number("") are
+        // both 0, which would render unscored records as "0/100" and drag the
+        // screening average down.
+        if (value === null || value === undefined || value === "" || typeof value === "boolean") {
+          return null;
+        }
         var number = Number(value);
         return Number.isFinite(number) ? number : null;
       }
@@ -1443,14 +1470,20 @@
           rationale: textValue(raw.rationale, "No rationale was included in this persistent record."),
           quotes: parseStringArray(raw.quotes, raw.quotes_json),
           method: textValue(raw.model_used, "Method not provided"),
-          profileRevision: textValue(raw.profile_revision_id, "")
+          profileRevision: textValue(raw.profile_revision_id, ""),
+          createdAt: textValue(raw.created_at, "")
         };
       }
 
       function latestEvaluation(evaluations, lane) {
         var result = null;
         evaluations.forEach(function (evaluation) {
-          if (evaluation.lane === lane) {
+          if (evaluation.lane !== lane) {
+            return;
+          }
+          // Newest wins: array order is not recency, and a stale earlier row
+          // must not shadow a newer evaluation.
+          if (!result || String(evaluation.createdAt || "") >= String(result.createdAt || "")) {
             result = evaluation;
           }
         });
@@ -1475,21 +1508,27 @@
         var companies = [];
         var jobs = [];
         var usedKeys = new Set();
+        var skipped = 0;
 
         payload.forEach(function (rawCompany, companyIndex) {
+          // A single malformed record must not blank the whole board: skip it
+          // and report how many were dropped.
           if (!rawCompany || typeof rawCompany !== "object" || Array.isArray(rawCompany)) {
-            throw new Error("Company record " + (companyIndex + 1) + " is not a dossier object.");
+            skipped += 1;
+            return;
           }
           if (!Array.isArray(rawCompany.jobs) || !Array.isArray(rawCompany.evaluations)) {
-            throw new Error("Company record " + (companyIndex + 1) + " is missing jobs or evaluations.");
+            skipped += 1;
+            return;
           }
 
-          var evaluations = rawCompany.evaluations.map(function (rawEvaluation, evaluationIndex) {
+          var evaluations = rawCompany.evaluations.map(function (rawEvaluation) {
             if (!rawEvaluation || typeof rawEvaluation !== "object" || Array.isArray(rawEvaluation)) {
-              throw new Error("Evaluation " + (evaluationIndex + 1) + " in company record " + (companyIndex + 1) + " is invalid.");
+              skipped += 1;
+              return null;
             }
             return normalizeEvaluation(rawEvaluation);
-          });
+          }).filter(function (evaluation) { return evaluation !== null; });
 
           var companyId = textValue(rawCompany.id, "company-" + (companyIndex + 1));
           var company = {
@@ -1516,7 +1555,8 @@
 
           rawCompany.jobs.forEach(function (rawJob, jobIndex) {
             if (!rawJob || typeof rawJob !== "object" || Array.isArray(rawJob)) {
-              throw new Error("Job record " + (jobIndex + 1) + " in company record " + (companyIndex + 1) + " is invalid.");
+              skipped += 1;
+              return;
             }
             var jobId = textValue(rawJob.id, "posting-" + (jobIndex + 1));
             var key = companyId + "::" + jobId;
@@ -1543,7 +1583,7 @@
           });
         });
 
-        return { companies: companies, jobs: jobs };
+        return { companies: companies, jobs: jobs, skipped: skipped };
       }
 
       function scoreText(evaluation) {
@@ -1658,6 +1698,23 @@
         return state.jobs.find(function (job) { return job.key === key; }) || null;
       }
 
+      // The filtered list is read by several renderers in one pass; compute it
+      // once per pass instead of re-filtering and re-sorting for each reader.
+      var visibleJobsCache = [];
+      var visibleJobsCached = false;
+
+      function invalidateVisibleJobs() {
+        visibleJobsCached = false;
+      }
+
+      function visibleJobs() {
+        if (!visibleJobsCached) {
+          visibleJobsCache = filteredJobs();
+          visibleJobsCached = true;
+        }
+        return visibleJobsCache;
+      }
+
       function showToast(message) {
         clearTimeout(toastTimer);
         elements.toast.textContent = message;
@@ -1698,7 +1755,9 @@
         var sources = Array.from(new Set(state.jobs.map(function (job) { return job.sourceType; })))
           .sort(function (left, right) { return left.localeCompare(right); });
         if (state.source !== "all" && sources.indexOf(state.source) === -1) {
+          var dropped = state.source;
           state.source = "all";
+          showToast("Source filter \"" + dropped + "\" is not in this dataset; showing all sources.");
         }
         document.querySelectorAll("[data-filter-source]").forEach(function (select) {
           var options = [make("option", "", "All sources")];
@@ -1734,7 +1793,7 @@
             : "Restore hidden roles";
         });
 
-        var visibleTotal = filteredJobs().length;
+        var visibleTotal = visibleJobs().length;
         elements.filterDialogCount.textContent = visibleTotal + (visibleTotal === 1 ? " role visible" : " roles visible");
       }
 
@@ -1767,7 +1826,7 @@
       }
 
       function renderList() {
-        var jobs = filteredJobs();
+        var jobs = visibleJobs();
         if (!jobs.some(function (job) { return job.key === state.selectedKey; })) {
           state.selectedKey = jobs.length ? jobs[0].key : null;
         }
@@ -1778,6 +1837,7 @@
 
         if (!jobs.length) {
           var empty = make("div", "empty-state");
+          empty.setAttribute("role", "listitem");
           var inner = make("div", "empty-state-inner");
           var hasHidden = state.hidden.size > 0;
           var hasData = state.jobs.length > 0;
@@ -1791,9 +1851,9 @@
             : "Refresh from Career Fleet to see the postings currently stored and screened in its persistent tables."));
           inner.appendChild(button(hasData
             ? (hasHidden ? "Restore hidden jobs" : "Reset filters")
-            : "Load Career Fleet export", hasData
+            : "Refresh from Career Fleet", hasData
             ? (hasHidden ? "restore-hidden" : "reset-filters")
-            : "pick-file", "button-primary"));
+            : "refresh-data", "button-primary"));
           empty.appendChild(inner);
           elements.jobList.replaceChildren(empty);
           return;
@@ -1904,6 +1964,7 @@
 
         if (!job) {
           var empty = make("div", "empty-state");
+          empty.setAttribute("role", "listitem");
           var inner = make("div", "empty-state-inner");
           inner.appendChild(make("h2", "", "Choose a role to review"));
           inner.appendChild(make("p", "", "Select a sourced job to see its screening context, evidence, and real employer link."));
@@ -2006,7 +2067,9 @@
         var companyFacts = make("div", "od-grid detail-facts");
         companyFacts.appendChild(makeFact("Domain", job.company.domain || "Not provided"));
         companyFacts.appendChild(makeFact("Stage", job.company.stage || "Not provided"));
-        companyFacts.appendChild(makeFact("Headcount", job.company.headcount || "Not provided"));
+        companyFacts.appendChild(makeFact("Headcount", job.company.headcount === null || job.company.headcount === undefined || job.company.headcount === ""
+            ? "Not provided"
+            : job.company.headcount));
         companyFacts.appendChild(makeFact("Headquarters", job.company.hqLocation || "Not provided"));
         companySection.appendChild(companyFacts);
         if (job.company.websiteUrl) {
@@ -2084,6 +2147,7 @@
 
         if (!savedJobs.length) {
           var empty = make("div", "empty-state");
+          empty.setAttribute("role", "listitem");
           var inner = make("div", "empty-state-inner");
           inner.appendChild(make("h2", "", "No saved roles yet"));
           inner.appendChild(make("p", "", "Save a role from the list or detail view, then return here to compare the evidence."));
@@ -2151,6 +2215,7 @@
       }
 
       function renderAll() {
+        invalidateVisibleJobs();
         renderHeader();
         renderFilters();
         renderList();
@@ -2202,14 +2267,14 @@
         }
         state.hidden.add(key);
         savePreferences();
-        var remaining = filteredJobs();
+        var remaining = visibleJobs();
         state.selectedKey = remaining.length ? remaining[0].key : null;
         state.mobileDetail = false;
         renderAll();
         showToast("Role hidden. You can restore it from filters.");
       }
 
-      function commitDataset(data, fileName) {
+      function commitDataset(data, fileName, focusHeading) {
         state.companies = data.companies;
         state.jobs = data.jobs;
         state.sourceLabel = fileName;
@@ -2218,21 +2283,25 @@
         state.source = "all";
         state.linkOnly = false;
         state.sort = "evidence";
-        state.storageKey = "career-fleet-review:" + datasetHash(data.companies, data.jobs);
+        state.storageKey = "career-fleet-review:" + datasetHash(data.companies, data.jobs)
+          + ":" + String(fileName || "");
         loadPreferences();
         var firstVisible = state.jobs.find(function (job) { return !state.hidden.has(job.key); });
         state.selectedKey = firstVisible ? firstVisible.key : null;
         state.mobileDetail = false;
 
         elements.importOutcome.hidden = true;
-        document.title = "Career Fleet Jobs — " + data.jobs.length + (data.jobs.length === 1 ? " job" : " jobs");
+        document.title = "Career Fleet Finder — " + data.jobs.length + (data.jobs.length === 1 ? " job" : " jobs");
         renderAll();
+        if (!focusHeading) {
+          return;
+        }
         window.requestAnimationFrame(function () {
           elements.matchesHeading.focus();
         });
       }
 
-      async function loadPersistentJobs() {
+      async function loadPersistentJobs(focusHeading) {
         setLoading(true);
         try {
           var response = await fetch(API_URL, {
@@ -2249,20 +2318,27 @@
             throw new Error(payload && payload.message ? payload.message : "The persistent Career Fleet tables could not be read.");
           }
           var data = normalizeDossiers(payload);
-          commitDataset(data, "Persistent Career Fleet tables");
+          commitDataset(data, "Persistent Career Fleet tables", Boolean(focusHeading));
           if (!data.jobs.length) {
             var emptyMessage = data.companies.length
               ? "The persistent tables contain " + data.companies.length + (data.companies.length === 1 ? " qualified company" : " qualified companies") + " but no sourced job postings."
               : "No qualified companies or sourced job postings are present in the persistent tables yet.";
             setImportOutcome("No matched jobs yet", emptyMessage, false);
           } else {
-            showToast(data.jobs.length + (data.jobs.length === 1 ? " sourced job loaded." : " sourced jobs loaded."));
+            var loaded = data.jobs.length + (data.jobs.length === 1 ? " sourced job loaded." : " sourced jobs loaded.");
+            if (data.skipped) {
+              loaded += " " + data.skipped + (data.skipped === 1 ? " record was" : " records were") + " unreadable and skipped.";
+            }
+            showToast(loaded);
           }
         } catch (error) {
           var message = error instanceof Error
             ? error.message
             : "The persistent Career Fleet tables could not be read.";
           if (state.jobs.length) {
+            // Clear the loading banner too: leaving it up would claim work is
+            // still in progress after the refresh has already failed.
+            setImportOutcome("Refresh failed", message, true);
             showToast("Could not refresh jobs: " + message);
           } else {
             setImportOutcome("Persistent data unavailable", message, true);
@@ -2270,6 +2346,22 @@
         } finally {
           setLoading(false);
         }
+      }
+
+      function restoreFocusAfterRender(action, key) {
+        // Re-rendering replaces the whole list, so the activated control is
+        // gone and focus falls back to <body>. Put it back on the equivalent
+        // control in the new DOM.
+        window.requestAnimationFrame(function () {
+          var controls = document.querySelectorAll("[data-action]");
+          for (var index = 0; index < controls.length; index += 1) {
+            var candidate = controls[index];
+            if (candidate.dataset.action === action && (candidate.dataset.key || "") === (key || "")) {
+              candidate.focus();
+              return;
+            }
+          }
+        });
       }
 
       document.addEventListener("click", async function (event) {
@@ -2280,10 +2372,27 @@
         var action = control.dataset.action;
         var key = control.dataset.key;
 
+        // These re-render the list without moving focus deliberately, so the
+        // activated control is destroyed; put focus back afterwards.
+        if (action === "toggle-save" || action === "remove-saved") {
+          toggleSaved(key);
+          restoreFocusAfterRender(action, key);
+          return;
+        }
+        if (action === "hide-job") {
+          hideJob(key);
+          // That row is gone, so focus the heading instead of dropping to
+          // <body>, which would restart the next Tab from the top.
+          window.requestAnimationFrame(function () {
+            elements.matchesHeading.focus();
+          });
+          return;
+        }
+
         if (action === "toggle-theme") {
           toggleTheme();
         } else if (action === "refresh-data") {
-          await loadPersistentJobs();
+          await loadPersistentJobs(true);
         } else if (action === "open-filters") {
           renderFilters();
           elements.filtersDialog.showModal();
@@ -2321,9 +2430,12 @@
         }
       });
 
+      var searchDebounce = null;
       elements.jobSearch.addEventListener("input", function () {
         state.query = elements.jobSearch.value;
-        renderAll();
+        // Typing rebuilds every row, so coalesce keystrokes before rendering.
+        clearTimeout(searchDebounce);
+        searchDebounce = setTimeout(renderAll, 150);
       });
 
       elements.jobSort.addEventListener("change", function () {
@@ -2358,7 +2470,9 @@
       renderFilters();
       renderList();
       renderDetail();
-      loadPersistentJobs();
+      loadPersistentJobs().catch(function (error) {
+        setImportOutcome("Persistent data unavailable", String(error && error.message ? error.message : error), true);
+      });
     }());
   </script>
 </body>

@@ -755,6 +755,18 @@ def test_fetched_records_are_fetched_grade(fake_http):
     assert rec.metadata["evidence"] == "fetched"
 
 
+def _playwright_installed() -> bool:
+    try:
+        import playwright  # noqa: F401
+    except ImportError:
+        return False
+    return True
+
+
+@pytest.mark.skipif(
+    _playwright_installed(),
+    reason="playwright is installed, so the missing-extra path is unreachable",
+)
 def test_js_render_missing_playwright_errors_cleanly(fake_http):
     with pytest.raises(DiscoverError, match="account-fleet\\[js\\]"):
         fetch_text("https://a.example/1", respect_robots=False, render_js=True)
