@@ -12,15 +12,30 @@
     --accent: #2a7;
     --warn: #c80;
     --bad: #c33;
+    --page: #14161a;
+    --ink: #e8eaef;
+    --raised: #ffffff0a;
   }
-  body { font-family: system-ui, sans-serif; margin: 0 auto; max-width: 1000px; padding: 16px 18px 64px; line-height: 1.45; }
-  h1 { font-size: 1.4rem; margin-bottom: 0.2em; }
-  h2 { font-size: 1.05rem; margin-top: 1.7em; border-bottom: 1px solid var(--line); padding-bottom: 4px; }
+  @media (prefers-color-scheme: light) {
+    :root { --page: #ffffff; --ink: #1b1d21; --raised: #00000006; --line: #0003; }
+  }
+  html { background: var(--page); }
+  body { background: var(--page); color: var(--ink); font-family: system-ui, sans-serif;
+    margin: 0 auto; max-width: 1000px; padding: 20px 22px 72px; line-height: 1.5; }
+  h1 { font-size: 1.45rem; margin: 0 0 0.2em; }
+  h2 { font-size: 1.02rem; margin-top: 1.8em; border-bottom: 1px solid var(--line); padding-bottom: 6px;
+    text-transform: uppercase; letter-spacing: 0.04em; opacity: 0.9; }
   h3 { font-size: 0.95rem; margin: 1.1em 0 0.4em; }
   p { margin: 0.5em 0; }
   code { font-size: 0.9em; }
   table { border-collapse: collapse; }
   th, td { text-align: left; padding: 2px 8px 2px 0; vertical-align: middle; }
+  input[type=text], input[type=number], select, textarea {
+    background: Field; color: FieldText; border: 1px solid var(--line); border-radius: 7px; padding: 4px 7px; }
+  button { background: ButtonFace; color: ButtonText; border: 1px solid var(--line); border-radius: 8px;
+    padding: 6px 13px; cursor: pointer; }
+  button:hover { border-color: var(--accent); }
+  .panel, .hm, .card, .step { background: var(--raised); }
   .panel { border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; margin: 10px 0; }
   .panel > :first-child { margin-top: 0; }
   .wide { display: block; margin: 8px 0; }
@@ -42,8 +57,16 @@
   .route-group label { margin-right: 10px; font-size: 0.82rem; }
   .hm { border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; margin: 8px 0; }
   .hm-head { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
-  .hm-note { font-size: 0.8rem; opacity: 0.78; margin: 6px 0 4px; }
+  .hm-head .spacer { flex: 1; }
   .hm .models { margin-top: 4px; }
+  .hm-note { font-size: 0.8rem; opacity: 0.78; margin: 6px 0 4px; }
+  .hm-note.bad { color: var(--bad); opacity: 1; }
+  .hm-empty { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; font-size: 0.85rem; margin: 10px 0 0; }
+  .muted { opacity: 0.7; }
+  .ghost { padding: 2px 8px; font-size: 0.78rem; opacity: 0.9; }
+  .pill.bad { color: var(--bad); border-color: var(--bad); }
+  .errors-box { margin: 6px 0 0; }
+  .errors-box summary { font-size: 0.82rem; cursor: pointer; opacity: 0.85; }
   .errors { margin: 6px 0; padding-left: 18px; }
   .errors li { font-size: 0.82rem; margin: 2px 0; }
   pre { white-space: pre-wrap; word-break: break-word; font-size: 0.75rem; max-height: 240px; overflow: auto; }
@@ -84,7 +107,7 @@
 <h2>2 · Models</h2>
 <div id="modelsBox">
   <p><button id="refreshBtn" type="button">Refresh all</button> <span id="refreshMsg" class="hint"></span></p>
-  <p class="hint">Each harness lists its own models. <span class="badge">price_observed_zero</span> routes are free-verified and auto-selected; <span class="badge">candidate</span> and <span class="badge">unknown</span> are not, so they stay unchecked until you pick them.</p>
+  <p class="hint">Each harness lists its own models. Only <span class="badge">price_observed_zero</span> routes are free-verified and auto-selected.</p>
   <div id="refreshBox"></div>
   <div id="models"></div>
 </div>
@@ -141,6 +164,7 @@ async function load() {
   H.presets = (await api("GET", "/api/presets")).presets;
   H.meta = await api("GET", "/api/meta").catch(() => null);
   renderMeta();
+  watchBuild();
   H.harnesses.forEach(h => { if (h.available) H.enabled.add(h.name); });
   renderCards(); renderModels(); addStep();
   document.getElementById("newTaskPreset").innerHTML = H.presets.map(p => `<option ${p === "score" ? "selected" : ""}>${esc(p)}</option>`).join("");
@@ -156,6 +180,15 @@ function renderMeta() {
   el.textContent = H.meta
     ? `${H.meta.studio} · workspace ${H.meta.workspace} · schema ${H.meta.schema_version}`
     : "";
+}
+function watchBuild() {
+  const build = H.meta && H.meta.build;
+  if (!build) return;
+  setInterval(async () => {
+    if (H.dirty) return;  // never discard unsaved scoring edits
+    const meta = await api("GET", "/api/meta").catch(() => null);
+    if (meta && meta.build && meta.build !== build) location.reload();
+  }, 4000);
 }
 const PRESET_HELP = {
   score: "score — 0–100 qualification from an evidence checklist (start here)",
@@ -197,6 +230,16 @@ function firstLine(s, limit) {
   const text = stripAnsi(s).split("\n")[0].trim();
   return text.length > limit ? text.slice(0, limit) + "…" : text;
 }
+function routeCheckbox(route, onToggle) {
+  const lab = document.createElement("label");
+  const cb = document.createElement("input");
+  cb.type = "checkbox"; cb.checked = H.picked.has(route.id);
+  cb.onchange = () => { cb.checked ? H.picked.add(route.id) : H.picked.delete(route.id); onToggle(); };
+  lab.appendChild(cb);
+  const name = document.createElement("span"); name.textContent = route.id; lab.appendChild(name);
+  const badge = document.createElement("span"); badge.className = "badge"; badge.textContent = route.price_state; lab.appendChild(badge);
+  return lab;
+}
 function renderModels() {
   const box = document.getElementById("models"); box.innerHTML = "";
   if (!renderModels._init) {
@@ -208,38 +251,53 @@ function renderModels() {
     if (!byHarness.has(r.provider)) byHarness.set(r.provider, []);
     byHarness.get(r.provider).push(r);
   });
+  const withModels = [], withoutModels = [];
   H.harnesses.filter(h => H.enabled.has(h.name)).forEach(h => {
     const routes = byHarness.get(h.name) || [];
+    (routes.length ? withModels : withoutModels).push([h, routes]);
+  });
+
+  withModels.forEach(([h, routes]) => {
     const card = document.createElement("div"); card.className = "hm";
     const head = document.createElement("div"); head.className = "hm-head";
     const title = document.createElement("b"); title.textContent = h.name; head.appendChild(title);
-    const refresh = document.createElement("button");
-    refresh.type = "button"; refresh.textContent = "refresh models";
-    refresh.onclick = () => refreshHarness(h.name);
-    head.appendChild(refresh);
-    const count = document.createElement("span"); count.className = "badge";
-    count.textContent = routes.length ? `${routes.length} model${routes.length === 1 ? "" : "s"}` : "no models";
-    head.appendChild(count);
+    const count = document.createElement("span"); count.className = "pill";
+    count.textContent = `${routes.length} model${routes.length === 1 ? "" : "s"}`; head.appendChild(count);
+    const spacer = document.createElement("span"); spacer.className = "spacer"; head.appendChild(spacer);
+    const refresh = document.createElement("button"); refresh.type = "button"; refresh.className = "ghost";
+    refresh.textContent = "refresh"; refresh.onclick = () => refreshHarness(h.name); head.appendChild(refresh);
     card.appendChild(head);
-    const note = document.createElement("p"); note.className = "hm-note";
-    if (H.refresh[h.name] !== undefined) note.textContent = H.refresh[h.name];
-    else if (routes.length) note.textContent = "listed by this harness's own models command";
-    else note.textContent = `this harness exposes no models command — add its routes with \`harness-fleet routes add <id> --provider ${h.name}\``;
-    card.appendChild(note);
+    const status = H.refresh[h.name];
+    if (status) {
+      const note = document.createElement("p");
+      note.className = "hm-note" + (status.startsWith("error") || /failed|require/i.test(status) ? " bad" : "");
+      note.textContent = status;
+      card.appendChild(note);
+    }
     const list = document.createElement("div"); list.className = "models";
-    routes.forEach(r => {
-      const lab = document.createElement("label");
-      const cb = document.createElement("input");
-      cb.type = "checkbox"; cb.checked = H.picked.has(r.id);
-      cb.onchange = () => { cb.checked ? H.picked.add(r.id) : H.picked.delete(r.id); renderSteps(); };
-      lab.appendChild(cb);
-      lab.appendChild(document.createTextNode(" " + r.id));
-      const b = document.createElement("span"); b.className = "badge"; b.textContent = r.price_state; lab.appendChild(b);
-      list.appendChild(lab);
-    });
+    routes.forEach(r => list.appendChild(routeCheckbox(r, renderSteps)));
     card.appendChild(list);
     box.appendChild(card);
   });
+
+  if (withoutModels.length) {
+    const row = document.createElement("p"); row.className = "hm-empty";
+    const label = document.createElement("span"); label.className = "muted";
+    label.textContent = "No models from"; row.appendChild(label);
+    withoutModels.forEach(([h]) => {
+      const status = H.refresh[h.name];
+      const chip = document.createElement("span");
+      chip.className = "pill" + (status ? " bad" : "");
+      chip.textContent = h.name;
+      if (status) chip.title = status;
+      row.appendChild(chip);
+    });
+    const why = document.createElement("span"); why.className = "muted";
+    why.textContent = "— no models command; add routes with"; row.appendChild(why);
+    const code = document.createElement("code"); code.textContent = "harness-fleet routes add <id> --provider <name>";
+    row.appendChild(code);
+    box.appendChild(row);
+  }
   renderSteps();
 }
 async function refreshHarness(name) {
@@ -249,18 +307,16 @@ async function refreshHarness(name) {
     const r = await api("POST", "/api/routes/refresh", {provider: name});
     const result = r.refresh || {};
     const errorKey = Object.keys(result).find(k => k.endsWith("_error"));
-    H.refresh[name] = errorKey
-      ? "error: " + firstLine(result[errorKey], 180)
-      : `${result[name] ?? 0} model(s) discovered from this harness`;
+    H.refresh[name] = errorKey ? "error: " + firstLine(result[errorKey], 150) : `${result[name] ?? 0} model(s) from this harness`;
     H.routes = (await api("GET", "/api/routes")).routes;
   } catch (e) {
-    H.refresh[name] = "error: " + firstLine(e.message, 180);
+    H.refresh[name] = "error: " + firstLine(e.message, 150);
   }
   renderModels();
 }
 async function refreshAll() {
   const msg = document.getElementById("refreshMsg");
-  msg.textContent = "refreshing every harness…";
+  msg.textContent = "refreshing…";
   try {
     const r = await api("POST", "/api/routes/refresh");
     const counts = [], errors = [];
@@ -269,27 +325,28 @@ async function refreshAll() {
       else if (typeof value === "number") counts.push([key, value]);
     });
     H.refresh = {};
-    counts.forEach(([key, value]) => { if (H.enabled.has(key)) H.refresh[key] = `${value} model(s) discovered from this harness`; });
-    errors.forEach(([key, value]) => { if (H.enabled.has(key)) H.refresh[key] = "error: " + firstLine(value, 180); });
+    counts.forEach(([key, value]) => { if (H.enabled.has(key)) H.refresh[key] = `${value} model(s) from this harness`; });
+    errors.forEach(([key, value]) => { if (H.enabled.has(key)) H.refresh[key] = "error: " + firstLine(value, 150); });
     H.routes = (await api("GET", "/api/routes")).routes;
     const total = counts.reduce((sum, [, value]) => sum + value, 0);
-    msg.textContent = `${total} route(s) reported, ${errors.length} provider error(s)`;
+    msg.textContent = `${total} routes · ${errors.length} harness error${errors.length === 1 ? "" : "s"}`;
     renderRefreshSummary(counts, errors);
   } catch (e) {
-    msg.textContent = "error: " + firstLine(e.message, 180);
+    msg.textContent = firstLine(e.message, 150);
   }
   renderModels();
 }
 function renderRefreshSummary(counts, errors) {
   const box = document.getElementById("refreshBox");
   if (!box) return;
-  const pills = counts.map(([key, value]) => `<span class="pill">${esc(key)} ${value}</span>`).join(" ");
+  const notable = counts.filter(([, value]) => value > 0);
+  const line = notable.map(([key, value]) => `<span class="pill">${esc(key)} ${value}</span>`).join(" ");
   const errorList = errors
-    .map(([key, value]) => `<li><b>${esc(key)}</b>: ${esc(firstLine(value, 400))}</li>`)
+    .map(([key, value]) => `<li><b>${esc(key)}</b> ${esc(firstLine(value, 300))}</li>`)
     .join("");
   box.innerHTML = `
-    ${pills ? `<p>${pills}</p>` : ""}
-    ${errors.length ? `<details><summary>${errors.length} provider error(s)</summary><ul class="errors">${errorList}</ul></details>` : ""}`;
+    ${line ? `<p class="hint">${line}</p>` : ""}
+    ${errors.length ? `<details class="errors-box"><summary>${errors.length} harness error(s) — these CLIs reported an auth or environment problem</summary><ul class="errors">${errorList}</ul></details>` : ""}`;
 }
 function stepDefaults() {
   return { task: "", preset: "score", itemsText: '[{"item_id": "i1", "text": "paste source text here"}]',

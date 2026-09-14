@@ -9,6 +9,7 @@ engine admits them only through ``allowed_routes``.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import shutil
 import uuid
@@ -33,6 +34,15 @@ from .task import (
 )
 
 STUDIO_DIR = Path(__file__).resolve().parent / "resources" / "studio"
+
+
+def _studio_build() -> str:
+    """Content hash of the studio page, so an open tab can detect a new build."""
+    try:
+        page = (STUDIO_DIR / "index.html").read_bytes()
+    except OSError:
+        return "unknown"
+    return hashlib.sha256(page).hexdigest()[:12]
 
 
 def _send_json(handler: BaseHTTPRequestHandler, status: int, payload: Any) -> None:
@@ -266,6 +276,7 @@ class StudioHandler(BaseHTTPRequestHandler):
                 store = _store(self)
                 _send_json(self, 200, {
                     "studio": self.server_version,
+                    "build": _studio_build(),
                     "workspace": str(self._workspace()),
                     "database": str(store.path),
                     "schema_version": store.schema_version(),
