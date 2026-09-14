@@ -135,8 +135,12 @@ function modelProviders() {
   return [...new Set(H.routes.map(r => r.provider))].filter(p => p !== "demo").sort();
 }
 function routesOf(provider) { return H.routes.filter(r => r.provider === provider); }
+// Only routes the engine would actually admit. Disabled routes are stale seeds
+// or unpriced models, so they are not choices.
+function usableOf(provider) { return routesOf(provider).filter(r => r.enabled); }
+function disabledCount(provider) { return routesOf(provider).length - usableOf(provider).length; }
 function freeOf(provider) {
-  return routesOf(provider).filter(r => r.price_state === "price_observed_zero" && r.enabled);
+  return usableOf(provider).filter(r => r.price_state === "price_observed_zero");
 }
 // Everything selectable: the CLI harnesses, plus API providers that have models.
 function targets() {
@@ -163,7 +167,6 @@ function renderCards() {
   targets().forEach(name => {
     const harness = H.harnesses.find(h => h.name === name);
     const on = H.selected.has(name);
-    const routes = routesOf(name);
     const card = document.createElement("div");
     card.className = "card" + (on ? "" : " off") + (harness && !harness.available ? " unavail" : "");
     if (harness) card.title = harness.detail;
@@ -174,7 +177,7 @@ function renderCards() {
       : (hint ? `<div class="hnote">${esc(hint)}</div>` : "");
     const sub = harness
       ? `<div class="hbin">${esc(harness.binary)} · ${harness.available ? "installed" : "not found"}</div>`
-      : `<div class="hbin">${routes.length} model${routes.length === 1 ? "" : "s"} · ${freeOf(name).length} free</div>`;
+      : `<div class="hbin">${freeOf(name).length} free / ${usableOf(name).length} available</div>`;
     card.innerHTML = `<div class="hname">${esc(name)}</div>${sub}${note}`;
     card.onclick = () => { on ? H.selected.delete(name) : H.selected.add(name); renderAll(); };
     box.appendChild(card);
@@ -182,20 +185,26 @@ function renderCards() {
 }
 function renderModelList() {
   const box = document.getElementById("models"); box.innerHTML = "";
-  // Only ever list models for what is actually selected.
-  const on = [...H.selected].filter(p => routesOf(p).length);
-  if (!on.length) {
+  // Only ever list models for what is actually selected, and only usable ones.
+  const on = [...H.selected].filter(p => usableOf(p).length);
+  if (!H.selected.size) {
     box.innerHTML = `<p class="hint">Pick a harness above to choose from its models.</p>`;
+    return;
+  }
+  if (!on.length) {
+    box.innerHTML = `<p class="hint">Nothing usable yet — refresh the catalogue, or add routes for that harness with <code>harness-fleet routes add</code>.</p>`;
     return;
   }
   if (H.mode === "free") return;
   on.forEach(provider => {
     const group = document.createElement("div"); group.className = "mgroup";
     const head = document.createElement("div"); head.className = "mgroup-head";
-    head.innerHTML = `<b>${esc(provider)}</b><span class="counts">${freeOf(provider).length} free / ${routesOf(provider).length} total</span>`;
+    const skipped = disabledCount(provider);
+    head.innerHTML = `<b>${esc(provider)}</b><span class="counts">${freeOf(provider).length} free / ${usableOf(provider).length} available</span>`
+      + (skipped ? `<span class="counts" title="stale seed entries or unpriced models">${skipped} not offered</span>` : "");
     group.appendChild(head);
     const list = document.createElement("div"); list.className = "mlist";
-    routesOf(provider).forEach(route => {
+    usableOf(provider).forEach(route => {
       const label = document.createElement("label");
       const cb = document.createElement("input");
       cb.type = "checkbox"; cb.checked = H.picked.has(route.id);
@@ -203,7 +212,8 @@ function renderModelList() {
       label.appendChild(cb);
       const text = document.createElement("span"); text.textContent = route.id; label.appendChild(text);
       const badge = document.createElement("span"); badge.className = "badge";
-      badge.textContent = route.price_state; label.appendChild(badge);
+      badge.textContent = route.price_state === "price_observed_zero" ? "free" : route.price_state;
+      label.appendChild(badge);
       list.appendChild(label);
     });
     group.appendChild(list);
