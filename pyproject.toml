@@ -97,7 +97,7 @@ python_version = "3.10"
 warn_unused_ignores = true
 
 [[tool.mypy.overrides]]
-module = ["ddgs.*", "pdfminer.*", "pypdf", "jsonschema"]
+module = ["ddgs.*", "pdfminer.*", "pypdf", "jsonschema", "playwright.*", "trafilatura", "readability"]
 ignore_missing_imports = true
 
 # calibrate's nested-sweep nonlocal bindings are runtime-proven (the module
