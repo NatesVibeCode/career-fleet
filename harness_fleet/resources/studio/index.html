@@ -8,9 +8,7 @@
   :root {
     color-scheme: light dark;
     --line: #8884;
-    --muted: #8889;
     --accent: #2a7;
-    --warn: #c80;
     --bad: #c33;
     --page: #14161a;
     --ink: #e8eaef;
@@ -21,219 +19,109 @@
   }
   html { background: var(--page); }
   body { background: var(--page); color: var(--ink); font-family: system-ui, sans-serif;
-    margin: 0 auto; max-width: 1000px; padding: 20px 22px 72px; line-height: 1.5; }
-  h1 { font-size: 1.45rem; margin: 0 0 0.2em; }
-  h2 { font-size: 1.02rem; margin-top: 1.8em; border-bottom: 1px solid var(--line); padding-bottom: 6px;
-    text-transform: uppercase; letter-spacing: 0.04em; opacity: 0.9; }
-  h3 { font-size: 0.95rem; margin: 1.1em 0 0.4em; }
-  p { margin: 0.5em 0; }
-  code { font-size: 0.9em; }
-  table { border-collapse: collapse; }
-  th, td { text-align: left; padding: 2px 8px 2px 0; vertical-align: middle; }
-  input[type=text], input[type=number], input[type=search], select, textarea {
-    background: Field; color: FieldText; border: 1px solid var(--line); border-radius: 7px;
-    padding: 4px 7px; font: inherit; }
-  button { background: ButtonFace; color: ButtonText; border: 1px solid var(--line); border-radius: 8px;
-    padding: 6px 13px; cursor: pointer; font: inherit; }
-  button:hover { border-color: var(--accent); }
-  .prov { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; padding: 6px 0; border-top: 1px solid var(--line); }
-  .prov:first-child { border-top: 0; }
-  .prov b { min-width: 11ch; }
-  .prov .counts { font-size: 0.82rem; opacity: 0.75; }
-  .results { border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; margin: 8px 0; max-height: 320px; overflow: auto; }
-  .results label { display: block; padding: 2px 0; font-size: 0.85rem; }
-  #modelSearch { width: 100%; box-sizing: border-box; margin-top: 4px; }
-  .panel, .hm, .card, .step { background: var(--raised); }
-  .panel { border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; margin: 10px 0; }
-  .panel > :first-child { margin-top: 0; }
-  .wide { display: block; margin: 8px 0; }
-  .hint { font-size: 0.85rem; opacity: 0.78; }
-  .note { font-style: italic; opacity: 0.85; }
-  .meta { font-size: 0.78rem; opacity: 0.65; }
-  .err { color: var(--bad); }
-  #cards { display: flex; flex-wrap: wrap; gap: 8px; }
-  .card { border: 2px solid var(--line); border-radius: 10px; padding: 8px 10px; cursor: pointer; min-width: 110px; text-align: center; }
-  .card.off { opacity: 0.45; }
-  .card.unavail { cursor: not-allowed; border-style: dashed; }
-  .card svg { display: block; margin: 0 auto 4px; }
-  .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 4px; }
-  .ok { background: #2a2; } .no { background: #a22; }
-  .models { font-size: 0.85rem; columns: 2; }
-  .models label { display: block; break-inside: avoid; padding: 2px 0; }
-  .hm { border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; margin: 8px 0; }
-  .hm-head { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
-  .hm-head .spacer { flex: 1; }
-  .hm .models { margin-top: 4px; }
-  .hm-note { font-size: 0.8rem; opacity: 0.78; margin: 6px 0 4px; }
-  .hm-note.bad { color: var(--bad); opacity: 1; }
-  .hm-empty { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; font-size: 0.85rem; margin: 10px 0 0; }
-  .hm-empty code { white-space: nowrap; }
-  .muted { opacity: 0.7; }
-  .ghost { padding: 2px 8px; font-size: 0.78rem; opacity: 0.9; }
-  .pill.bad { color: var(--bad); border-color: var(--bad); }
-  .errors-box { margin: 6px 0 0; }
-  .errors-box summary { font-size: 0.82rem; cursor: pointer; opacity: 0.85; }
-  .errors { margin: 6px 0; padding-left: 18px; }
-  .errors li { font-size: 0.82rem; margin: 2px 0; }
-  pre { white-space: pre-wrap; word-break: break-word; font-size: 0.75rem; max-height: 240px; overflow: auto; }
-  .badge { font-size: 0.72rem; border: 1px solid var(--line); border-radius: 6px; padding: 0 5px; margin-left: 6px; }
-  .pill { font-size: 0.72rem; border: 1px solid var(--line); border-radius: 999px; padding: 1px 8px; opacity: 0.9; }
-  .pill.dirty { color: var(--warn); border-color: var(--warn); }
-  .row { display: flex; flex-wrap: wrap; gap: 10px; align-items: end; margin: 6px 0; }
+    margin: 0 auto; max-width: 860px; padding: 22px 24px 64px; line-height: 1.5; }
+  h1 { font-size: 1.4rem; margin: 0 0 0.15em; }
+  .meta { font-size: 0.76rem; opacity: 0.6; margin: 0 0 1em; }
+  .hint { font-size: 0.84rem; opacity: 0.78; margin: 0.4em 0; }
+  .counts { font-size: 0.82rem; opacity: 0.75; }
+  details { border-top: 1px solid var(--line); padding: 6px 0; }
+  details > summary { cursor: pointer; font-size: 0.86rem; text-transform: uppercase;
+    letter-spacing: 0.05em; opacity: 0.85; padding: 4px 0; }
+  .row { display: flex; flex-wrap: wrap; gap: 10px; align-items: end; margin: 8px 0; }
   .row label { display: flex; flex-direction: column; font-size: 0.8rem; gap: 2px; }
-  .actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin: 10px 0; }
-  input[type=number] { width: 7em; }
-  textarea { width: 100%; min-height: 64px; font-family: monospace; font-size: 0.8rem; box-sizing: border-box; }
-  .empty { border: 1px dashed var(--line); border-radius: 12px; padding: 18px; text-align: center; opacity: 0.9; }
-  .stale { border-left: 4px solid var(--warn); padding: 8px 10px; margin: 8px 0; border-radius: 6px; background: color-mix(in srgb, var(--warn) 12%, transparent); }
-  .grid { width: 100%; }
-  .grid th { font-size: 0.76rem; text-transform: uppercase; letter-spacing: 0.03em; opacity: 0.65; font-weight: 600; }
-  .grid td { border-top: 1px solid var(--line); padding: 6px 10px 6px 0; }
-  .grid input[type=text] { width: 100%; box-sizing: border-box; }
-  .bar { height: 8px; border-radius: 999px; background: var(--line); overflow: hidden; margin: 6px 0 2px; }
-  .bar > i { display: block; height: 100%; background: var(--accent); transition: width 0.15s ease; }
-  .bar.over > i { background: var(--warn); }
-  @media (max-width: 640px) { .models { columns: 1; } }
+  input[type=text], input[type=search], select { background: Field; color: FieldText;
+    border: 1px solid var(--line); border-radius: 7px; padding: 4px 7px; font: inherit; }
+  button { background: ButtonFace; color: ButtonText; border: 1px solid var(--line);
+    border-radius: 8px; padding: 5px 12px; cursor: pointer; font: inherit; }
+  button:hover { border-color: var(--accent); }
+  button.ghost { padding: 2px 8px; font-size: 0.76rem; opacity: 0.9; }
+
+  #cards { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0 4px; }
+  .card { border: 2px solid var(--line); border-radius: 10px; padding: 8px 10px; cursor: pointer;
+    min-width: 128px; background: var(--raised); }
+  .card.off { opacity: 0.5; }
+  .card.unavail { border-style: dashed; }
+  .card:hover { border-color: var(--accent); }
+  .hname { font-weight: 600; }
+  .hbin, .hstatus, .hnote { font-size: 0.74rem; opacity: 0.72; }
+  .hstatus.ok::before { content: "● "; color: var(--accent); }
+  .hstatus.no::before { content: "○ "; }
+  .hnote { font-family: ui-monospace, monospace; }
+  .hnote.bad { color: var(--bad); opacity: 1; }
+
+  .mgroup { border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; margin: 8px 0;
+    background: var(--raised); }
+  .mgroup-head { display: flex; gap: 10px; align-items: baseline; }
+  .mlist { columns: 2; font-size: 0.82rem; margin-top: 6px; }
+  .mlist label { display: block; break-inside: avoid; padding: 2px 0; }
+  .badge { font-size: 0.7rem; border: 1px solid var(--line); border-radius: 6px;
+    padding: 0 5px; margin-left: 5px; opacity: 0.85; }
+  .err { color: var(--bad); }
+  @media (max-width: 640px) { .mlist { columns: 1; } }
 </style>
 </head>
 <body>
 <h1>Harness Studio</h1>
 <p class="meta" id="metaLine"></p>
-<p class="hint">Settings companion: choose harnesses and models, tune the scoring contract. Runs happen from the CLI or MCP, which read these settings.</p>
 
 <details open>
   <summary>Harnesses</summary>
   <div id="cards"></div>
+  <p class="hint">Off by default — click to include. Each CLI manages its own login; the hint under a card is that harness's own command.</p>
 </details>
 
 <details open>
   <summary>Models</summary>
-  <div id="modelsBox">
-    <div class="row">
-      <label>Model scope
-        <select id="scopeSel">
-          <option value="all-free">All free routes</option>
-          <option value="specific">Specific models…</option>
-        </select>
-      </label>
-      <button id="refreshBtn" type="button">Refresh all</button>
-      <span id="refreshMsg" class="hint"></span>
-    </div>
-    <p class="hint" id="modelSummary"></p>
-    <div id="refreshBox"></div>
-    <div id="providers"></div>
-    <div id="specificBox" hidden>
-      <input type="search" id="modelSearch" placeholder="Search models by name…" autocomplete="off">
-      <div id="modelResults" class="results"></div>
-      <p class="hint" id="pickedChips"></p>
-    </div>
+  <div class="row">
+    <label>Mode
+      <select id="modeSel">
+        <option value="free">Free models</option>
+        <option value="specific">Specific models</option>
+      </select>
+    </label>
+    <button id="refreshBtn" type="button">Refresh</button>
+    <span id="refreshMsg" class="hint"></span>
   </div>
+  <p class="hint" id="modelSummary"></p>
+  <div id="refreshBox"></div>
+  <div id="models"></div>
 </details>
-
-<details>
-  <summary>Scoring contract</summary>
-  <div class="panel">
-    <div class="row">
-      <label>Task<select id="taskSel"></select></label>
-      <button id="taskLoad" type="button">Reload</button>
-      <button id="taskDup" type="button">Duplicate…</button>
-      <span id="dirtyPill" class="pill dirty" hidden>● unsaved changes</span>
-    </div>
-    <div class="row">
-      <label>New task name<input type="text" id="newTaskName" placeholder="my-scoring-task" pattern="[A-Za-z0-9_.-]+" title="letters, digits, and _ . - only"></label>
-      <label>Preset<select id="newTaskPreset"></select></label>
-      <button id="taskCreate" type="button">Create</button>
-    </div>
-    <p id="presetHelp" class="hint"></p>
-    <p id="scoringMsg" class="note"></p>
-  </div>
-  <div id="scoringBox"></div>
-</details>
-<datalist id="taskNames"></datalist>
 
 <script>
-const H = { harnesses: [], routes: [], presets: [], tasks: [], scoring: null, draft: null, meta: null,
-  refresh: {}, scope: "all-free", providersOff: new Set(), dirty: false, stale: false,
-  enabled: new Set(), picked: new Set() };
+const H = { harnesses: [], routes: [], meta: null, mode: "free",
+  selected: new Set(), picked: new Set(), refresh: {} };
 
-async function api(method, path, body, headers) {
-  const r = await fetch(path, { method, headers: {"Content-Type": "application/json", ...(headers || {})},
+// Each CLI owns its own login command; we only surface it.
+const LOGIN_HINT = {
+  opencode: "opencode providers",
+  claude: "claude auth",
+  codex: "codex login",
+  cursor: "cursor-agent login",
+  grok: "grok login",
+  muse: "muse login",
+  antigravity: null,
+};
+// API providers are configured by environment, not by a login subcommand.
+const PROVIDER_HINT = {
+  openrouter: "OPENROUTER_API_KEY",
+  openai_compatible: "OPENAI_COMPATIBLE_BASE_URL + _API_KEY",
+  groq: "GROQ_API_KEY",
+  cerebras: "CEREBRAS_API_KEY",
+  ollama: "local endpoint",
+  lmstudio: "local endpoint",
+  vllm: "local endpoint",
+};
+
+async function api(method, path, body) {
+  const r = await fetch(path, { method, headers: { "Content-Type": "application/json" },
     body: body === undefined ? undefined : JSON.stringify(body) });
   let j = {};
   try { j = await r.json(); } catch (e) { j = {}; }
   if (!r.ok) throw new Error(j.error || ("HTTP " + r.status));
   return j;
 }
-function icon(letter, color) {
-  return `<svg width="34" height="34" viewBox="0 0 34 34"><circle cx="17" cy="17" r="15" fill="${color}22" stroke="${color}" stroke-width="2"/><text x="17" y="22" text-anchor="middle" font-size="15" font-weight="bold" fill="${color}">${letter}</text></svg>`;
-}
-const COLORS = { opencode: "#46c", claude: "#d73", codex: "#3a3", cursor: "#66c", grok: "#ccc", muse: "#c6c", antigravity: "#4aa" };
-
-async function load() {
-  H.harnesses = (await api("GET", "/api/harnesses")).harnesses;
-  H.routes = (await api("GET", "/api/routes")).routes;
-  H.presets = (await api("GET", "/api/presets")).presets;
-  H.meta = await api("GET", "/api/meta").catch(() => null);
-  renderMeta();
-  watchBuild();
-  H.harnesses.forEach(h => { if (h.available) H.enabled.add(h.name); });
-  renderCards(); renderModels();
-  document.getElementById("newTaskPreset").innerHTML = H.presets.map(p => `<option ${p === "score" ? "selected" : ""}>${esc(p)}</option>`).join("");
-  updatePresetHelp();
-  await loadTasks();
-  // Land on a task that actually has a scoring contract to edit.
-  const scorable = H.tasks.find(t => t.scorable) || H.tasks[0];
-  const first = scorable ? scorable.task_name : "";
-  if (first) { document.getElementById("taskSel").value = first; await loadScoring(first); }
-  else await loadScoring("");
-}
-function renderMeta() {
-  const el = document.getElementById("metaLine");
-  if (!el) return;
-  el.textContent = H.meta
-    ? `${H.meta.studio} · workspace ${H.meta.workspace} · schema ${H.meta.schema_version}`
-    : "";
-}
-function watchBuild() {
-  const build = H.meta && H.meta.build;
-  if (!build) return;
-  setInterval(async () => {
-    if (H.dirty) return;  // never discard unsaved scoring edits
-    const meta = await api("GET", "/api/meta").catch(() => null);
-    if (meta && meta.build && meta.build !== build) location.reload();
-  }, 4000);
-}
-const PRESET_HELP = {
-  score: "score — 0–100 qualification from an evidence checklist (start here)",
-  "account-research": "account-research — ICP fit score + identified gap + derived tier",
-  filter: "filter — boolean pass/fail gate with a reason",
-  triage: "triage — high/medium/low priority with a reason",
-  classify: "classify — one category label plus a summary",
-  extract: "extract — named entities plus a summary",
-  summarize: "summarize — a short summary supported by quotes",
-};
-function updatePresetHelp() {
-  const el = document.getElementById("presetHelp");
-  if (!el) return;
-  const preset = document.getElementById("newTaskPreset").value;
-  el.textContent = PRESET_HELP[preset] || "custom preset";
-}
-function setDirty(flag) {
-  H.dirty = flag;
-  const pill = document.getElementById("dirtyPill");
-  if (pill) pill.hidden = !flag;
-}
-function renderCards() {
-  const box = document.getElementById("cards"); box.innerHTML = "";
-  H.harnesses.forEach(h => {
-    const d = document.createElement("div");
-    d.className = "card" + (H.enabled.has(h.name) ? "" : " off") + (h.available ? "" : " unavail");
-    d.title = h.detail;
-    d.innerHTML = icon(h.name[0].toUpperCase(), COLORS[h.name] || "#888") +
-      `<div><span class="dot ${h.available ? "ok" : "no"}"></span><b>${esc(h.name)}</b></div><small>${esc(h.binary)}</small>`;
-    if (h.available) d.onclick = () => { H.enabled.has(h.name) ? H.enabled.delete(h.name) : H.enabled.add(h.name); renderCards(); renderModels(); };
-    box.appendChild(d);
-  });
+function esc(s) {
+  return String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 }
 function stripAnsi(s) {
   return String(s ?? "").replace(/\u001b\[[0-9;]*m/g, "").replace(/[\u0000-\u0008\u000b-\u001f]/g, " ").trim();
@@ -242,149 +130,100 @@ function firstLine(s, limit) {
   const text = stripAnsi(s).split("\n")[0].trim();
   return text.length > limit ? text.slice(0, limit) + "…" : text;
 }
-function routeCheckbox(route, onToggle) {
-  const lab = document.createElement("label");
-  const cb = document.createElement("input");
-  cb.type = "checkbox"; cb.checked = H.picked.has(route.id);
-  cb.onchange = () => { cb.checked ? H.picked.add(route.id) : H.picked.delete(route.id); onToggle(); };
-  lab.appendChild(cb);
-  const name = document.createElement("span"); name.textContent = route.id; lab.appendChild(name);
-  const badge = document.createElement("span"); badge.className = "badge"; badge.textContent = route.price_state; lab.appendChild(badge);
-  return lab;
+
+function modelProviders() {
+  return [...new Set(H.routes.map(r => r.provider))].filter(p => p !== "demo").sort();
 }
-function providerNames() {
-  return [...new Set(H.routes.map(r => r.provider))].sort();
+function routesOf(provider) { return H.routes.filter(r => r.provider === provider); }
+function freeOf(provider) {
+  return routesOf(provider).filter(r => r.price_state === "price_observed_zero" && r.enabled);
 }
-function providerRoutes(name) { return H.routes.filter(r => r.provider === name); }
-function isHarnessProvider(name) { return H.harnesses.some(h => h.name === name); }
-function providerIncluded(name) {
-  if (H.providersOff.has(name)) return false;
-  return isHarnessProvider(name) ? H.enabled.has(name) : true;
-}
-function freeRoutesFor(name) {
-  return providerRoutes(name).filter(r => r.price_state === "price_observed_zero" && r.enabled);
+// Everything selectable: the CLI harnesses, plus API providers that have models.
+function targets() {
+  const harnessNames = H.harnesses.map(h => h.name);
+  const apiProviders = modelProviders().filter(p => !harnessNames.includes(p));
+  return [...harnessNames, ...apiProviders];
 }
 function selectedRoutes() {
-  if (H.scope === "all-free") {
-    return H.routes.filter(r => providerIncluded(r.provider) && r.price_state === "price_observed_zero" && r.enabled);
+  const on = [...H.selected];
+  if (H.mode === "free") {
+    return H.routes.filter(r => on.includes(r.provider) && r.price_state === "price_observed_zero" && r.enabled);
   }
-  return H.routes.filter(r => H.picked.has(r.id));
+  return H.routes.filter(r => on.includes(r.provider) && H.picked.has(r.id));
 }
-function setScope(scope) {
-  H.scope = scope;
-  if (scope === "specific" && H.picked.size === 0) {
-    // Start a specific selection from the free set rather than from nothing.
-    H.routes.filter(r => r.price_state === "price_observed_zero" && r.enabled).forEach(r => H.picked.add(r.id));
-  }
-  renderModels();
-}
-function renderModels() {
-  const box = document.getElementById("providers"); box.innerHTML = "";
-  document.getElementById("scopeSel").value = H.scope;
-  document.getElementById("specificBox").hidden = H.scope !== "specific";
 
-  providerNames().forEach(name => {
-    const all = providerRoutes(name);
-    const free = freeRoutesFor(name);
-    const row = document.createElement("div"); row.className = "prov";
-    const cb = document.createElement("input");
-    cb.type = "checkbox"; cb.checked = providerIncluded(name);
-    cb.onchange = () => { cb.checked ? H.providersOff.delete(name) : H.providersOff.add(name); renderModels(); };
-    row.appendChild(cb);
-    const label = document.createElement("b"); label.textContent = name; row.appendChild(label);
-    const counts = document.createElement("span"); counts.className = "counts";
-    counts.textContent = `${free.length} free / ${all.length} total`; row.appendChild(counts);
-    if (isHarnessProvider(name) && !H.enabled.has(name)) {
-      const off = document.createElement("span"); off.className = "hint";
-      off.textContent = "enable it in Harnesses"; row.appendChild(off);
-    }
+function renderMeta() {
+  const el = document.getElementById("metaLine");
+  el.textContent = H.meta
+    ? `${H.meta.studio} · ${H.meta.workspace} · schema ${H.meta.schema_version}`
+    : "";
+}
+function renderCards() {
+  const box = document.getElementById("cards"); box.innerHTML = "";
+  targets().forEach(name => {
+    const harness = H.harnesses.find(h => h.name === name);
+    const on = H.selected.has(name);
+    const routes = routesOf(name);
+    const card = document.createElement("div");
+    card.className = "card" + (on ? "" : " off") + (harness && !harness.available ? " unavail" : "");
+    if (harness) card.title = harness.detail;
     const status = H.refresh[name];
-    if (status) {
-      const chip = document.createElement("span");
-      chip.className = "pill" + (/error/i.test(status) ? " bad" : "");
-      chip.textContent = firstLine(status, 50); chip.title = status;
-      row.appendChild(chip);
-    }
-    if (isHarnessProvider(name)) {
-      const btn = document.createElement("button");
-      btn.type = "button"; btn.className = "ghost"; btn.textContent = "refresh";
-      btn.onclick = () => refreshHarness(name);
-      row.appendChild(btn);
-    }
-    box.appendChild(row);
+    const hint = LOGIN_HINT[name] || PROVIDER_HINT[name];
+    const note = status
+      ? `<div class="hnote bad" title="${esc(status)}">${esc(firstLine(status, 42))}</div>`
+      : (hint ? `<div class="hnote">${esc(hint)}</div>` : "");
+    const sub = harness
+      ? `<div class="hbin">${esc(harness.binary)} · ${harness.available ? "installed" : "not found"}</div>`
+      : `<div class="hbin">${routes.length} model${routes.length === 1 ? "" : "s"} · ${freeOf(name).length} free</div>`;
+    card.innerHTML = `<div class="hname">${esc(name)}</div>${sub}${note}`;
+    card.onclick = () => { on ? H.selected.delete(name) : H.selected.add(name); renderAll(); };
+    box.appendChild(card);
   });
-
-  const noModels = H.harnesses.filter(h => H.enabled.has(h.name) && providerRoutes(h.name).length === 0);
-  if (noModels.length) {
-    const row = document.createElement("p"); row.className = "hm-empty";
-    const label = document.createElement("span"); label.className = "muted";
-    label.textContent = "No models command"; row.appendChild(label);
-    noModels.forEach(h => {
-      const status = H.refresh[h.name];
-      const chip = document.createElement("span");
-      chip.className = "pill" + (status ? " bad" : "");
-      chip.textContent = h.name; if (status) chip.title = status;
-      row.appendChild(chip);
+}
+function renderModelList() {
+  const box = document.getElementById("models"); box.innerHTML = "";
+  // Only ever list models for what is actually selected.
+  const on = [...H.selected].filter(p => routesOf(p).length);
+  if (!on.length) {
+    box.innerHTML = `<p class="hint">Pick a harness above to choose from its models.</p>`;
+    return;
+  }
+  if (H.mode === "free") return;
+  on.forEach(provider => {
+    const group = document.createElement("div"); group.className = "mgroup";
+    const head = document.createElement("div"); head.className = "mgroup-head";
+    head.innerHTML = `<b>${esc(provider)}</b><span class="counts">${freeOf(provider).length} free / ${routesOf(provider).length} total</span>`;
+    group.appendChild(head);
+    const list = document.createElement("div"); list.className = "mlist";
+    routesOf(provider).forEach(route => {
+      const label = document.createElement("label");
+      const cb = document.createElement("input");
+      cb.type = "checkbox"; cb.checked = H.picked.has(route.id);
+      cb.onchange = () => { cb.checked ? H.picked.add(route.id) : H.picked.delete(route.id); renderSummary(); };
+      label.appendChild(cb);
+      const text = document.createElement("span"); text.textContent = route.id; label.appendChild(text);
+      const badge = document.createElement("span"); badge.className = "badge";
+      badge.textContent = route.price_state; label.appendChild(badge);
+      list.appendChild(label);
     });
-    const why = document.createElement("span"); why.className = "muted";
-    why.textContent = "— use the harness's own CLI, or"; row.appendChild(why);
-    const code = document.createElement("code");
-    code.textContent = "harness-fleet routes add <id> --provider <name>";
-    row.appendChild(code);
-    box.appendChild(row);
-  }
-
-  if (H.scope === "specific") renderModelSearch();
-  renderModelSummary();
+    group.appendChild(list);
+    box.appendChild(group);
+  });
 }
-function renderModelSearch() {
-  const query = (document.getElementById("modelSearch").value || "").trim().toLowerCase();
-  const box = document.getElementById("modelResults"); box.innerHTML = "";
-  const pool = H.routes.filter(r => providerIncluded(r.provider) && (!query || r.id.toLowerCase().includes(query)));
-  const shown = pool.slice(0, 40);
-  shown.forEach(r => box.appendChild(routeCheckbox(r, renderModelSummary)));
-  if (!pool.length) {
-    const none = document.createElement("p"); none.className = "hint";
-    none.textContent = "no matching models"; box.appendChild(none);
-  } else if (pool.length > shown.length) {
-    const more = document.createElement("p"); more.className = "hint";
-    more.textContent = `showing ${shown.length} of ${pool.length} — narrow the search`;
-    box.appendChild(more);
-  }
-  const chips = document.getElementById("pickedChips");
-  const picked = [...H.picked];
-  chips.textContent = picked.length
-    ? `Selected (${picked.length}): ${picked.join(", ")}`
-    : "Selected: none — tick models above.";
-}
-function renderModelSummary() {
+function renderSummary() {
   const el = document.getElementById("modelSummary");
   const selected = selectedRoutes();
   const byProvider = {};
   selected.forEach(r => { byProvider[r.provider] = (byProvider[r.provider] || 0) + 1; });
   const parts = Object.entries(byProvider).sort((a, b) => b[1] - a[1]).map(([p, n]) => `${p} ${n}`);
-  const base = H.scope === "all-free"
-    ? `${selected.length} verified-free route(s) — ${parts.join(" · ") || "none (enable a provider, or pick specific models)"}`
-    : `${selected.length} specific model(s) — ${parts.join(" · ") || "none selected"}`;
-  // A specific pick can include paid/unpriced routes; those are only admitted
-  // when the step opts in, so say so instead of failing silently at run time.
-  const notFree = selected.filter(r => r.price_state !== "price_observed_zero").length;
-  el.textContent = base + (notFree ? ` · ${notFree} paid/unpriced — tick "allow paid" in the step` : "");
+  if (!H.selected.size) { el.textContent = "No harness selected yet."; return; }
+  if (!selected.length) { el.textContent = "No models selected."; return; }
+  const unpaid = selected.filter(r => r.price_state !== "price_observed_zero").length;
+  el.textContent = `${selected.length} ${H.mode === "free" ? "free" : "specific"} model(s) — ${parts.join(" · ")}`
+    + (unpaid ? ` · ${unpaid} paid/unpriced (needs the run's paid opt-in)` : "");
 }
-async function refreshHarness(name) {
-  H.refresh[name] = "refreshing…";
-  renderModels();
-  try {
-    const r = await api("POST", "/api/routes/refresh", {provider: name});
-    const result = r.refresh || {};
-    const errorKey = Object.keys(result).find(k => k.endsWith("_error"));
-    H.refresh[name] = errorKey ? "error: " + firstLine(result[errorKey], 150) : `${result[name] ?? 0} model(s) from this harness`;
-    H.routes = (await api("GET", "/api/routes")).routes;
-  } catch (e) {
-    H.refresh[name] = "error: " + firstLine(e.message, 150);
-  }
-  renderModels();
-}
+function renderAll() { renderCards(); renderModelList(); renderSummary(); }
+
 async function refreshAll() {
   const msg = document.getElementById("refreshMsg");
   msg.textContent = "refreshing…";
@@ -400,253 +239,34 @@ async function refreshAll() {
     errors.forEach(([key, value]) => { H.refresh[key] = "error: " + firstLine(value, 150); });
     H.routes = (await api("GET", "/api/routes")).routes;
     const total = counts.reduce((sum, [, value]) => sum + value, 0);
-    msg.textContent = `${total} routes · ${errors.length} provider error(s)`;
-    renderRefreshSummary(counts, errors);
+    msg.textContent = `${total} reported · ${errors.length} error(s)`;
   } catch (e) {
-    msg.textContent = "error: " + firstLine(e.message, 150);
+    document.getElementById("refreshMsg").textContent = "error: " + firstLine(e.message, 120);
   }
-  renderModels();
+  renderAll();
 }
-function renderRefreshSummary(counts, errors) {
-  const box = document.getElementById("refreshBox");
-  if (!box) return;
-  const notable = counts.filter(([, value]) => value > 0);
-  const line = notable.map(([key, value]) => `<span class="pill">${esc(key)} ${value}</span>`).join(" ");
-  const errorList = errors
-    .map(([key, value]) => `<li><b>${esc(key)}</b> ${esc(firstLine(value, 300))}</li>`)
-    .join("");
-  box.innerHTML = `
-    ${line ? `<p class="hint">${line}</p>` : ""}
-    ${errors.length ? `<details class="errors-box"><summary>${errors.length} provider error(s) — these CLIs reported an auth or environment problem</summary><ul class="errors">${errorList}</ul></details>` : ""}`;
+function watchBuild() {
+  const build = H.meta && H.meta.build;
+  if (!build) return;
+  setInterval(async () => {
+    const meta = await api("GET", "/api/meta").catch(() => null);
+    if (meta && meta.build && meta.build !== build) location.reload();
+  }, 4000);
 }
-/* ---- Scoring contract panel: a view over the typed TaskSpec ---- */
-function esc(s) { return String(s ?? "").replace(/[&<>"]/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[c])); }
-function useScoring(view) {
-  H.scoring = view;
-  H.draft = JSON.parse(JSON.stringify(view));
-  H.draft._weights = Object.entries(view.source_weights).map(([match, weight]) => ({match, weight}));
-  H.stale = false;
-  setDirty(false);
+
+async function load() {
+  H.harnesses = (await api("GET", "/api/harnesses")).harnesses;
+  H.routes = (await api("GET", "/api/routes")).routes;
+  H.meta = await api("GET", "/api/meta").catch(() => null);
+  renderMeta();
+  watchBuild();
+  renderAll();
 }
-async function loadTasks() {
-  H.tasks = (await api("GET", "/api/tasks")).tasks;
-  document.getElementById("taskSel").innerHTML = H.tasks.length
-    ? H.tasks.map(t => `<option value="${esc(t.task_name)}">${esc(t.task_name)}</option>`).join("")
-    : "<option value=''>no tasks yet</option>";
-  document.getElementById("taskNames").innerHTML =
-    H.tasks.map(t => `<option value="${esc(t.task_name)}"></option>`).join("");
-}
-async function loadScoring(name) {
-  const box = document.getElementById("scoringBox");
-  document.getElementById("scoringMsg").textContent = "";
-  if (!name) {
-    H.scoring = H.draft = null;
-    setDirty(false);
-    box.innerHTML = `<div class="empty">
-      <p><b>No scoring task yet.</b></p>
-      <p class="hint">Create one above from a preset — <code>score</code> for open-ended qualification, or <code>account-research</code> for ICP fit with a gap and tier — then tune the evidence checklist here. Duplicate a task to branch it.</p>
-    </div>`;
-    return;
-  }
-  useScoring((await api("GET", `/api/tasks/${encodeURIComponent(name)}/scoring`)).scoring);
-  renderScoring();
-}
-function updateTotal() {
-  const v = H.draft;
-  v.total_points = v.checklist.reduce((a, it) => a + (+it.points || 0), 0);
-  const el = document.getElementById("totalPts");
-  if (el) el.innerHTML = `<b>${v.total_points}</b>/${v.score_cap}`;
-  const bar = document.getElementById("totalBar");
-  if (bar) {
-    bar.classList.toggle("over", v.total_points > v.score_cap);
-    bar.firstElementChild.style.width = Math.min(100, v.total_points) + "%";
-  }
-}
-function renderScoring() {
-  const box = document.getElementById("scoringBox"), v = H.draft;
-  if (!v) { box.innerHTML = ""; return; }
-  if (!v.scorable) {
-    box.innerHTML = `<div class="panel"><p class="note">Task <b>${esc(v.task)}</b> carries no evidence checklist, so there is no scoring contract to edit. Create one from the <code>score</code> or <code>account-research</code> preset.</p></div>`;
-    return;
-  }
-  v.total_points = v.checklist.reduce((a, it) => a + (+it.points || 0), 0);
-  const over = v.total_points > v.score_cap;
-  const totalNote = over
-    ? ` — over the cap, so the score saturates at ${v.score_cap}`
-    : (v.total_points === v.score_cap ? "" : ` — true items sum below ${v.score_cap}`);
-  const bands = v.tier_bands.map(b => `<tr><td>${esc(b.tier)}</td><td>${b.min_score}–${b.max_score}</td></tr>`).join("");
-  const rows = v.checklist.map((it, i) => `<tr>
-      <td><input type="text" data-c="${i}" data-k="item_id" value="${esc(it.item_id)}" title="Named by claims and score history; renaming changes identity"></td>
-      <td><input type="number" min="1" max="100" data-c="${i}" data-k="points" value="${it.points}"></td>
-      <td><input type="text" data-c="${i}" data-k="description" value="${esc(it.description)}" placeholder="what counts as true"></td>
-      <td><input type="number" min="0" step="any" placeholder="—" data-c="${i}" data-k="half_life_days" value="${it.half_life_days ?? ""}"></td>
-      <td><button type="button" data-rm="${i}" title="Remove item">×</button></td></tr>`).join("");
-  const wrows = v._weights.map((w, i) => `<tr>
-      <td><input type="text" data-w="${i}" data-k="match" value="${esc(w.match)}" placeholder="boards.greenhouse.io"></td>
-      <td><input type="number" min="0" max="1" step="any" data-w="${i}" data-k="weight" value="${w.weight}"></td>
-      <td><button type="button" data-wrm="${i}" title="Remove weight">×</button></td></tr>`).join("");
-  box.innerHTML = `
-    ${H.stale ? `<div class="stale"><b>This task changed elsewhere.</b> Your edits are not saved. <button type="button" id="staleReload">Reload latest</button></div>` : ""}
-    <div class="panel">
-      <p><b>${esc(v.task)}</b> · revision <code>${esc((v.revision_id || "").slice(0, 12))}</code></p>
-      <div class="bar${over ? " over" : ""}" id="totalBar"><i style="width:${Math.min(100, v.total_points)}%"></i></div>
-      <p class="hint">Checklist total <span id="totalPts"><b>${v.total_points}</b>/${v.score_cap}</span>${totalNote}. Score, fit tier, and pass/fail are derived by the pipeline from this checklist and cannot be edited here.</p>
-      <label class="wide">Instructions<textarea data-f="instructions">${esc(v.instructions)}</textarea></label>
-    </div>
-    <div class="panel">
-      <h3>Evidence checklist</h3>
-      <table class="grid"><thead><tr><th>Item id</th><th>Points</th><th>Description (what counts as true)</th><th>Half-life (days)</th><th></th></tr></thead><tbody>${rows}</tbody></table>
-      <p><button type="button" id="addItem">+ Add item</button></p>
-    </div>
-    <div class="panel">
-      <h3>Source weights</h3>
-      <p class="hint">Longest matching URI substring wins. The weight scales the points an item can contribute; half-life decays them as evidence ages.</p>
-      <table class="grid"><thead><tr><th>URI substring</th><th>Weight 0–1</th><th></th></tr></thead><tbody>${wrows}</tbody></table>
-      <p><button type="button" id="addWeight">+ Add weight</button></p>
-    </div>
-    <div class="panel">
-      <h3>Score bands (fixed)</h3>
-      <table class="grid"><thead><tr><th>Tier</th><th>0–100 range</th></tr></thead><tbody>${bands}</tbody></table>
-      <div class="row">
-        <label>Default source weight<input type="number" min="0" max="1" step="any" data-f="default_source_weight" value="${v.default_source_weight}"></label>
-        <label>Pass score${v.has_pass ? "" : " (inert: no pass/fail claim)"}<input type="number" min="0" max="100" data-f="pass_score" value="${v.pass_score ?? ""}"></label>
-        <label>Min quote chars<input type="number" min="1" data-f="min_quote_chars" value="${v.min_quote_chars}"></label>
-      </div>
-    </div>
-    <div class="actions">
-      <button type="button" id="saveScoring">Save as new revision</button>
-      <button type="button" id="revertScoring">Discard changes</button>
-      <span id="scoringSaveMsg" class="note"></span>
-    </div>`;
-  wireScoring();
-}
-function reloadScoring() {
-  if (!H.draft) return;
-  return loadScoring(H.draft.task).catch(e => {
-    document.getElementById("scoringMsg").textContent = "error: " + e.message;
-  });
-}
-function wireScoring() {
-  const v = H.draft, box = document.getElementById("scoringBox");
-  box.querySelectorAll("[data-f]").forEach(el => {
-    el.onchange = () => {
-      const k = el.dataset.f;
-      if (k === "instructions") v.instructions = el.value;
-      else if (k === "pass_score") v.pass_score = el.value === "" ? null : +el.value;
-      else v[k] = +el.value;
-      setDirty(true);
-    };
-  });
-  box.querySelectorAll("[data-c]").forEach(el => {
-    el.onchange = () => {
-      const it = v.checklist[+el.dataset.c], k = el.dataset.k;
-      if (k === "points") { it.points = Math.max(1, Math.min(100, parseInt(el.value, 10) || 1)); el.value = it.points; updateTotal(); }
-      else if (k === "half_life_days") it.half_life_days = el.value === "" ? null : +el.value;
-      else it[k] = el.value;
-      setDirty(true);
-    };
-  });
-  box.querySelectorAll("[data-w]").forEach(el => {
-    el.onchange = () => { v._weights[+el.dataset.w][el.dataset.k] = el.dataset.k === "weight" ? +el.value : el.value; setDirty(true); };
-  });
-  box.querySelectorAll("[data-rm]").forEach(el => {
-    el.onclick = () => { v.checklist.splice(+el.dataset.rm, 1); setDirty(true); renderScoring(); };
-  });
-  box.querySelectorAll("[data-wrm]").forEach(el => {
-    el.onclick = () => { v._weights.splice(+el.dataset.wrm, 1); setDirty(true); renderScoring(); };
-  });
-  document.getElementById("addItem").onclick = () => {
-    v.checklist.push({item_id: "item_" + (v.checklist.length + 1), points: 1, description: "", half_life_days: null});
-    setDirty(true);
-    renderScoring();
-  };
-  document.getElementById("addWeight").onclick = () => { v._weights.push({match: "", weight: 1}); setDirty(true); renderScoring(); };
-  document.getElementById("saveScoring").onclick = saveScoring;
-  document.getElementById("revertScoring").onclick = reloadScoring;
-  const staleReload = document.getElementById("staleReload");
-  if (staleReload) staleReload.onclick = reloadScoring;
-}
-async function saveScoring() {
-  const v = H.draft, msg = document.getElementById("scoringSaveMsg");
-  msg.textContent = "saving…";
-  const patch = {
-    instructions: v.instructions,
-    checklist: v.checklist.map(it => ({
-      item_id: it.item_id, points: +it.points, description: it.description,
-      half_life_days: it.half_life_days === null || it.half_life_days === "" ? null : +it.half_life_days,
-    })),
-    source_weights: Object.fromEntries(v._weights.filter(w => w.match.trim()).map(w => [w.match.trim().toLowerCase(), +w.weight])),
-    default_source_weight: +v.default_source_weight,
-    pass_score: v.pass_score === null || v.pass_score === "" ? null : +v.pass_score,
-    min_quote_chars: +v.min_quote_chars,
-  };
-  try {
-    const r = await api("PUT", `/api/tasks/${encodeURIComponent(v.task)}/scoring`, patch,
-      {"If-Match": v.revision_id || ""});
-    useScoring(r.scoring);
-    await loadTasks();
-    document.getElementById("taskSel").value = r.scoring.task;
-    renderScoring();
-    document.getElementById("scoringSaveMsg").textContent =
-      r.scoring.revision_id === r.scoring.previous_revision_id
-        ? "no changes to save"
-        : `saved revision ${r.scoring.revision_id.slice(0, 12)} (previous ${r.scoring.previous_revision_id.slice(0, 12)})`;
-  } catch (e) {
-    if (/changed elsewhere/.test(e.message)) {
-      H.stale = true;
-      renderScoring();
-      const stale = document.getElementById("scoringSaveMsg");
-      if (stale) stale.textContent = "not saved — reload the latest revision";
-    } else {
-      msg.textContent = "error: " + e.message;
-    }
-  }
-}
-function confirmDiscard() {
-  return !H.dirty || confirm("Discard unsaved scoring changes?");
-}
-function currentTask() { return H.draft ? H.draft.task : ""; }
-document.getElementById("taskLoad").onclick = () => {
-  if (!confirmDiscard()) return;
-  loadScoring(document.getElementById("taskSel").value).catch(e => { document.getElementById("scoringMsg").textContent = "error: " + e.message; });
-};
-document.getElementById("taskSel").onchange = () => {
-  const select = document.getElementById("taskSel");
-  if (!confirmDiscard()) { select.value = currentTask(); return; }
-  loadScoring(select.value).catch(e => { document.getElementById("scoringMsg").textContent = "error: " + e.message; });
-};
-document.getElementById("taskCreate").onclick = async () => {
-  const name = document.getElementById("newTaskName").value.trim();
-  const preset = document.getElementById("newTaskPreset").value;
-  if (!confirmDiscard()) return;
-  try {
-    const r = await api("POST", "/api/tasks", {name, preset});
-    useScoring(r.scoring);
-    await loadTasks();
-    document.getElementById("taskSel").value = r.scoring.task;
-    document.getElementById("newTaskName").value = "";
-    document.getElementById("scoringMsg").textContent = "";
-    renderScoring();
-  } catch (e) { document.getElementById("scoringMsg").textContent = "error: " + e.message; }
-};
-document.getElementById("newTaskPreset").onchange = updatePresetHelp;
-document.getElementById("taskDup").onclick = async () => {
-  const v = H.draft;
-  if (!v) { document.getElementById("scoringMsg").textContent = "load a task first"; return; }
-  if (!confirmDiscard()) return;
-  const name = (prompt("Name for the copy of '" + v.task + "':", v.task + "-copy") || "").trim();
-  if (!name) return;
-  try {
-    const r = await api("POST", `/api/tasks/${encodeURIComponent(v.task)}/duplicate`, {name});
-    useScoring(r.scoring);
-    await loadTasks();
-    document.getElementById("taskSel").value = r.scoring.task;
-    document.getElementById("scoringMsg").textContent = `duplicated '${v.task}' as '${r.scoring.task}'`;
-    renderScoring();
-  } catch (e) { document.getElementById("scoringMsg").textContent = "error: " + e.message; }
-};
-window.addEventListener("beforeunload", e => { if (H.dirty) { e.preventDefault(); e.returnValue = ""; } });
-load().catch(e => { document.body.insertAdjacentHTML("beforeend", `<p class="err">failed to load: ${e.message}</p>`); });
+document.getElementById("modeSel").onchange = (e) => { H.mode = e.target.value; renderAll(); };
+document.getElementById("refreshBtn").onclick = refreshAll;
+load().catch(e => {
+  document.body.insertAdjacentHTML("beforeend", `<p class="err">failed to load: ${esc(e.message)}</p>`);
+});
 </script>
 </body>
 </html>
