@@ -57,8 +57,11 @@ def test_ideal_company_profile_revisions_round_trip_and_activate(tmp_path):
 
 def test_legacy_database_migrates_profile_tables_and_run_reference(tmp_path):
     db_path = tmp_path / "legacy.db"
-    with sqlite3.connect(db_path) as connection:
-        connection.executescript(
+    # NOTE: sqlite3 connections do not close on `with` exit (the block only
+    # commits); close explicitly so Windows tmp cleanup never hits a lock.
+    seed = sqlite3.connect(db_path)
+    try:
+        seed.executescript(
             """
             CREATE TABLE harness_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
             INSERT INTO harness_meta(key, value) VALUES ('schema_version', '2');
@@ -78,6 +81,8 @@ def test_legacy_database_migrates_profile_tables_and_run_reference(tmp_path):
             );
             """
         )
+    finally:
+        seed.close()
 
     store = HarnessStore(db_path)
     with store.connect() as connection:

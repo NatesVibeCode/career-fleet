@@ -100,9 +100,15 @@ class TestStore(unittest.TestCase):
         legacy.close()
 
         CareerStore(legacy_path)
-        with sqlite3.connect(legacy_path) as migrated:
+        # NOTE: sqlite3 connections do not close on `with` exit (the block
+        # only commits); an explicit close is required so Windows tmp
+        # cleanup does not hit a locked file.
+        migrated = sqlite3.connect(legacy_path)
+        try:
             company_columns = {row[1] for row in migrated.execute("PRAGMA table_info(companies)")}
             posting_columns = {row[1] for row in migrated.execute("PRAGMA table_info(job_postings)")}
+        finally:
+            migrated.close()
 
         self.assertIn("timezone", company_columns)
         self.assertIn("timezone", posting_columns)
