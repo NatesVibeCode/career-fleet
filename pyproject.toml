@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "career-fleet"
-version = "0.1.3"
+version = "0.2.0"
 description = "Deterministic career and employer screening engine with multi-lane checks and exact quote verification."
 readme = "README.md"
 license = "MIT"
