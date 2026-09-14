@@ -377,9 +377,13 @@ function renderModelSummary() {
   const byProvider = {};
   selected.forEach(r => { byProvider[r.provider] = (byProvider[r.provider] || 0) + 1; });
   const parts = Object.entries(byProvider).sort((a, b) => b[1] - a[1]).map(([p, n]) => `${p} ${n}`);
-  el.textContent = H.scope === "all-free"
+  const base = H.scope === "all-free"
     ? `${selected.length} verified-free route(s) — ${parts.join(" · ") || "none (enable a provider, or pick specific models)"}`
     : `${selected.length} specific model(s) — ${parts.join(" · ") || "none selected"}`;
+  // A specific pick can include paid/unpriced routes; those are only admitted
+  // when the step opts in, so say so instead of failing silently at run time.
+  const notFree = selected.filter(r => r.price_state !== "price_observed_zero").length;
+  el.textContent = base + (notFree ? ` · ${notFree} paid/unpriced — tick "allow paid" in the step` : "");
 }
 async function refreshHarness(name) {
   H.refresh[name] = "refreshing…";
