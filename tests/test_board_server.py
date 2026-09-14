@@ -11,6 +11,8 @@ from http.server import ThreadingHTTPServer
 from pathlib import Path
 from urllib.request import urlopen
 
+import pytest
+
 from career_fleet.board import (
     CareerFleetBoardHandler,
     detect_schema_kind,
@@ -21,6 +23,18 @@ from career_fleet.board import (
 )
 from career_fleet.profile import IdealEmployerProfile
 from career_fleet.store import CareerStore
+
+
+@pytest.fixture(autouse=True)
+def _restore_handler_targets():
+    """Handler targets are class attributes, so a test must not leak them."""
+    saved = (
+        CareerFleetBoardHandler.database_target,
+        CareerFleetBoardHandler.research_database_target,
+    )
+    yield
+    CareerFleetBoardHandler.database_target = saved[0]
+    CareerFleetBoardHandler.research_database_target = saved[1]
 
 
 def test_career_research_db_loading():
@@ -224,3 +238,44 @@ def test_database_resolution_is_independent_of_launch_directory():
             assert crm_db.is_file(), f"CRM database not found at {crm_db}"
         finally:
             os.chdir(original)
+
+
+def test_embedded_handler_resolves_databases_instead_of_reading_cwd():
+    """A handler built without run_board_server() must not fall back to cwd.
+
+    The class-level defaults used to be Path("career_fleet.db"), so an embedded
+    server silently answered 503 from any other directory even though the
+    resolver could find the real database.
+    """
+    saved = (CareerFleetBoardHandler.database_target, CareerFleetBoardHandler.research_database_target)
+    # A bare relative default is the failure mode this guards: it must stay
+    # unset so the resolver, not the process working directory, decides.
+    assert saved == (None, None), "handler must not default to a cwd-relative database path"
+    CareerFleetBoardHandler.database_target = None
+    CareerFleetBoardHandler.research_database_target = None
+    original_cwd = Path.cwd()
+    server = None
+    try:
+        with tempfile.TemporaryDirectory() as scratch:
+            os.chdir(scratch)
+            if not resolve_database_path().is_file():
+                return  # the research database is not present in this environment
+
+            server = ThreadingHTTPServer(("127.0.0.1", 0), CareerFleetBoardHandler)
+            _host, port = server.server_address
+            threading.Thread(target=server.serve_forever, daemon=True).start()
+
+            with urlopen(f"http://127.0.0.1:{port}/api/jobs") as resp:
+                assert resp.status == 200
+                dossiers = json.loads(resp.read().decode("utf-8"))
+            assert dossiers, "expected dossiers from the resolved database"
+
+            with urlopen(f"http://127.0.0.1:{port}/api/crm") as resp:
+                assert resp.status == 200
+    finally:
+        if server is not None:
+            server.shutdown()
+            server.server_close()
+        os.chdir(original_cwd)
+        CareerFleetBoardHandler.database_target = saved[0]
+        CareerFleetBoardHandler.research_database_target = saved[1]

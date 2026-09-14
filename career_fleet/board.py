@@ -719,8 +719,20 @@ def load_crm_snapshot(db_path: Path) -> dict[str, Any]:
 
 class CareerFleetBoardHandler(BaseHTTPRequestHandler):
     server_version = "CareerFleetBoard/2.0"
-    database_target: Path = Path("career_fleet.db")
-    research_database_target: Path = Path("career_research.db")
+    #: Set by run_board_server(). Left unset, the helpers below resolve through
+    #: the same search the CLI uses instead of silently reading the process
+    #: working directory, so an embedded handler cannot serve the wrong (or a
+    #: missing) database just because it was started elsewhere.
+    database_target: Path | None = None
+    research_database_target: Path | None = None
+
+    @property
+    def jobs_database(self) -> Path:
+        return resolve_database_path(self.database_target)
+
+    @property
+    def crm_database(self) -> Path:
+        return resolve_research_database_path(self.research_database_target)
 
     def send_json(self, status: int, payload: object) -> None:
         body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
@@ -773,7 +785,7 @@ class CareerFleetBoardHandler(BaseHTTPRequestHandler):
             remote_only = params.get("remote_only", ["0"])[0] in ("1", "true", "True")
             try:
                 dossiers = load_job_dossiers(
-                    self.database_target,
+                    self.jobs_database,
                     status_filter=status_filter,
                     remote_only=remote_only,
                 )
@@ -792,7 +804,7 @@ class CareerFleetBoardHandler(BaseHTTPRequestHandler):
 
         if path == "/api/crm":
             try:
-                self.send_json(200, load_crm_snapshot(self.research_database_target))
+                self.send_json(200, load_crm_snapshot(self.crm_database))
             except FileNotFoundError as error:
                 self.send_json(503, {"error": "database_unavailable", "message": str(error)})
             except (sqlite3.Error, OSError) as error:
