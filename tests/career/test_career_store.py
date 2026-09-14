@@ -111,8 +111,16 @@ class TestStore(unittest.TestCase):
             migrated.close()
 
         self.assertIn("timezone", company_columns)
+        self.assertIn("careers_url", company_columns)
+        self.assertIn("source_class", company_columns)
+        self.assertIn("primary_contact_email", company_columns)
         self.assertIn("timezone", posting_columns)
         self.assertIn("source_type", posting_columns)
+        self.assertIn("source_class", posting_columns)
+        self.assertIn("apply_email", posting_columns)
+        self.assertIn("contact_name", posting_columns)
+        self.assertIn("posting_status", posting_columns)
+        self.assertIn("compensation_text", posting_columns)
 
     def test_evaluations_require_a_real_iep_revision(self):
         self.store.upsert_company("acme", "Acme")
@@ -171,3 +179,67 @@ class TestStore(unittest.TestCase):
         self.assertEqual(dossier["jobs"][0]["source_type"], "reddit")
         self.assertEqual(len(dossier["community_signals"]), 1)
         self.assertEqual(dossier["community_signals"][0]["profile_revision_id"], profile_revision)
+
+    def test_non_ats_company_and_job_posting(self):
+        self.store.upsert_company(
+            "non-ats-corp",
+            "Non-ATS Corp",
+            domain="nonatscorp.com",
+            careers_url="https://nonatscorp.com/join-us",
+            source_class="startup_site",
+            primary_contact_email="hiring@nonatscorp.com",
+            primary_contact_name="Alice Founder",
+        )
+
+        self.store.add_job_posting(
+            job_id="job-non-ats-1",
+            company_id="non-ats-corp",
+            title="Principal Infrastructure Engineer",
+            raw_text="Join our founding team to build distributed execution engines.",
+            source_type="founder_post",
+            source_class="founder_post",
+            apply_email="alice@nonatscorp.com",
+            contact_name="Alice Founder",
+            contact_title="Founder & CEO",
+            posting_status="active",
+            compensation_text="$200k - $250k + 2.0% equity",
+            min_comp=200000.0,
+            max_comp=250000.0,
+            currency="USD",
+        )
+
+        dossier = self.store.get_company_dossier("non-ats-corp")
+        self.assertIsNotNone(dossier)
+        self.assertEqual(dossier["careers_url"], "https://nonatscorp.com/join-us")
+        self.assertEqual(dossier["source_class"], "startup_site")
+        self.assertEqual(dossier["primary_contact_email"], "hiring@nonatscorp.com")
+        self.assertEqual(dossier["primary_contact_name"], "Alice Founder")
+
+        self.assertEqual(len(dossier["jobs"]), 1)
+        job = dossier["jobs"][0]
+        self.assertEqual(job["id"], "job-non-ats-1")
+        self.assertEqual(job["title"], "Principal Infrastructure Engineer")
+        self.assertEqual(job["source_class"], "founder_post")
+        self.assertEqual(job["apply_email"], "alice@nonatscorp.com")
+        self.assertEqual(job["contact_name"], "Alice Founder")
+        self.assertEqual(job["contact_title"], "Founder & CEO")
+        self.assertEqual(job["posting_status"], "active")
+        self.assertEqual(job["compensation_text"], "$200k - $250k + 2.0% equity")
+        self.assertEqual(job["min_comp"], 200000.0)
+        self.assertEqual(job["max_comp"], 250000.0)
+        self.assertEqual(job["currency"], "USD")
+        self.assertIsNotNone(job["first_seen_at"])
+        self.assertIsNotNone(job["last_seen_at"])
+
+        active_jobs = self.store.list_active_jobs(company_id="non-ats-corp")
+        self.assertEqual(len(active_jobs), 1)
+        self.assertEqual(active_jobs[0]["id"], "job-non-ats-1")
+
+        updated = self.store.mark_job_status("job-non-ats-1", "closed")
+        self.assertTrue(updated)
+
+        active_after_close = self.store.list_active_jobs(company_id="non-ats-corp")
+        self.assertEqual(len(active_after_close), 0)
+
+        updated_dossier = self.store.get_company_dossier("non-ats-corp")
+        self.assertEqual(updated_dossier["jobs"][0]["posting_status"], "closed")

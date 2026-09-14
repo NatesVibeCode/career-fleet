@@ -43,6 +43,10 @@ CREATE TABLE IF NOT EXISTS companies (
     ats_provider TEXT,
     ats_token TEXT,
     website_url TEXT,
+    careers_url TEXT,
+    source_class TEXT,
+    primary_contact_email TEXT,
+    primary_contact_name TEXT,
     status TEXT DEFAULT 'discovered',  -- discovered, triaged, qualified, disqualified
     disqualification_reason TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -77,6 +81,17 @@ CREATE TABLE IF NOT EXISTS job_postings (
     job_url TEXT,
     raw_text TEXT NOT NULL,
     source_type TEXT,
+    source_class TEXT,
+    apply_email TEXT,
+    contact_name TEXT,
+    contact_title TEXT,
+    first_seen_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    last_seen_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    posting_status TEXT DEFAULT 'active',
+    compensation_text TEXT,
+    min_comp REAL,
+    max_comp REAL,
+    currency TEXT DEFAULT 'USD',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -164,12 +179,45 @@ class CareerStore:
                     columns = {row["name"] for row in con.execute(f"PRAGMA table_info({table})").fetchall()}
                     if table in ("companies", "job_postings") and "timezone" not in columns:
                         con.execute(f"ALTER TABLE {table} ADD COLUMN timezone TEXT")
-                    if table == "job_postings" and "source_type" not in columns:
-                        con.execute("ALTER TABLE job_postings ADD COLUMN source_type TEXT")
+                    if table == "companies":
+                        if "careers_url" not in columns:
+                            con.execute("ALTER TABLE companies ADD COLUMN careers_url TEXT")
+                        if "source_class" not in columns:
+                            con.execute("ALTER TABLE companies ADD COLUMN source_class TEXT")
+                        if "primary_contact_email" not in columns:
+                            con.execute("ALTER TABLE companies ADD COLUMN primary_contact_email TEXT")
+                        if "primary_contact_name" not in columns:
+                            con.execute("ALTER TABLE companies ADD COLUMN primary_contact_name TEXT")
+                    if table == "job_postings":
+                        if "source_type" not in columns:
+                            con.execute("ALTER TABLE job_postings ADD COLUMN source_type TEXT")
+                        if "source_class" not in columns:
+                            con.execute("ALTER TABLE job_postings ADD COLUMN source_class TEXT")
+                        if "apply_email" not in columns:
+                            con.execute("ALTER TABLE job_postings ADD COLUMN apply_email TEXT")
+                        if "contact_name" not in columns:
+                            con.execute("ALTER TABLE job_postings ADD COLUMN contact_name TEXT")
+                        if "contact_title" not in columns:
+                            con.execute("ALTER TABLE job_postings ADD COLUMN contact_title TEXT")
+                        if "first_seen_at" not in columns:
+                            con.execute("ALTER TABLE job_postings ADD COLUMN first_seen_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP")
+                        if "last_seen_at" not in columns:
+                            con.execute("ALTER TABLE job_postings ADD COLUMN last_seen_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP")
+                        if "posting_status" not in columns:
+                            con.execute("ALTER TABLE job_postings ADD COLUMN posting_status TEXT DEFAULT 'active'")
+                        if "compensation_text" not in columns:
+                            con.execute("ALTER TABLE job_postings ADD COLUMN compensation_text TEXT")
+                        if "min_comp" not in columns:
+                            con.execute("ALTER TABLE job_postings ADD COLUMN min_comp REAL")
+                        if "max_comp" not in columns:
+                            con.execute("ALTER TABLE job_postings ADD COLUMN max_comp REAL")
+                        if "currency" not in columns:
+                            con.execute("ALTER TABLE job_postings ADD COLUMN currency TEXT DEFAULT 'USD'")
                     if table == "evaluations" and "profile_revision_id" not in columns:
                         con.execute("ALTER TABLE evaluations ADD COLUMN profile_revision_id TEXT")
                     if table == "community_signals" and "profile_revision_id" not in columns:
                         con.execute("ALTER TABLE community_signals ADD COLUMN profile_revision_id TEXT")
+                con.execute("CREATE INDEX IF NOT EXISTS idx_jobs_posting_status ON job_postings(posting_status)")
 
     def upsert_company(
         self,
@@ -184,6 +232,10 @@ class CareerStore:
         website_url: str | None = None,
         status: str = "discovered",
         timezone: str | None = None,
+        careers_url: str | None = None,
+        source_class: str | None = None,
+        primary_contact_email: str | None = None,
+        primary_contact_name: str | None = None,
     ) -> str:
         domain = normalize_domain(domain)
         with self.connect() as con:
@@ -203,8 +255,9 @@ class CareerStore:
                     """
                     INSERT INTO companies (
                         id, name, domain, stage, headcount, hq_location, timezone,
-                        ats_provider, ats_token, website_url, status, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                        ats_provider, ats_token, website_url, careers_url, source_class,
+                        primary_contact_email, primary_contact_name, status, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
                     ON CONFLICT(id) DO UPDATE SET
                         name = excluded.name,
                         domain = COALESCE(excluded.domain, companies.domain),
@@ -215,10 +268,18 @@ class CareerStore:
                         ats_provider = COALESCE(excluded.ats_provider, companies.ats_provider),
                         ats_token = COALESCE(excluded.ats_token, companies.ats_token),
                         website_url = COALESCE(excluded.website_url, companies.website_url),
+                        careers_url = COALESCE(excluded.careers_url, companies.careers_url),
+                        source_class = COALESCE(excluded.source_class, companies.source_class),
+                        primary_contact_email = COALESCE(excluded.primary_contact_email, companies.primary_contact_email),
+                        primary_contact_name = COALESCE(excluded.primary_contact_name, companies.primary_contact_name),
                         status = excluded.status,
                         updated_at = CURRENT_TIMESTAMP
                     """,
-                    (canonical_id, name, domain, stage, headcount, hq_location, timezone, ats_provider, ats_token, website_url, status),
+                    (
+                        canonical_id, name, domain, stage, headcount, hq_location, timezone,
+                        ats_provider, ats_token, website_url, careers_url, source_class,
+                        primary_contact_email, primary_contact_name, status
+                    ),
                 )
                 return canonical_id
 
@@ -418,14 +479,33 @@ class CareerStore:
         job_url: str | None = None,
         timezone: str | None = None,
         source_type: str | None = None,
+        source_class: str | None = None,
+        apply_email: str | None = None,
+        contact_name: str | None = None,
+        contact_title: str | None = None,
+        first_seen_at: str | None = None,
+        last_seen_at: str | None = None,
+        posting_status: str = "active",
+        compensation_text: str | None = None,
+        min_comp: float | None = None,
+        max_comp: float | None = None,
+        currency: str = "USD",
     ) -> None:
         with self.connect() as con:
             with con:
                 con.execute(
                     """
                     INSERT INTO job_postings (
-                        id, company_id, title, location, timezone, is_remote, job_url, raw_text, source_type, created_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                        id, company_id, title, location, timezone, is_remote, job_url, raw_text,
+                        source_type, source_class, apply_email, contact_name, contact_title,
+                        first_seen_at, last_seen_at, posting_status, compensation_text,
+                        min_comp, max_comp, currency, created_at
+                    ) VALUES (
+                        ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                        COALESCE(?, CURRENT_TIMESTAMP),
+                        COALESCE(?, CURRENT_TIMESTAMP),
+                        ?, ?, ?, ?, ?, CURRENT_TIMESTAMP
+                    )
                     ON CONFLICT(id) DO UPDATE SET
                         company_id = excluded.company_id,
                         title = excluded.title,
@@ -434,10 +514,49 @@ class CareerStore:
                         is_remote = excluded.is_remote,
                         job_url = excluded.job_url,
                         raw_text = excluded.raw_text,
-                        source_type = excluded.source_type
+                        source_type = COALESCE(excluded.source_type, job_postings.source_type),
+                        source_class = COALESCE(excluded.source_class, job_postings.source_class),
+                        apply_email = COALESCE(excluded.apply_email, job_postings.apply_email),
+                        contact_name = COALESCE(excluded.contact_name, job_postings.contact_name),
+                        contact_title = COALESCE(excluded.contact_title, job_postings.contact_title),
+                        last_seen_at = CURRENT_TIMESTAMP,
+                        posting_status = excluded.posting_status,
+                        compensation_text = COALESCE(excluded.compensation_text, job_postings.compensation_text),
+                        min_comp = COALESCE(excluded.min_comp, job_postings.min_comp),
+                        max_comp = COALESCE(excluded.max_comp, job_postings.max_comp),
+                        currency = COALESCE(excluded.currency, job_postings.currency)
                     """,
-                    (job_id, company_id, title, location, timezone, 1 if is_remote else 0, job_url, raw_text, source_type),
+                    (
+                        job_id, company_id, title, location, timezone, 1 if is_remote else 0,
+                        job_url, raw_text, source_type, source_class, apply_email,
+                        contact_name, contact_title, first_seen_at, last_seen_at,
+                        posting_status, compensation_text, min_comp, max_comp, currency,
+                    ),
                 )
+
+    def mark_job_status(self, job_id: str, status: str) -> bool:
+        """Update the temporal posting_status (e.g. 'active', 'stale_unconfirmed', 'closed')."""
+        with self.connect() as con:
+            with con:
+                cur = con.execute(
+                    "UPDATE job_postings SET posting_status = ?, last_seen_at = CURRENT_TIMESTAMP WHERE id = ?",
+                    (status, job_id),
+                )
+                return cur.rowcount > 0
+
+    def list_active_jobs(self, company_id: str | None = None) -> list[dict[str, Any]]:
+        """Return all active job postings, optionally filtered by company."""
+        with self.connect() as con:
+            if company_id:
+                rows = con.execute(
+                    "SELECT * FROM job_postings WHERE company_id = ? AND posting_status = 'active' ORDER BY created_at DESC",
+                    (company_id,),
+                ).fetchall()
+            else:
+                rows = con.execute(
+                    "SELECT * FROM job_postings WHERE posting_status = 'active' ORDER BY created_at DESC"
+                ).fetchall()
+            return [dict(r) for r in rows]
 
     def replace_community_source_snapshot(
         self,
@@ -720,7 +839,7 @@ class CareerStore:
             if not comp:
                 return None
             jobs = con.execute(
-                "SELECT id, title, location, timezone, is_remote, job_url, raw_text, source_type FROM job_postings WHERE company_id = ?",
+                "SELECT * FROM job_postings WHERE company_id = ?",
                 (company_id,),
             ).fetchall()
             evals = con.execute("SELECT * FROM evaluations WHERE company_id = ? ORDER BY created_at ASC", (company_id,)).fetchall()
