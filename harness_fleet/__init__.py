@@ -1,5 +1,5 @@
 """Harness Fleet: Coordinated CLI-harness worker fleet with closed fields and exact source evidence."""
-__version__ = "0.3.1"
+__version__ = "0.4.0"
 import uuid
 from collections.abc import Iterable, Mapping
 from pathlib import Path
