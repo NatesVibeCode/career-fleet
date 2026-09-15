@@ -249,23 +249,22 @@ def test_board_module_has_no_hardcoded_personal_paths():
     assert "Open Design" not in source
 
 
-def test_database_resolution_is_independent_of_launch_directory(local_worker_db):
+def test_database_resolution_is_independent_of_launch_directory(local_worker_db, tmp_path):
     """Database lookup must not depend on cwd: the worker DB is a repo sibling."""
     original = Path.cwd()
-    with tempfile.TemporaryDirectory() as scratch:
-        try:
-            os.chdir(scratch)
-            jobs_db = resolve_database_path("career-public-research-worker/career_research.db")
-            assert jobs_db.is_file(), f"career_research.db not found at {jobs_db}"
-            assert jobs_db == resolve_database_path(), "arg and no-arg resolution must agree"
-            crm_db = resolve_research_database_path()
-            if not crm_db.is_file():
-                pytest.skip("needs the local CRM database too; not present in CI")
-        finally:
-            os.chdir(original)
+    try:
+        os.chdir(tmp_path)
+        jobs_db = resolve_database_path("career-public-research-worker/career_research.db")
+        assert jobs_db.is_file(), f"career_research.db not found at {jobs_db}"
+        assert jobs_db == resolve_database_path(), "arg and no-arg resolution must agree"
+        crm_db = resolve_research_database_path()
+        if not crm_db.is_file():
+            pytest.skip("needs the local CRM database too; not present in CI")
+    finally:
+        os.chdir(original)
 
 
-def test_embedded_handler_resolves_databases_instead_of_reading_cwd():
+def test_embedded_handler_resolves_databases_instead_of_reading_cwd(tmp_path):
     """A handler built without run_board_server() must not fall back to cwd.
 
     The class-level defaults used to be Path("career_fleet.db"), so an embedded
@@ -280,30 +279,31 @@ def test_embedded_handler_resolves_databases_instead_of_reading_cwd():
     CareerFleetBoardHandler.research_database_target = None
     original_cwd = Path.cwd()
     server = None
-    # ignore_cleanup_errors: a handler may still hold the database open, and
-    # Windows refuses to delete a directory holding an open file.
+    # A stable directory is all this needs: the point is that resolution ignores
+    # cwd. It is deliberately not a TemporaryDirectory, because a handler may
+    # still hold a database open and Windows then refuses to delete the tree
+    # (WinError 32, and a RecursionError out of the teardown on 3.10).
     try:
-        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as scratch:
-            os.chdir(scratch)
-            try:
-                if not resolve_database_path().is_file():
-                    return  # the research database is not present in this environment
+        os.chdir(tmp_path)
+        try:
+            if not resolve_database_path().is_file():
+                return  # the research database is not present in this environment
 
-                server = ThreadingHTTPServer(("127.0.0.1", 0), CareerFleetBoardHandler)
-                _host, port = server.server_address
-                threading.Thread(target=server.serve_forever, daemon=True).start()
+            server = ThreadingHTTPServer(("127.0.0.1", 0), CareerFleetBoardHandler)
+            _host, port = server.server_address
+            threading.Thread(target=server.serve_forever, daemon=True).start()
 
-                with urlopen(f"http://127.0.0.1:{port}/api/jobs") as resp:
-                    assert resp.status == 200
-                    dossiers = json.loads(resp.read().decode("utf-8"))
-                assert dossiers, "expected dossiers from the resolved database"
+            with urlopen(f"http://127.0.0.1:{port}/api/jobs") as resp:
+                assert resp.status == 200
+                dossiers = json.loads(resp.read().decode("utf-8"))
+            assert dossiers, "expected dossiers from the resolved database"
 
-                with urlopen(f"http://127.0.0.1:{port}/api/crm") as resp:
-                    assert resp.status == 200
-            finally:
-                if server is not None:
-                    server.shutdown()
-                    server.server_close()
+            with urlopen(f"http://127.0.0.1:{port}/api/crm") as resp:
+                assert resp.status == 200
+        finally:
+            if server is not None:
+                server.shutdown()
+                server.server_close()
     finally:
         os.chdir(original_cwd)
         CareerFleetBoardHandler.database_target = saved[0]
