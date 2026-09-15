@@ -167,6 +167,23 @@
   .quote-meta { display:flex; align-items:center; gap:8px; flex-wrap:wrap; font-size:11.5px; color:var(--muted); }
   .quote-meta code, .mono { font-family:var(--mono); font-size:11.5px; color:var(--text-2); }
 
+  /* ---------- kanban ---------- */
+  .kanban { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:14px; align-items:start; }
+  @media (max-width:1080px) { .kanban { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+  @media (max-width:680px) { .kanban { grid-template-columns:1fr; } }
+  .kanban-col { background:var(--surface-2); border:1px solid var(--border); border-radius:var(--radius); padding:10px; min-height:120px; }
+  .kanban-head { display:flex; align-items:center; gap:8px; padding:2px 2px 10px; border-bottom:1px solid var(--border); margin-bottom:10px; }
+  .lane-count { font-size:12px; font-weight:650; color:var(--text-2); background:var(--surface); border:1px solid var(--border); border-radius:999px; padding:1px 8px; font-variant-numeric:tabular-nums; }
+  .kanban-empty { font-size:12.5px; color:var(--muted); font-style:italic; padding:10px 4px; }
+  .card { background:var(--surface); border:1px solid var(--border); border-radius:var(--radius-sm); padding:10px 11px; margin-bottom:8px; cursor:pointer; box-shadow:var(--shadow); }
+  .card:last-child { margin-bottom:0; }
+  .card:hover { border-color:var(--border-strong); }
+  .card[aria-selected=true] { border-color:var(--accent); background:var(--accent-soft); }
+  .card-top { display:flex; align-items:baseline; gap:8px; }
+  .card-top .score-num { margin-left:auto; font-size:15px; }
+  .card-practice { font-size:12.5px; color:var(--text-2); margin-top:4px; }
+  .card-tags { display:flex; flex-wrap:wrap; gap:5px; margin-top:8px; }
+
   /* ---------- drawer ---------- */
   .drawer-backdrop { position:fixed; inset:0; background:rgba(16,24,40,.28); opacity:0; pointer-events:none; transition:opacity .16s ease; z-index:40; }
   .drawer-backdrop.open { opacity:1; pointer-events:auto; }
@@ -284,7 +301,14 @@
   function fmtValue(v) {
     if (v === null || v === undefined || v === "") return "—";
     if (Array.isArray(v)) return v.join(" · ");
-    if (isPlainObject(v)) return Object.keys(v).map(function (k) { return k.replace(/_/g, " ") + ": " + fmtValue(v[k]); }).join(" · ");
+    if (isPlainObject(v)) {
+      // Nested objects show only the parts the source actually stated.
+      var parts = Object.keys(v)
+        .filter(function (k) { return !isEmptyValue(v[k]); })
+        .map(function (k) { return k.replace(/_/g, " ") + ": " + fmtValue(v[k]); });
+      return parts.length ? parts.join(" · ") : "—";
+    }
+    if (typeof v === "boolean") return v ? "yes" : "no";
     return String(v);
   }
   function dashText(v) {
@@ -325,6 +349,7 @@
   /* ---------------- views ---------------- */
   var VIEWS = [
     { id:"partners", label:"Partners" },
+    { id:"pipeline", label:"Pipeline" },
     { id:"scorecard", label:"Scorecard" },
     { id:"evidence", label:"Evidence" },
     { id:"run", label:"Run detail" }
@@ -336,6 +361,7 @@
     if (!p) return;
     var counts = {
       partners: visiblePartners().length + "/" + (p.partners || []).length,
+      pipeline: Object.keys(p.stats.tier_counts).length + " stages",
       scorecard: (p.checklist || []).length + " q",
       evidence: String(p.stats.quote_count),
       run: p.stats.batches_verified + "/" + p.stats.batches_total
@@ -532,6 +558,89 @@
     host.appendChild(el("div", { class:"table-wrap" }, [el("table", null, [el("thead", null, [head]), body])]));
   }
 
+  /* ---------------- pipeline (kanban) ---------------- */
+  function renderPipeline() {
+    var p = STATE.payload, main = document.getElementById("main");
+    var rows = visiblePartners();
+    var order = ["tier_1", "tier_2", "tier_3", "unfit"];
+    var tiersByKey = {};
+    (p.tiers || []).forEach(function (t) { tiersByKey[t.tier] = t.min_score; });
+
+    var board = el("div", { class:"kanban" });
+    order.forEach(function (tier) {
+      var cards = rows.filter(function (x) { return x.tier === tier; })
+        .sort(function (a, b) { return (b.score === null ? -1 : b.score) - (a.score === null ? -1 : a.score); });
+      var range = tier === "tier_1" ? (tiersByKey.tier_1 || 85) + "–100"
+        : tier === "tier_2" ? (tiersByKey.tier_2 || 70) + "–" + ((tiersByKey.tier_1 || 85) - 1)
+        : tier === "tier_3" ? (tiersByKey.tier_3 || 50) + "–" + ((tiersByKey.tier_2 || 70) - 1)
+        : "below " + (tiersByKey.tier_3 || 50);
+      var column = el("div", { class:"kanban-col" }, [
+        el("div", { class:"kanban-head" }, [
+          el("span", { class:"swatch", style:"background:" + TIER_COLOR[tier] }),
+          el("span", { style:"font-weight:650", text:TIER_LABEL[tier] }),
+          el("span", { class:"section-sub", text:range }),
+          el("span", { class:"spacer" }),
+          el("span", { class:"lane-count", text:cards.length })
+        ])
+      ]);
+      if (!cards.length) {
+        column.appendChild(el("div", { class:"kanban-empty", text:"No partner in this stage for the current filters." }));
+      } else {
+        cards.forEach(function (partner) {
+          column.appendChild(el("div", {
+            class:"card", "aria-selected": STATE.selected === partner.id,
+            onclick: function () { openDrawer(partner.id); }
+          }, [
+            el("div", { class:"card-top" }, [
+              el("span", { class:"cell-name", text:partner.name || partner.id }),
+              el("span", { class:"score-num", text:partner.score === null ? "—" : partner.score })
+            ]),
+            el("div", { class:"card-practice", text: partner.practice || "no verified practice named" }),
+            el("div", { class:"card-tags" }, [
+              el("span", { class:"tag soft mini", text:(partner.quotes || []).length + " quotes" }),
+              partner.source && partner.source.uri ? el("span", { class:"tag soft mini", text:"source linked" }) : null,
+              el("span", { class:"tag soft mini", text:topAttribute(partner, p) })
+            ])
+          ]));
+        });
+      }
+      board.appendChild(column);
+    });
+
+    main.appendChild(el("section", { class:"section" }, [
+      el("div", { class:"section-head" }, [
+        el("h2", { class:"section-title", text:"Pipeline" }),
+        el("span", { class:"section-sub", text:"partners grouped by the tier the scoring policy gave them · click a card for the dossier" })
+      ]),
+      board
+    ]));
+
+    var unscored = rows.filter(function (x) { return x.tier === null || x.tier === undefined; });
+    if (unscored.length) {
+      main.appendChild(el("div", { class:"panel" }, [
+        el("div", { class:"panel-head" }, [el("span", { class:"panel-title", text:"Unscored" })]),
+        el("div", { class:"list" }, unscored.map(function (partner) {
+          return el("div", { class:"list-row" }, [
+            el("div", { class:"list-label" }, [el("div", { class:"t", text:partner.name || partner.id })]),
+            el("div", { class:"list-metric", text:"—" })
+          ]);
+        }))
+      ]));
+    }
+  }
+
+  function topAttribute(partner, p) {
+    // The first attribute with a value, so a card says something specific.
+    var attrs = p.attributes || [];
+    for (var i = 0; i < attrs.length; i++) {
+      var value = (partner.answers || {})[attrs[i].key];
+      if (isEmptyValue(value)) continue;
+      var text = fmtValue(value);
+      return attrs[i].label + ": " + (text.length > 34 ? text.slice(0, 33) + "…" : text);
+    }
+    return "no attributes filled";
+  }
+
   /* ---------------- scorecard ---------------- */
   function renderScorecard() {
     var p = STATE.payload, main = document.getElementById("main");
@@ -595,6 +704,7 @@
         var facet = p.facets[a.key] || {};
         var values = Object.keys(facet).sort(function (x, y) { return facet[y] - facet[x]; });
         var filled = (p.partners || []).filter(function (x) { return !isEmptyValue((x.answers || {})[a.key]); }).length;
+        var fillText = filled + "/" + p.stats.records + (filled ? "" : " — nothing stated");
         return el("div", { class:"list-row" }, [
           el("div", { class:"list-label" }, [
             el("div", { class:"t", text:a.label }),
@@ -605,7 +715,7 @@
                 }))
               : el("div", { class:"empty-value", style:"margin-top:6px", text:"no value in any source" })
           ]),
-          el("div", { class:"list-metric", text:filled + "/" + p.stats.records }),
+          el("div", { class:"list-metric", style: filled ? "" : "color:var(--muted);font-weight:550", text:fillText }),
           el("div", { class:"list-metric", style:"color:var(--muted)", text:values.length + " val" })
         ]);
       }))
@@ -858,6 +968,7 @@
     if (!STATE.payload) { main.appendChild(el("div", { class:"state", text:"Loading run…" })); return; }
     renderHeader();
     if (STATE.view === "partners") renderPartners();
+    else if (STATE.view === "pipeline") renderPipeline();
     else if (STATE.view === "scorecard") renderScorecard();
     else if (STATE.view === "evidence") renderEvidence();
     else renderRun();

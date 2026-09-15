@@ -142,12 +142,36 @@ def _receipts(snapshot: dict[str, Any]) -> list[ProviderReceipt]:
     return receipts
 
 
+def _facet_label(value: Any) -> str | None:
+    """A facet value a human can read, or None when there is nothing to show.
+
+    A nested object (commercial terms, for instance) collapses to its stated
+    parts — "employees: 100+ skilled engineers" — instead of raw JSON, and an
+    object whose every part is blank is not a value at all.
+    """
+    if isinstance(value, dict):
+        parts = [
+            f"{key.replace('_', ' ')}: {_facet_label(item)}"
+            for key, item in value.items()
+            if _facet_label(item) is not None
+        ]
+        return " · ".join(parts) if parts else None
+    if isinstance(value, (list, tuple)):
+        parts = [item for item in (_facet_label(entry) for entry in value) if item is not None]
+        return " · ".join(parts) if parts else None
+    if value in (None, "", [], {}):
+        return None
+    if isinstance(value, bool):
+        return "yes" if value else "no"
+    return value if isinstance(value, str) else json.dumps(value, ensure_ascii=False)
+
+
 def _counter(values: list[Any]) -> dict[str, int]:
     counts: dict[str, int] = {}
     for value in values:
-        if value in (None, "", [], {}):
+        key = _facet_label(value)
+        if key is None:
             continue
-        key = value if isinstance(value, str) else json.dumps(value, ensure_ascii=False)
         counts[key] = counts.get(key, 0) + 1
     return dict(sorted(counts.items(), key=lambda kv: (-kv[1], kv[0])))
 
