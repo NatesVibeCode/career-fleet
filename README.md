@@ -11,11 +11,15 @@ Career Fleet turns what you want from your next job into a screened shortlist of
 
 ## Start here (no coding needed)
 
-1. **Install:**
+1. **Install.** macOS/Linux: `./install.sh` · Windows: `powershell -ExecutionPolicy Bypass -File install.ps1`
+   It makes its own private Python environment, installs the skills, creates your `profile.json`, and runs the demo on sample postings.
+
+   Prefer a terminal one-liner to the installer? This puts the CLI on your PATH without cloning anything:
    ```bash
-   python3 -m pip install -e ".[dev,discover]"
+   uv tool install "git+https://github.com/NatesVibeCode/career-fleet"
+   # or, without uv:  python3 -m pip install "git+https://github.com/NatesVibeCode/career-fleet"
    ```
-   On Windows use `py -m pip` instead of `python3 -m pip`.
+   Working on this repository instead of using it? `python3 -m pip install -e ".[dev,discover]"`.
 2. **Set up and run:** `career-fleet init` creates your database and a plain-language `profile.json` describing what you want. Then `career-fleet board --open` opens a local web page showing your pipeline — no commands needed to read results.
 3. **Ask your assistant.** Restart Claude Desktop (or Cursor) and describe the job you want in plain words; the bundled `career-fleet` skill runs the lanes and explains its reasoning with quotes from the postings.
 

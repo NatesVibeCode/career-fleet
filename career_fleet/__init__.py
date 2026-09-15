@@ -1,3 +1,3 @@
 """career-fleet: deterministic career and employer screening."""
 
-__version__ = "0.2.2"
+__version__ = "0.3.1"
