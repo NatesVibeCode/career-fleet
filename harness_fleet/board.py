@@ -22,7 +22,7 @@ import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
 from .export import _build_item_route_map, verified_records_from_snapshot
 from .models import TIER_BY_SCORE, ProviderReceipt
@@ -44,7 +44,7 @@ _ALLOWED_HOSTS = re.compile(r"^(127\.0\.0\.1|localhost|\[::1\])(:\d+)?$", re.IGN
 # ---------------------------------------------------------------------------
 
 def _humanize(item_id: str) -> str:
-    """q1_target_stack -> 'Target stack'; identified_practice -> 'Identified practice'."""
+    """q1_billable_delivery -> 'Billable delivery'; identified_practice -> 'Identified practice'."""
     name = re.sub(r"^q\d+_", "", str(item_id))
     words = name.replace("_", " ").strip()
     return words[:1].upper() + words[1:] if words else str(item_id)
@@ -342,7 +342,9 @@ class BoardHandler(BaseHTTPRequestHandler):
         if not _request_allowed(self):
             _send_json(self, 403, {"error": "request rejected: board is localhost-only"})
             return
-        path = urlparse(self.path).path
+        parsed = urlparse(self.path)
+        path = parsed.path
+        params = parse_qs(parsed.query)
         if path in ("/", "/index.html"):
             try:
                 page = BOARD_HTML_PATH.read_bytes()
@@ -357,8 +359,10 @@ class BoardHandler(BaseHTTPRequestHandler):
             self.wfile.write(page)
             return
         if path == "/api/board":
+            # ?run=<id> lets the page switch runs without restarting the server.
+            requested = (params.get("run") or [self.run_id])[0] or None
             try:
-                payload = build_board_payload(self.db_path, self.run_id)  # type: ignore[arg-type]
+                payload = build_board_payload(self.db_path, requested)  # type: ignore[arg-type]
             except KeyError as exc:
                 _send_json(self, 404, {"error": str(exc)})
                 return
@@ -371,7 +375,10 @@ class BoardHandler(BaseHTTPRequestHandler):
             _send_json(self, 200, payload)
             return
         if path == "/api/runs":
-            _send_json(self, 200, {"runs": list_runs(HarnessStore(self.db_path))})  # type: ignore[arg-type]
+            runs = list_runs(HarnessStore(self.db_path))  # type: ignore[arg-type]
+            requested = (params.get("run") or [self.run_id])[0] or None
+            current = requested or (runs[0]["run_id"] if runs else None)
+            _send_json(self, 200, {"runs": runs, "current": current})
             return
         _send_json(self, 404, {"error": f"no route for {path}"})
 
