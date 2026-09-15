@@ -29,7 +29,7 @@ def _computed_score_property(description: str) -> dict[str, Any]:
         "type": "integer",
         "minimum": 0,
         "maximum": 100,
-        "description": f"Computed by the pipeline from the checklist; omit it. {description}",
+        "description": f"NEVER include this field in your output: the pipeline computes it from the checklist. {description}",
     }
 
 
