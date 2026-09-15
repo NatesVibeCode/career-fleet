@@ -142,6 +142,9 @@ class ModelOutput(ClosedModel):
 
 
 class CandidateExtractedItem(ClosedModel):
+    """One extracted item. Closed on purpose: a stray key is a failed attempt,
+    never a silently dropped field."""
+
     item_id: str = Field(min_length=1)
     claims: dict[str, JsonValue]
     quotes: list[QuoteCandidate] = Field(min_length=1)
@@ -670,9 +673,9 @@ class TaskSpec(ClosedModel):
             )
         if "score" in props and "fit_tier" in props:
             lines.append(
-                "- Tiers are derived from score, not judged separately: tier_1 for 85-100, "
-                "tier_2 for 70-84, tier_3 for 50-69, unfit below 50. "
-                "fit_tier must equal the score band."
+                "- Tiers are derived from score in the pipeline, never judged: tier_1 for "
+                "85-100, tier_2 for 70-84, tier_3 for 50-69, unfit below 50. Do not send "
+                "fit_tier; the pipeline fills it from the score."
             )
         field_notes = [
             f"{name} - {spec['description']}"

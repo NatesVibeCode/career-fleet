@@ -2,6 +2,7 @@
   "$defs": {
     "CandidateExtractedItem": {
       "additionalProperties": false,
+      "description": "One extracted item. Closed on purpose: a stray key is a failed attempt,\nnever a silently dropped field.",
       "properties": {
         "item_id": {
           "minLength": 1,
