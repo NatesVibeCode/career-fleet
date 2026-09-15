@@ -57,26 +57,27 @@ def _properties_map(task: Any, *path: str) -> dict[str, Any]:
     fields of the nested answers object. Missing or malformed schema returns an
     empty map rather than raising, so a hand-written TaskSpec still renders.
     """
-    node: Any = getattr(task, "claims_schema", None) or {}
-    if not isinstance(node, dict):
+    schema = getattr(task, "claims_schema", None)
+    if not isinstance(schema, dict):
         return {}
-    node = node.get("properties")
+    node: Any = schema.get("properties")
     for key in path:
         if not isinstance(node, dict):
             return {}
-        child = node.get(key)
+        child: Any = node.get(key)
         node = child.get("properties") if isinstance(child, dict) else None
     return node if isinstance(node, dict) else {}
 
 
-def _field_specs(task: Any, claims_schema_path: tuple[str, ...], values: dict[str, Any]) -> list[dict[str, Any]]:
+def _field_specs(task: Any, claims_schema_path: tuple[str, ...], values: Any) -> list[dict[str, Any]]:
     """Describe the attributes under one claims object so the UI can render them."""
+    values = values if isinstance(values, dict) else {}
     properties = _properties_map(task, *claims_schema_path)
     if not properties:
         return []
     specs: list[dict[str, Any]] = []
-    for key in properties:
-        schema = properties.get(key) if isinstance(properties.get(key), dict) else {}
+    for key, raw in properties.items():
+        schema: dict[str, Any] = raw if isinstance(raw, dict) else {}
         kind = schema.get("type") or "string"
         if kind == "array":
             kind = "list"
@@ -198,7 +199,8 @@ def build_board_payload(db_path: Path | str, run_id: str | None = None) -> dict[
     for record in records:
         claims = record.claims if isinstance(record.claims, dict) else {}
         answers = claims.get("answers") if isinstance(claims.get("answers"), dict) else {}
-        raw_checklist = claims.get("checklist") if isinstance(claims.get("checklist"), dict) else {}
+        raw_checklist = claims.get("checklist")
+        raw_checklist = raw_checklist if isinstance(raw_checklist, dict) else {}
         score = claims.get("score")
         score = score if isinstance(score, (int, float)) and not isinstance(score, bool) else None
         quotes: list[dict[str, Any]] = []
@@ -384,7 +386,7 @@ class BoardHandler(BaseHTTPRequestHandler):
             return
         if path == "/api/board":
             # ?run=<id> lets the page switch runs without restarting the server.
-            requested = (params.get("run") or [self.run_id])[0] or None
+            requested = (params.get("run") or [""])[0] or self.run_id or None
             try:
                 payload = build_board_payload(self.db_path, requested)  # type: ignore[arg-type]
             except KeyError as exc:
@@ -399,8 +401,8 @@ class BoardHandler(BaseHTTPRequestHandler):
             _send_json(self, 200, payload)
             return
         if path == "/api/runs":
-            runs = list_runs(HarnessStore(self.db_path))  # type: ignore[arg-type]
-            requested = (params.get("run") or [self.run_id])[0] or None
+            runs = list_runs(HarnessStore(self.db_path))
+            requested = (params.get("run") or [""])[0] or self.run_id or None
             current = requested or (runs[0]["run_id"] if runs else None)
             _send_json(self, 200, {"runs": runs, "current": current})
             return

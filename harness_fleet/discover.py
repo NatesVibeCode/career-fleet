@@ -726,7 +726,7 @@ def extract_text(html: str) -> str:
         return ""
     cleaned = _remove_hidden_blocks(html)
     try:
-        from readability import Document  # type: ignore
+        from readability import Document
 
         summary = Document(cleaned).summary()
         if summary and summary.strip():
@@ -738,7 +738,7 @@ def extract_text(html: str) -> str:
     except Exception:
         pass
     try:
-        import trafilatura  # type: ignore
+        import trafilatura
 
         out = trafilatura.extract(cleaned, include_comments=False, include_tables=True)
         if out and out.strip():
@@ -753,7 +753,7 @@ def extract_text(html: str) -> str:
 def require_playwright() -> None:
     """Fail fast with an install hint when the ``js`` extra is missing."""
     try:
-        import playwright  # type: ignore  # noqa: F401
+        import playwright  # noqa: F401
     except ImportError as exc:
         raise DiscoverError(
             "playwright is not installed (pip install career-fleet[js] "
@@ -769,7 +769,7 @@ def _render_js_page(url: str, timeout: float = 30.0) -> tuple[str, str]:
     links must use it as the base.
     """
     try:
-        from playwright.sync_api import sync_playwright  # type: ignore
+        from playwright.sync_api import sync_playwright
     except ImportError as exc:
         raise DiscoverError(
             "playwright is not installed (pip install career-fleet[js] "
