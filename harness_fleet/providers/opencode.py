@@ -22,7 +22,11 @@ OPENCODE_SPEC = HarnessSpec(
     prompt_delivery="argv_last",
     parser="opencode_jsonl",
     task_config_strategy="opencode_deny_all",
-    discovery_argv=["models", "opencode", "--verbose"],
+    # No namespace argument: opencode's registry carries the OpenRouter-backed
+    # models too (``openrouter/<model>:free``), and those are the no-key way to
+    # reach OpenRouter. Route ids become ``opencode/openrouter/<model>:free``
+    # and the CLI resolves them through the opencode login.
+    discovery_argv=["models", "--verbose"],
     model_from_route=True,
 )
 

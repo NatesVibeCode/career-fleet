@@ -76,6 +76,12 @@ def _manifest_stream(
         manifest.add(raw_item)
         yield raw_item
 
+# CLI harnesses run a whole prompt in one process: a free model answering a
+# 10-question checklist across several thousand characters needs minutes, not
+# seconds. Hanging routes are handled by the cooldown, not by this ceiling.
+DEFAULT_PROMPT_TIMEOUT_SEC = 180
+
+
 class Engine:
     def __init__(
         self,
@@ -87,6 +93,7 @@ class Engine:
         registry: ProviderRegistry | None = None,
         session_stickiness_tolerance: float = 0.10,
         profile: Any | None = None,
+        prompt_timeout_sec: int = DEFAULT_PROMPT_TIMEOUT_SEC,
     ):
         self.task = task
         self.store = store or (catalog.store if catalog else HarnessStore())
@@ -94,6 +101,7 @@ class Engine:
         self.max_attempts_per_batch = max_attempts_per_batch
         self.policy = policy
         self.registry = registry or ProviderRegistry()
+        self.prompt_timeout_sec = int(prompt_timeout_sec)
         # Session route is pinned first only while within tolerance of the best
         # score. Beyond that the ranked ladder wins and the session migrates to
         # the route that actually verifies (see execute_batch success path).
@@ -201,7 +209,11 @@ class Engine:
                 # There is no silent fallback to another provider.
                 return False, None, None, str(exc)
 
-            prompt_kwargs: dict[str, Any] = {"session_id": session_id, "policy": self.policy}
+            prompt_kwargs: dict[str, Any] = {
+                "session_id": session_id,
+                "policy": self.policy,
+                "timeout_sec": self.prompt_timeout_sec,
+            }
 
             started_ts = time.time()
             ok, response_text, raw_receipt = provider.run_prompt(

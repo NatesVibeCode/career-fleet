@@ -123,6 +123,20 @@ def _apply_price_evidence(route: dict, price_state: PriceState) -> None:
         route.pop("cost_per_1k_output", None)
 
 
+def _admissible_opencode_model(header: str, spec_name: str) -> bool:
+    """Which of opencode's models become fleet routes: the free ones.
+
+    opencode's registry lists its own models and the OpenRouter models it
+    mediates. The ones we run are the ones that say free in the name — the
+    default install needs no key for either family. Everything else in that
+    registry (paid models, other vendors' endpoints) is added deliberately with
+    `routes add`, never discovered implicitly.
+    """
+    if "/" not in header or " " in header:
+        return False
+    return "free" in header.lower()
+
+
 class RouteCatalog:
     def __init__(self, config_path: Path | str | None = None, db_path: Path | str | None = None):
         self.config_path = Path(config_path) if config_path else DEFAULT_CONFIG_PATH
@@ -484,10 +498,11 @@ class RouteCatalog:
                 header, sep, rest = text.partition("\n")
                 if not sep:
                     break
-                if header.startswith("opencode/"):
+                if _admissible_opencode_model(header, spec.name):
+                    route_id = header if header.startswith(f"{spec.name}/") else f"{spec.name}/{header}"
                     try:
                         obj, end = decoder.raw_decode(rest.lstrip())
-                        models[header] = obj
+                        models[route_id] = obj
                         text = rest.lstrip()[end:]
                     except Exception:
                         text = rest

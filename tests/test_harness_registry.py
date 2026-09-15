@@ -159,9 +159,9 @@ def test_harness_refresh_records_zero_cost_for_observed_zero_routes(tmp_path, mo
     # Shape taken from `opencode models --verbose`: an explicit all-zero cost
     # block, which is what earns the observed-zero state.
     payload = "\n".join([
-        "opencode/big-pickle",
+        "opencode/ling-3.0-flash-fin-free",
         json.dumps({
-            "id": "big-pickle", "status": "active",
+            "id": "ling-3.0-flash-fin-free", "status": "active",
             "cost": {"input": 0, "output": 0, "cache": {"read": 0, "write": 0}},
         }),
         "opencode/paid-model",
@@ -179,7 +179,7 @@ def test_harness_refresh_records_zero_cost_for_observed_zero_routes(tmp_path, mo
     catalog.refresh_from_harness(OPENCODE_SPEC)
 
     routes = {r["id"]: r for r in catalog.data["routes"] if r["provider"] == "opencode"}
-    admitted = routes["opencode/big-pickle"]
+    admitted = routes["opencode/ling-3.0-flash-fin-free"]
     assert admitted["price_state"] == "price_observed_zero"
     assert admitted["enabled"] is True
     assert admitted["cost_per_1k_input"] == 0.0
@@ -193,7 +193,7 @@ def test_harness_refresh_records_zero_cost_for_observed_zero_routes(tmp_path, mo
     zero_cost = {
         r["id"]: r for r in catalog.data["routes"] if r.get("cost_per_1k_input") == 0.0
     }
-    assert set(zero_cost) == {"opencode/big-pickle"}
+    assert set(zero_cost) == {"opencode/ling-3.0-flash-fin-free"}
     assert all(r["price_state"] == "price_observed_zero" for r in zero_cost.values())
 
     # An unverified packaged hint keeps its CANDIDATE label but no price claim:

@@ -45,7 +45,7 @@ from .discover import (
     write_items_csv,
     write_items_jsonl,
 )
-from .engine import Engine
+from .engine import DEFAULT_PROMPT_TIMEOUT_SEC, Engine
 from .export import export_clean_packet
 from .input_data import iter_input_items, load_input_items
 from .models import (
@@ -578,7 +578,10 @@ def cmd_run(args: argparse.Namespace) -> None:
     profile, profile_revision_id = _resolve_profile(args, store)
     run_id = args.run_id or f"{task.name}-{time.time_ns()}-{uuid.uuid4().hex[:8]}"
     output = _workspace_path(args.output or f"runs/{run_id}/clean_packet.json", getattr(args, "workspace_root", "."))
-    packet = Engine(task=task, store=store, policy=policy).run_campaign(
+    packet = Engine(
+        task=task, store=store, policy=policy,
+        prompt_timeout_sec=int(getattr(args, "timeout", 0) or DEFAULT_PROMPT_TIMEOUT_SEC),
+    ).run_campaign(
         raw_items=input_factory(),
         run_id=run_id,
         input_path=str(input_path.resolve()),
@@ -1624,6 +1627,11 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--input", required=True)
     run.add_argument("--sessions", type=_positive_int, default=4)
     run.add_argument("--max-attempts", type=_positive_int, default=300)
+    run.add_argument(
+        "--timeout", type=_positive_int, default=DEFAULT_PROMPT_TIMEOUT_SEC,
+        help=f"Seconds to allow one model attempt before it is abandoned (default {DEFAULT_PROMPT_TIMEOUT_SEC}; "
+             "raise it for slow free routes, lower it to fail fast)",
+    )
     run.add_argument("--run-id")
     run.add_argument("--output")
     run.add_argument("--profile", help="Optional Ideal Company Profile JSON; persist and attach its revision to this run")
@@ -1647,6 +1655,8 @@ def build_parser() -> argparse.ArgumentParser:
     rescore.add_argument("--input", required=True)
     rescore.add_argument("--sessions", type=_positive_int, default=4)
     rescore.add_argument("--max-attempts", type=_positive_int, default=300)
+    rescore.add_argument("--timeout", type=_positive_int, default=DEFAULT_PROMPT_TIMEOUT_SEC,
+                         help=f"Seconds to allow one model attempt (default {DEFAULT_PROMPT_TIMEOUT_SEC})")
     rescore.add_argument("--run-id")
     rescore.add_argument("--output")
     rescore.add_argument("--profile", help="Optional Ideal Company Profile JSON; persist and attach its revision to this run")
