@@ -92,46 +92,50 @@ def test_career_research_db_loading(local_worker_db):
     assert "source_type" in job
 
 
-def test_career_fleet_store_loading():
-    with tempfile.NamedTemporaryFile(suffix=".db") as f:
-        db_path = Path(f.name)
-        store = CareerStore(db_path)
-        rev_id = store.save_profile(IdealEmployerProfile())
-        store.upsert_company("acme-corp", "Acme Corp", domain="acme.example", status="qualified")
-        store.add_job_posting(
-            "job-42",
-            "acme-corp",
-            "Staff Systems Engineer",
-            location="Remote - US",
-            timezone="UTC-8",
-            is_remote=True,
-            job_url="https://acme.example/jobs/42",
-            raw_text="Building distributed event brokers.",
-            source_type="greenhouse",
-        )
-        store.record_evaluation(
-            "eval-99",
-            "acme-corp",
-            "lane3_systems",
-            "qualified",
-            0.94,
-            "HARDENED",
-            "Proprietary state machine",
-            ["Event-sourced audit log"],
-            profile_revision_id=rev_id,
-        )
+def test_career_fleet_store_loading(tmp_path):
+    """The store round-trips through a real database file.
 
-        with open_read_only_database(db_path) as conn:
-            kind = detect_schema_kind(conn)
-            assert kind == "career_fleet"
+    The database lives in pytest's tmp_path rather than a NamedTemporaryFile:
+    Windows keeps that file open and locked, so sqlite cannot open it there.
+    """
+    db_path = tmp_path / "career_fleet.db"
+    store = CareerStore(db_path)
+    rev_id = store.save_profile(IdealEmployerProfile())
+    store.upsert_company("acme-corp", "Acme Corp", domain="acme.example", status="qualified")
+    store.add_job_posting(
+        "job-42",
+        "acme-corp",
+        "Staff Systems Engineer",
+        location="Remote - US",
+        timezone="UTC-8",
+        is_remote=True,
+        job_url="https://acme.example/jobs/42",
+        raw_text="Building distributed event brokers.",
+        source_type="greenhouse",
+    )
+    store.record_evaluation(
+        "eval-99",
+        "acme-corp",
+        "lane3_systems",
+        "qualified",
+        0.94,
+        "HARDENED",
+        "Proprietary state machine",
+        ["Event-sourced audit log"],
+        profile_revision_id=rev_id,
+    )
 
-        dossiers = load_job_dossiers(db_path)
-        assert len(dossiers) == 1
-        assert dossiers[0]["name"] == "Acme Corp"
-        assert len(dossiers[0]["jobs"]) == 1
-        assert dossiers[0]["jobs"][0]["title"] == "Staff Systems Engineer"
-        assert len(dossiers[0]["evaluations"]) == 1
-        assert dossiers[0]["evaluations"][0]["score"] == 0.94
+    with open_read_only_database(db_path) as conn:
+        kind = detect_schema_kind(conn)
+        assert kind == "career_fleet"
+
+    dossiers = load_job_dossiers(db_path)
+    assert len(dossiers) == 1
+    assert dossiers[0]["name"] == "Acme Corp"
+    assert len(dossiers[0]["jobs"]) == 1
+    assert dossiers[0]["jobs"][0]["title"] == "Staff Systems Engineer"
+    assert len(dossiers[0]["evaluations"]) == 1
+    assert dossiers[0]["evaluations"][0]["score"] == 0.94
 
 
 def test_board_http_server(local_worker_db):
@@ -276,27 +280,31 @@ def test_embedded_handler_resolves_databases_instead_of_reading_cwd():
     CareerFleetBoardHandler.research_database_target = None
     original_cwd = Path.cwd()
     server = None
+    # ignore_cleanup_errors: a handler may still hold the database open, and
+    # Windows refuses to delete a directory holding an open file.
     try:
-        with tempfile.TemporaryDirectory() as scratch:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as scratch:
             os.chdir(scratch)
-            if not resolve_database_path().is_file():
-                return  # the research database is not present in this environment
+            try:
+                if not resolve_database_path().is_file():
+                    return  # the research database is not present in this environment
 
-            server = ThreadingHTTPServer(("127.0.0.1", 0), CareerFleetBoardHandler)
-            _host, port = server.server_address
-            threading.Thread(target=server.serve_forever, daemon=True).start()
+                server = ThreadingHTTPServer(("127.0.0.1", 0), CareerFleetBoardHandler)
+                _host, port = server.server_address
+                threading.Thread(target=server.serve_forever, daemon=True).start()
 
-            with urlopen(f"http://127.0.0.1:{port}/api/jobs") as resp:
-                assert resp.status == 200
-                dossiers = json.loads(resp.read().decode("utf-8"))
-            assert dossiers, "expected dossiers from the resolved database"
+                with urlopen(f"http://127.0.0.1:{port}/api/jobs") as resp:
+                    assert resp.status == 200
+                    dossiers = json.loads(resp.read().decode("utf-8"))
+                assert dossiers, "expected dossiers from the resolved database"
 
-            with urlopen(f"http://127.0.0.1:{port}/api/crm") as resp:
-                assert resp.status == 200
+                with urlopen(f"http://127.0.0.1:{port}/api/crm") as resp:
+                    assert resp.status == 200
+            finally:
+                if server is not None:
+                    server.shutdown()
+                    server.server_close()
     finally:
-        if server is not None:
-            server.shutdown()
-            server.server_close()
         os.chdir(original_cwd)
         CareerFleetBoardHandler.database_target = saved[0]
         CareerFleetBoardHandler.research_database_target = saved[1]
