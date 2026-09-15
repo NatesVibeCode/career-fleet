@@ -5,9 +5,19 @@
 
 > **Deterministic career & employer screening engine with multi-lane checks and verbatim source quotes.**
 
-`career-fleet` turns a candidate's stated career criteria into a systematically screened pipeline of target companies and opportunities. Its built-in lanes use explicit rules and keyword signals, not nuanced model judgment. Every qualification is backed by verbatim source quotes from captured source records.
+Career Fleet turns what you want from your next job into a screened shortlist of companies and openings. It rules out the obvious mismatches first, then reads the survivors for the things that actually matter — the problem they need solved, the stack, why they are hiring now, and who leads the team. Every judgement quotes the posting it came from, so you can check it yourself, and the built-in rules stay predictable rather than guessing.
 
 *Canonical CLI is `career-fleet`.*
+
+## Start here (no coding needed)
+
+1. **Install:**
+   ```bash
+   python3 -m pip install -e ".[dev,discover]"
+   ```
+   On Windows use `py -m pip` instead of `python3 -m pip`.
+2. **Set up and run:** `career-fleet init` creates your database and a plain-language `profile.json` describing what you want. Then `career-fleet board --open` opens a local web page showing your pipeline — no commands needed to read results.
+3. **Ask your assistant.** Restart Claude Desktop (or Cursor) and describe the job you want in plain words; the bundled `career-fleet` skill runs the lanes and explains its reasoning with quotes from the postings.
 
 ## Which fleet do I want?
 
