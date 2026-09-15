@@ -95,24 +95,25 @@
 const H = { harnesses: [], routes: [], meta: null, mode: "free",
   selected: new Set(), picked: new Set(), refresh: {} };
 
-// Each CLI owns its own login command; we only surface it.
+// Each CLI owns its own login command; we only surface it in words a
+// non-technical user can act on.
 const LOGIN_HINT = {
-  opencode: "opencode providers",
-  claude: "claude auth",
-  codex: "codex login",
-  cursor: "cursor-agent login",
-  grok: "grok login",
-  muse: "muse login",
+  opencode: "free models included — sign in: opencode auth login",
+  claude: "sign in: claude auth",
+  codex: "sign in: codex login",
+  cursor: "sign in: cursor-agent login",
+  grok: "sign in: grok login",
+  muse: "sign in: muse login",
   antigravity: null,
 };
 // API providers are configured by environment, not by a login subcommand.
 const PROVIDER_HINT = {
-  openrouter: "OPENROUTER_API_KEY",
-  openai_compatible: "OPENAI_COMPATIBLE_BASE_URL + _API_KEY",
-  groq: "GROQ_API_KEY",
-  cerebras: "CEREBRAS_API_KEY",
-  ollama: "local endpoint",
-  lmstudio: "local endpoint",
+  openrouter: "needs a free key — get one at openrouter.ai/keys",
+  openai_compatible: "needs a base URL and key",
+  groq: "needs a GROQ_API_KEY",
+  cerebras: "needs a CEREBRAS_API_KEY",
+  ollama: "runs on your computer, no signup — ollama.com/download",
+  lmstudio: "runs on your computer, no signup — lmstudio.ai",
   vllm: "local endpoint",
 };
 

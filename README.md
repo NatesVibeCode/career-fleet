@@ -19,6 +19,8 @@ Career Fleet turns what you want from your next job into a screened shortlist of
 2. **Set up and run:** `career-fleet init` creates your database and a plain-language `profile.json` describing what you want. Then `career-fleet board --open` opens a local web page showing your pipeline — no commands needed to read results.
 3. **Ask your assistant.** Restart Claude Desktop (or Cursor) and describe the job you want in plain words; the bundled `career-fleet` skill runs the lanes and explains its reasoning with quotes from the postings.
 
+Career Fleet's own lanes need no AI account at all — screening runs on rules and the text of the postings. If you also want the shared engine's batch runs, [FREE-ACCESS.md](FREE-ACCESS.md) covers the free options.
+
 ## Which fleet do I want?
 
 Every distribution in this family shares one engine — typed claims, SQLite checkpoints, and character-exact quote verification — and ships assistant skills alongside it. Install one per environment.
