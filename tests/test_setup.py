@@ -37,7 +37,7 @@ def test_setup_installs_bundled_skill_and_database_idempotently(tmp_path):
     assert Path(first.stdio_server.command).stem in {
         "harness-fleet", "account-fleet", "career-fleet", "career-lanes",
     }
-    assert Path(first.skill_path).with_name("account-fleet").joinpath("SKILL.md").is_file()
+    assert not Path(first.skill_path).with_name("account-fleet").exists()
     assert first.database in first.stdio_server.args
     assert first.ready is False  # packaged route hints are not fresh price evidence
 
@@ -125,7 +125,7 @@ def test_force_update_removes_stale_managed_skill_files(tmp_path):
 def test_setup_preflights_all_skill_destinations_before_writing(tmp_path):
     home = tmp_path / "home"
     workspace = tmp_path / "workspace"
-    conflict = home / ".agents/skills/account-fleet"
+    conflict = home / ".agents/skills/career-fleet"
     home.mkdir()
     workspace.mkdir()
     conflict.mkdir(parents=True)
@@ -170,15 +170,25 @@ def test_all_distributed_skill_copies_match():
         assert actual == expected
 
 
-def test_account_skill_and_examples_are_bundled():
+def test_account_fleet_is_not_bundled_or_installed(tmp_path):
+    """Career Fleet and Account Fleet are separate products, not one bundle.
+
+    career-fleet used to carry account-fleet's playbook and install it into the
+    workspace alongside its own skill.
+    """
     repository = Path(__file__).resolve().parents[1]
     resources = repository / "harness_fleet/resources"
-    expected = {p.relative_to(resources / "account_skill"): p.read_bytes() for p in (resources / "account_skill").rglob("*") if p.is_file()}
-    assert expected
-    for root in [repository / "skills/account-fleet", repository / ".agents/skills/account-fleet"]:
-        assert {p.relative_to(root): p.read_bytes() for p in root.rglob("*") if p.is_file()} == expected
-    for name in ("task.json", "sample_accounts.csv"):
-        assert (resources / "examples/account_research" / name).read_bytes() == (repository / "examples/account_research" / name).read_bytes()
+    assert not (resources / "account_skill").exists()
+    for root in (repository / "skills", repository / ".agents/skills"):
+        assert not (root / "account-fleet").exists()
+
+    home = tmp_path / "home"
+    workspace = tmp_path / "workspace"
+    home.mkdir()
+    workspace.mkdir()
+    report = setup_workspace(scope="user", workspace_root=workspace, home=home)
+    installed = {path.name for path in Path(report.skill_path).parent.iterdir()}
+    assert installed == {"career-fleet", "harness-fleet"}
 
 
 def test_career_skill_is_bundled_and_every_copy_matches():

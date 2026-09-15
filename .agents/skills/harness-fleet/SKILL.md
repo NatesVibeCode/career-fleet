@@ -50,8 +50,6 @@ Never call a worker session an independent coding-agent session. `--sessions` is
 
 ## Related skills
 
-- `account-fleet` — turn an ICP into scored target accounts (`--preset account-research`).
-- `partner-fleet` — turn ecosystem requirements into scored implementation partners (`--preset partner-research`).
-- `career-fleet` — find and rank employers and job postings; ships with the career-fleet distribution.
+- `career-fleet` — find and rank employers and job postings (the career-fleet distribution).
 
-Setup installs these next to this skill in `.agents/skills/`. Read them when the job is domain research rather than raw bulk extraction, classification, or scoring of your own text.
+Setup installs these next to this skill in `.agents/skills/`.

@@ -44,8 +44,9 @@ Skills are the playbooks your AI client reads to drive this CLI. `career-fleet s
 | Skill | Installed as | Drives |
 | --- | --- | --- |
 | `career-fleet` | `.agents/skills/career-fleet/` | This CLI: onboarding, the 4-lane workflow, career signals, community sourcing, scoring rubric, troubleshooting |
-| `account-fleet` | `.agents/skills/account-fleet/` | Target-account research, if you also run that playbook |
 | `harness-fleet` | `.agents/skills/harness-fleet/` | The shared engine underneath: task contracts, runs, export, MCP |
+
+Career Fleet and Account Fleet are separate products: this distribution ships neither Account Fleet's skill nor its examples.
 
 Each skill is plain markdown — a `SKILL.md` plus a `references/` folder. Read them straight from this repo under `skills/`, or preview what setup would install:
 
@@ -92,8 +93,7 @@ The generated profile is intentionally neutral. Edit `profile.json` to set your 
 
 `profile.json` is the editable authoring file; the selected IEP is also stored in
 SQLite as an immutable profile revision, and each lane evaluation records the
-revision it used. Account research uses the same pattern with
-`ideal_company_profile.json` and `account-fleet profile`.
+revision it used.
 
 ### 2. Discover target companies & job postings (Lane 1)
 

@@ -71,7 +71,6 @@ For the detailed signal framework and interview prompts, read [references/6-core
 
 ## Related skills
 
-- `harness-fleet` — the shared engine underneath this playbook: task contracts, runs, export, MCP, troubleshooting.
-- `account-fleet` — target-account research and scoring, installed alongside this skill.
+- `harness-fleet` — the shared engine underneath every fleet playbook: task contracts, runs, export, MCP, troubleshooting.
 
-Setup installs both next to this skill in `.agents/skills/`.
+Setup installs these next to this skill in `.agents/skills/`.
