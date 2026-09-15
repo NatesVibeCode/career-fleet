@@ -167,11 +167,11 @@ def test_score_preset_is_checklist_shaped():
     assert task.checklist == {"initiative_named": 40, "criteria_evidence": 35, "supporting_signals": 25}
     assert "score" not in task.claims_schema["required"]
     assert task.evidence_terms, "score preset must expose candidate terms"
-    research = create_task_from_preset("r", preset_name="account-research")
+    research = create_task_from_preset("r", preset_name="career-screening")
     assert "fit_tier" not in research.claims_schema["required"]
     assert research.derive_checklist_score(
-        {"explicit_initiative": True, "stack_confirmed": True,
-         "hiring_or_trigger": True, "firmographic_fit": True}) == 100
+        {"wedge_alignment": True, "stack_confirmed": True, "hiring_catalyst": True,
+         "leadership_signal": True, "workplace_match": True}) == 100
 
 
 # --- candidates --------------------------------------------------------------
@@ -543,12 +543,12 @@ def test_recency_half_life_validation():
     assert parse_half_life("hiring_or_trigger=21") == ("hiring_or_trigger", 21.0)
 
 
-def test_account_preset_half_lives_price_hiring_fast():
-    research = create_task_from_preset("r", preset_name="account-research")
-    assert research.recency_half_lives["hiring_or_trigger"] == 21.0
-    assert research.recency_half_lives["stack_confirmed"] > research.recency_half_lives["hiring_or_trigger"]
+def test_career_preset_half_lives_price_the_catalyst_fast():
+    research = create_task_from_preset("r", preset_name="career-screening")
+    assert research.recency_half_lives["hiring_catalyst"] == 21.0
+    assert research.recency_half_lives["stack_confirmed"] > research.recency_half_lives["hiring_catalyst"]
     guide = research.render_worker_guide()
-    assert "hiring_or_trigger 21d" in guide
+    assert "hiring_catalyst 21d" in guide
 
 
 def test_aged_evidence_scores_less_end_to_end(tmp_path):

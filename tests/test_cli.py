@@ -96,7 +96,7 @@ def test_json_flag_works_before_command():
 
 def test_presets_cover_each_named_bulk_job():
     assert set(cli.PRESETS) == {
-        "account-research",
+        "career-screening",
         "classify",
         "extract",
         "filter",

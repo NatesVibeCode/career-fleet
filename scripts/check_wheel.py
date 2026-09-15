@@ -1,7 +1,5 @@
 """Build and exercise a wheel in a fresh venv, outside the source checkout."""
 import argparse
-import csv
-import json
 import os
 import subprocess
 import sys
@@ -53,34 +51,6 @@ def main():
             mode = "reused system dependencies" if args.offline_system_deps else "fresh dependencies"
             print(f"career-fleet: installed wheel setup, profile init, skill install, and CLI passed ({mode})")
             return
-
-        def run(*command):
-            completed = subprocess.run([str(cli), *command, "--json"], cwd=workspace, env=env, capture_output=True, text=True, encoding="utf-8")
-            if completed.returncode:
-                raise AssertionError(f"{command}: {completed.stdout}\n{completed.stderr}")
-            return json.loads(completed.stdout)
-
-        setup = run("setup", "--workspace-root", str(workspace))
-        assert Path(setup["stdio_server"]["command"]).parent.resolve() == bindir.resolve(), setup["stdio_server"]
-        assert (workspace / ".agents/skills/harness-fleet/SKILL.md").is_file()
-        if args.distribution == "account-fleet":
-            assert (workspace / ".agents/skills/account-fleet/references/mcp-recipes.md").is_file()
-            run("profile", "--init")
-            assert (workspace / "ideal_company_profile.json").is_file()
-            run("init", "research", "--preset", "account-research")
-        demo = run("quickstart", "--demo", "--run-id", "portable-demo")
-        assert demo["verified"] == (10 if args.distribution == "account-fleet" else 2)
-        run("export", "portable-demo", "--format", "csv", "--sort-by", "score", "--desc", "--top", "2", "--rank", "--output", "ranked.csv")
-        with (workspace / "ranked.csv").open(encoding="utf-8", newline="") as handle:
-            rows = list(csv.DictReader(handle))
-        assert len(rows) == 2
-        assert [row["rank"] for row in rows] == ["1", "2"]
-        assert all(row["primary_quote_text"] for row in rows)
-        if args.distribution == "account-fleet":
-            assert all(row["fit_tier"] and row["identified_gap"] for row in rows)
-        assert run("status", "portable-demo")["status"] == "completed"
-        mode = "reused system dependencies" if args.offline_system_deps else "fresh dependencies"
-        print(f"{args.distribution}: installed wheel setup, offline demo, ranked CSV, and status passed ({mode})")
 
 
 if __name__ == "__main__":

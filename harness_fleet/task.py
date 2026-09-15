@@ -47,30 +47,36 @@ SCORE_EVIDENCE_TERMS = [
     "initiative", "migration", "evaluation", "pilot", "hiring", "headcount",
     "funding", "roadmap", "priority", "moderniz", "platform", "scale",
 ]
-ACCOUNT_CHECKLIST = {
-    "explicit_initiative": 40,
-    "stack_confirmed": 30,
-    "hiring_or_trigger": 20,
-    "firmographic_fit": 10,
+# Career screening checklist, derived from the 6 core career signals and the
+# 4-tier rubric in the career-fleet skill. Points must total 100: the pipeline
+# turns the boolean answers into the fit score, so the model never grades.
+CAREER_CHECKLIST = {
+    "wedge_alignment": 25,
+    "stack_confirmed": 25,
+    "hiring_catalyst": 25,
+    "leadership_signal": 15,
+    "workplace_match": 10,
 }
-ACCOUNT_CHECKLIST_DESCRIPTIONS = {
-    "explicit_initiative": "True only when the source names an active explicit initiative or bottleneck, quoted verbatim.",
-    "stack_confirmed": "True only when the source confirms required-stack technology in use.",
-    "hiring_or_trigger": "True only when the source shows senior infra hiring or a trigger/pain phrase.",
-    "firmographic_fit": "True only when the source confirms firmographic fit such as size, sector, or model.",
+CAREER_CHECKLIST_DESCRIPTIONS = {
+    "wedge_alignment": "True only when the source names a concrete problem the candidate's wedge solves, not a generic role summary.",
+    "stack_confirmed": "True only when the source evidences the required technologies running in production.",
+    "hiring_catalyst": "True only when the source names the operational failure, milestone, or transition creating the mandate.",
+    "leadership_signal": "True only when the source shows the target leader persona: low-ego technical builders.",
+    "workplace_match": "True only when the source states a workplace arrangement matching the profile's selected policy.",
 }
-ACCOUNT_EVIDENCE_TERMS = [
-    "initiative", "migration", "moderniz", "hiring", "headcount", "platform",
-    "bottleneck", "scale", "latency", "outage", "roadmap", "kubernetes",
+CAREER_EVIDENCE_TERMS = [
+    "hiring", "founding", "scaling", "migration", "architecture", "platform",
+    "latency", "reliability", "infrastructure", "roadmap", "ownership", "series",
 ]
-# Initial recency calibration in days: hiring urgency goes stale in weeks
-# (a live posting can close any day) while stack and firmographic facts
-# last months. Refit against labeled outcomes; these are starting points.
-ACCOUNT_HALF_LIVES = {
-    "explicit_initiative": 90.0,
+# Initial recency calibration in days: a live posting can close any day, so the
+# catalyst goes stale fastest; leadership and stack facts last months. Refit
+# against labeled outcomes; these are starting points.
+CAREER_HALF_LIVES = {
+    "wedge_alignment": 180.0,
     "stack_confirmed": 180.0,
-    "hiring_or_trigger": 21.0,
-    "firmographic_fit": 365.0,
+    "hiring_catalyst": 21.0,
+    "leadership_signal": 365.0,
+    "workplace_match": 90.0,
 }
 
 PRESETS: dict[str, dict[str, Any]] = {
@@ -157,19 +163,19 @@ PRESETS: dict[str, dict[str, Any]] = {
         },
         "required": ["passed", "reason"],
     },
-    "account-research": {
-        "instructions": "Evaluate target account technical fit by answering the evidence checklist, identify key technical bottlenecks or gaps, and cite verbatim evidence. The pipeline computes the ICP fit score and tier.",
-        "checklist": ACCOUNT_CHECKLIST,
-        "evidence_terms": ACCOUNT_EVIDENCE_TERMS,
-        "recency_half_lives": ACCOUNT_HALF_LIVES,
+    "career-screening": {
+        "instructions": "Screen this employer and role against the candidate's stated criteria by answering the evidence checklist, name the specific problem the role exists to solve, and cite verbatim evidence. The pipeline computes the fit score and tier.",
+        "checklist": CAREER_CHECKLIST,
+        "evidence_terms": CAREER_EVIDENCE_TERMS,
+        "recency_half_lives": CAREER_HALF_LIVES,
         "properties": {
-            "checklist": _checklist_property(ACCOUNT_CHECKLIST, ACCOUNT_CHECKLIST_DESCRIPTIONS),
+            "checklist": _checklist_property(CAREER_CHECKLIST, CAREER_CHECKLIST_DESCRIPTIONS),
             "score": _computed_score_property(
-                "ICP fit: 85-100 active explicit initiative quoted verbatim, 70-84 confirmed stack plus senior infra hiring, 50-69 firmographic fit only, 0-49 incompatible stack or wrong model."
+                "Fit: 85-100 every signal evidenced with a named catalyst, 70-84 required stack plus strong wedge alignment, 50-69 acceptable stack but unclear defensibility or one missing requirement, 0-49 a hard dealbreaker or a missing required-stack entry."
             ),
-            "identified_gap": {
+            "identified_wedge": {
                 "type": "string",
-                "description": "The verified technical initiative or bottleneck, named exactly as the source names it.",
+                "description": "The specific problem this role exists to solve, named exactly as the source names it.",
             },
             "fit_tier": {
                 "enum": ["tier_1", "tier_2", "tier_3", "unfit"],
@@ -177,10 +183,10 @@ PRESETS: dict[str, dict[str, Any]] = {
             },
             "reasoning": {
                 "type": "string",
-                "description": "Short explanation grounded in the cited quotes, naming the evidence behind the checklist and gap.",
+                "description": "Short explanation grounded in the cited quotes, naming the evidence behind the checklist and the wedge.",
             },
         },
-        "required": ["checklist", "identified_gap", "reasoning"],
+        "required": ["checklist", "identified_wedge", "reasoning"],
     },
 }
 

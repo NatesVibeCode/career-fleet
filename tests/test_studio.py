@@ -117,14 +117,15 @@ def test_index_page_serves(server):
 
 def test_scoring_view_is_derived_not_judged(server):
     base, _ = server
-    status, payload = _call(base, "POST", "/api/tasks", {"name": "icp-scoring", "preset": "account-research"})
+    status, payload = _call(base, "POST", "/api/tasks", {"name": "fit-scoring", "preset": "career-screening"})
     assert status == 200
     view = payload["scoring"]
     assert view["scorable"] is True and view["derived"] is True
     assert view["total_points"] == 100 and view["score_cap"] == 100
     assert view["has_fit_tier"] is True and view["has_pass"] is False
     assert {item["item_id"] for item in view["checklist"]} == {
-        "explicit_initiative", "stack_confirmed", "hiring_or_trigger", "firmographic_fit",
+        "wedge_alignment", "stack_confirmed", "hiring_catalyst",
+        "leadership_signal", "workplace_match",
     }
     assert all(item["description"] for item in view["checklist"])
     assert [band["tier"] for band in view["tier_bands"]] == ["tier_1", "tier_2", "tier_3", "unfit"]
@@ -134,7 +135,7 @@ def test_scoring_view_is_derived_not_judged(server):
 
     status, listed = _call(base, "GET", "/api/tasks")
     assert status == 200
-    assert "icp-scoring" in {task["task_name"] for task in listed["tasks"]}
+    assert "fit-scoring" in {task["task_name"] for task in listed["tasks"]}
 
 
 def test_scoring_edit_creates_new_revision_and_preserves_old(server):
@@ -243,24 +244,26 @@ def test_create_task_refuses_to_clobber_a_tuned_task(server):
 
 def test_checklist_half_lives_preserve_on_omit_and_clear_on_null(server):
     base, _ = server
-    _call(base, "POST", "/api/tasks", {"name": "halves", "preset": "account-research"})
+    _call(base, "POST", "/api/tasks", {"name": "halves", "preset": "career-screening"})
 
     # Explicit null clears this item's half-life; the others keep theirs.
     status, payload = _call(base, "PUT", "/api/tasks/halves/scoring", {
         "checklist": [
-            {"item_id": "explicit_initiative", "points": 40, "half_life_days": None},
-            {"item_id": "stack_confirmed", "points": 30},
-            {"item_id": "hiring_or_trigger", "points": 20},
-            {"item_id": "firmographic_fit", "points": 10},
+            {"item_id": "wedge_alignment", "points": 25, "half_life_days": None},
+            {"item_id": "stack_confirmed", "points": 25},
+            {"item_id": "hiring_catalyst", "points": 25},
+            {"item_id": "leadership_signal", "points": 15},
+            {"item_id": "workplace_match", "points": 10},
         ],
     })
     assert status == 200
     halves = {item["item_id"]: item["half_life_days"] for item in payload["scoring"]["checklist"]}
     assert halves == {
-        "explicit_initiative": None,
+        "wedge_alignment": None,
         "stack_confirmed": 180.0,
-        "hiring_or_trigger": 21.0,
-        "firmographic_fit": 365.0,
+        "hiring_catalyst": 21.0,
+        "leadership_signal": 365.0,
+        "workplace_match": 90.0,
     }
 
     # And an omitted key on a later edit still preserves the stored value.
@@ -357,7 +360,7 @@ def test_scoring_rejects_boolean_numeric_values(server):
 
 def test_task_duplicate_branches_a_tuned_contract(server):
     base, _ = server
-    _call(base, "POST", "/api/tasks", {"name": "src", "preset": "account-research"})
+    _call(base, "POST", "/api/tasks", {"name": "src", "preset": "career-screening"})
     status, _ = _call(base, "PUT", "/api/tasks/src/scoring", {
         "checklist": [{"item_id": "only", "points": 100, "description": "Only signal", "half_life_days": 5}],
         "pass_score": 60,

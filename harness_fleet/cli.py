@@ -987,27 +987,29 @@ def cmd_quickstart(args: argparse.Namespace) -> None:
         price_state=PriceState.PRICE_OBSERVED_ZERO.value,
         verification_source="quickstart demo (deterministic)",
     )
-    # Discover bundled examples
+    # The demo must show the product it ships with: prefer this distribution's
+    # own bundled example (installed wheel), then the checkout copy, then the
+    # generic SaaS sample, then a synthetic task.
     pkg_root = Path(__file__).resolve().parent
-    # Direct paths to sample files
-    saas_task = pkg_root.parent / "examples" / "saas_intelligence" / "task.json"
-    saas_data = pkg_root.parent / "examples" / "saas_intelligence" / "sample_data.jsonl"
-    # Fallback if not found (installed wheel)
-    if not saas_task.is_file():
-        saas_task = Path.cwd() / "examples" / "saas_intelligence" / "task.json"
-    if not saas_data.is_file():
-        saas_data = Path.cwd() / "examples" / "saas_intelligence" / "sample_data.jsonl"
+    career_task = pkg_root / "resources" / "examples" / "career_screening" / "task.json"
+    career_data = career_task.with_name("sample_employers.csv")
+    if not career_task.is_file():
+        career_task = Path.cwd() / "examples" / "career_screening" / "task.json"
+        career_data = career_task.with_name("sample_employers.csv")
 
     run_id = getattr(args, "run_id", None) or f"demo-{time.time_ns()}-{uuid.uuid4().hex[:8]}"
     output = Path(getattr(args, "output", None) or f"runs/{run_id}/clean_packet.json")
 
-    # Choose first available example task/input
-    account_example = pkg_root / "resources" / "examples" / "account_research"
-    if (account_example / "task.json").is_file():
-        saas_task = account_example / "task.json"
-        saas_data = account_example / "sample_accounts.csv"
-    task_path = saas_task if saas_task.is_file() else None
-    input_path = saas_data if saas_data.is_file() else None
+    if career_task.is_file() and career_data.is_file():
+        chosen_task, chosen_data = career_task, career_data
+    else:
+        chosen_task = pkg_root.parent / "examples" / "saas_intelligence" / "task.json"
+        chosen_data = chosen_task.with_name("sample_data.jsonl")
+        if not chosen_task.is_file():
+            chosen_task = Path.cwd() / "examples" / "saas_intelligence" / "task.json"
+            chosen_data = chosen_task.with_name("sample_data.jsonl")
+    task_path = chosen_task if chosen_task.is_file() else None
+    input_path = chosen_data if chosen_data.is_file() else None
     if not task_path or not input_path:
         # Fallback: create synthetic triage task + tiny input
         spec = TaskSpec(
@@ -1050,7 +1052,7 @@ def cmd_quickstart(args: argparse.Namespace) -> None:
     _emit(
         {"run_id": run_id, "packet": str(output.resolve()), "csv": str(csv_output.resolve()), "result": packet, "verified": packet["total_verified_records"]},
         args.json,
-        f"Demo run '{run_id}' completed.\nPacket: {output.resolve()}\nCSV: {csv_output.resolve()}\nVerified records: {packet['total_verified_records']}\nTry: harness-fleet status {run_id} --json | harness-fleet export {run_id} --format jsonl",
+        f"Demo run '{run_id}' completed.\nPacket: {output.resolve()}\nCSV: {csv_output.resolve()}\nVerified records: {packet['total_verified_records']}\nTry: python -m harness_fleet.cli status {run_id} --json | python -m harness_fleet.cli export {run_id} --format jsonl",
     )
 
 
