@@ -9,6 +9,19 @@
 
 *Canonical CLI is `career-fleet`.*
 
+## Which fleet do I want?
+
+Every distribution in this family shares one engine — typed claims, SQLite checkpoints, and character-exact quote verification — and ships assistant skills alongside it. Install one per environment.
+
+| If you want to… | Install | CLI | Skill that drives it |
+| --- | --- | --- | --- |
+| Find and rank **employers and job postings** | **career-fleet** ← you are here | `career-fleet` | `career-fleet` |
+| Turn an ICP into **scored target accounts** | [account-fleet](https://github.com/NatesVibeCode/account-fleet) | `account-fleet` | `account-fleet` |
+| Score, classify, extract, or triage **your own** text at volume | [harness-fleet](https://github.com/NatesVibeCode/harness-fleet) | `harness-fleet` | `harness-fleet` |
+| Find **implementation partners and SIs** | harness-fleet, preset `partner-research` | `harness-fleet` | `partner-fleet` |
+
+**New here?** [Install](#install) → [30-second quickstart](#30-second-quickstart) → [jobs board](#6-interactive-jobs-board).
+
 ---
 
 ## Install
@@ -21,6 +34,24 @@ career-fleet setup --workspace-root .
 ```
 
 On Windows, use `py -m pip` in place of `python3 -m pip`.
+
+---
+
+## Assistant skills (what installs where)
+
+Skills are the playbooks your AI client reads to drive this CLI. `career-fleet setup` installs every skill this distribution bundles into `<workspace>/.agents/skills/`:
+
+| Skill | Installed as | Drives |
+| --- | --- | --- |
+| `career-fleet` | `.agents/skills/career-fleet/` | This CLI: onboarding, the 4-lane workflow, career signals, community sourcing, scoring rubric, troubleshooting |
+| `account-fleet` | `.agents/skills/account-fleet/` | Target-account research, if you also run that playbook |
+| `harness-fleet` | `.agents/skills/harness-fleet/` | The shared engine underneath: task contracts, runs, export, MCP |
+
+Each skill is plain markdown — a `SKILL.md` plus a `references/` folder. Read them straight from this repo under `skills/`, or preview what setup would install:
+
+```bash
+career-fleet setup --workspace-root "$PWD" --dry-run --json
+```
 
 ---
 

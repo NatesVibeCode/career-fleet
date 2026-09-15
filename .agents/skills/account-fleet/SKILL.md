@@ -199,3 +199,11 @@ account-fleet export campaign-01 \
 | #2 | `hyper_ai` | 94 | Postgres QPS latency limits | “hitting latency limits at 50k QPS on Postgres cluster” | `boards.greenhouse.io/...` |
 
 See [references/mcp-recipes.md](references/mcp-recipes.md) for prompt recipes in Claude Desktop, Codex, and Cursor.
+
+## Related skills
+
+- `harness-fleet` — the shared engine underneath this playbook: task contracts, runs, export, MCP, troubleshooting.
+- `partner-fleet` — the same research shape for implementation partners (`--preset partner-research`), when this distribution bundles it.
+- `career-fleet` — employer and job-post screening; ships with the career-fleet distribution.
+
+Setup installs these next to this skill in `.agents/skills/`.

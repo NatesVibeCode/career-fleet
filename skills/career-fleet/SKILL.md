@@ -68,3 +68,10 @@ Ask **only** for signals that are genuinely unobserved or ambiguous. Confirm the
 * **Lane 4: Culture Recon (`career-fleet recon --lane culture`)**: Assesses leadership signals and communication culture from captured source text.
 
 For the detailed signal framework and interview prompts, read [references/6-core-career-signals.md](references/6-core-career-signals.md) and [references/iep-interview.md](references/iep-interview.md). Use [references/scoring-rubric-guide.md](references/scoring-rubric-guide.md) when explaining scores.
+
+## Related skills
+
+- `harness-fleet` — the shared engine underneath this playbook: task contracts, runs, export, MCP, troubleshooting.
+- `account-fleet` — target-account research and scoring, installed alongside this skill.
+
+Setup installs both next to this skill in `.agents/skills/`.

@@ -47,3 +47,11 @@ Start with `command -v harness-fleet`. On a fresh system, run `harness-fleet set
 10. Export and validate the packet with `harness-fleet export RUN_ID [--format json|csv|jsonl] [--sort-by CLAIM] [--desc] [--top N] [--rank] [--filter CLAIMFILTER_JSON]`. Use `harness-fleet db backup <path>` for safe SQLite copies. Report database path, run ID, packet path, verified/failed counts, attempts, and route/cost evidence.
 
 Never call a worker session an independent coding-agent session. `--sessions` is bounded batch concurrency inside one harness-fleet campaign.
+
+## Related skills
+
+- `account-fleet` — turn an ICP into scored target accounts (`--preset account-research`).
+- `partner-fleet` — turn ecosystem requirements into scored implementation partners (`--preset partner-research`).
+- `career-fleet` — find and rank employers and job postings; ships with the career-fleet distribution.
+
+Setup installs these next to this skill in `.agents/skills/`. Read them when the job is domain research rather than raw bulk extraction, classification, or scoring of your own text.

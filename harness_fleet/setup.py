@@ -124,12 +124,40 @@ def setup_workspace(
     if not database.is_relative_to(workspace):
         raise ValueError("setup database must stay below the workspace root")
 
-    account_source = Path(__file__).resolve().parent / "resources" / "account_skill"
+    # Every first-party skill this checkout bundles rides along with setup, so a
+    # fresh workspace gets the playbook for each preset it can run. Discovery is
+    # by layout rather than a hardcoded list because the distributions differ:
+    # the shared engine skills sit in harness_fleet/resources/<name>_skill, while
+    # a variant's own primary skill lives in its package's resources/skill/<name>
+    # (career-fleet). Anything absent is skipped, so the same code serves every
+    # distribution — account-fleet installed neither the partner skill nor its
+    # own until this was made generic.
+    package_root = Path(__file__).resolve().parent
+    engine_skill = bundled_skill_path().resolve()
+    bundled_skills: list[tuple[Path, str]] = []
+    seen_sources: set[Path] = {engine_skill}
+    candidates = [
+        *sorted((package_root / "resources").glob("*_skill")),
+        *sorted(package_root.parent.glob("*/resources/skill/*")),
+    ]
+    for candidate in candidates:
+        if not candidate.is_dir() or candidate.resolve() in seen_sources:
+            continue
+        seen_sources.add(candidate.resolve())
+        # account_skill -> account-fleet; resources/skill/career-fleet keeps its name.
+        skill_name = (
+            f"{candidate.name.removesuffix('_skill')}-fleet"
+            if candidate.name.endswith("_skill")
+            else candidate.name
+        )
+        bundled_skills.append((candidate, skill_name))
+
     # Check every destination before writing any of them, so a conflicting
     # second skill cannot leave setup half-complete.
     skill_sources = [(bundled_skill_path(), destination)]
-    if account_source.is_dir():
-        skill_sources.append((account_source, destination.parent / "account-fleet"))
+    skill_sources.extend(
+        (source, destination.parent / skill_name) for source, skill_name in bundled_skills
+    )
     for source, target in skill_sources:
         if target.is_symlink() or (target.exists() and not target.is_dir()):
             raise ValueError(f"skill destination is not a directory: {target}")
@@ -138,9 +166,10 @@ def setup_workspace(
                 f"a different skill already exists at {target}; rerun with --force to update managed files"
             )
 
-    actions = [_install_skill(bundled_skill_path(), destination, dry_run=dry_run, force=force)]
-    if account_source.is_dir():
-        actions.append(_install_skill(account_source, destination.parent / "account-fleet", dry_run=dry_run, force=force))
+    actions = [
+        _install_skill(source, target, dry_run=dry_run, force=force)
+        for source, target in skill_sources
+    ]
     refresh_result: dict[str, Any] | None = None
     if dry_run:
         actions.append(SetupAction(kind="database", status="planned", path=str(database)))

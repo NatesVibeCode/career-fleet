@@ -26,6 +26,10 @@ def test_setup_installs_bundled_skill_and_database_idempotently(tmp_path):
     assert first.actions[0].status == "created"
     assert second.actions[0].status == "unchanged"
     assert Path(first.skill_path, "SKILL.md").is_file()
+    # This distribution's own skill must land in the workspace: setup used to
+    # install only the shared engine skills, so the career playbook the README
+    # promises was never written.
+    assert Path(first.skill_path).with_name("career-fleet").joinpath("SKILL.md").is_file()
     assert HarnessStore(first.database).schema_version() == "5"
     # installed_cli_path() returns the first product CLI found in this
     # environment (or the "harness-fleet" fallback when none is installed),
@@ -175,3 +179,14 @@ def test_account_skill_and_examples_are_bundled():
         assert {p.relative_to(root): p.read_bytes() for p in root.rglob("*") if p.is_file()} == expected
     for name in ("task.json", "sample_accounts.csv"):
         assert (resources / "examples/account_research" / name).read_bytes() == (repository / "examples/account_research" / name).read_bytes()
+
+
+def test_career_skill_is_bundled_and_every_copy_matches():
+    """The career skill exists in three places; nothing else enforced that."""
+    repository = Path(__file__).resolve().parents[1]
+    packaged = repository / "career_fleet/resources/skill/career-fleet"
+    expected = {p.relative_to(packaged): p.read_bytes() for p in packaged.rglob("*") if p.is_file()}
+    assert Path("SKILL.md") in expected, "the career skill must ship a SKILL.md"
+    assert Path("references/onboarding.md") in expected
+    for root in [repository / "skills/career-fleet", repository / ".agents/skills/career-fleet"]:
+        assert {p.relative_to(root): p.read_bytes() for p in root.rglob("*") if p.is_file()} == expected

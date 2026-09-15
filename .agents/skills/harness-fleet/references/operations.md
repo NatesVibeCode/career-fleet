@@ -61,6 +61,8 @@ harness-fleet status my-run --json
 harness-fleet resume my-run --json
 harness-fleet rescore my-run --input round2.jsonl --run-id my-run-r2 --json
 harness-fleet history acme --json
+harness-fleet settings --json
+harness-fleet run my-task --input accounts.csv --run-id r1 --from-studio --json
 harness-fleet export my-run --format csv --output results.csv
 harness-fleet export my-run --format jsonl --output results.jsonl
 harness-fleet export my-run --format json --output packet.json
@@ -78,6 +80,8 @@ harness-fleet export my-run --format csv --output top.csv \
 `--filter` takes a ClaimFilter document: `all` clauses AND together, `any` holds OR branches, each clause is `{"field", "op", "value"}` with ops `==, !=, >=, <=, >, <, in, not_in` (`in`/`not_in` take a list value). DAG `filter`/`export` nodes take the same shape as `filter`/`sort` mappings.
 
 Resume normally needs only the run ID; free routes remain the default. A paid route approved for an earlier session must be requested again with `--route <route-id>`. SQLite already holds the batch payloads. Do not reconstruct a run from the original files.
+
+`harness-fleet settings` prints the harness/model selection saved by the local studio (the `studio_settings` row in SQLite), or says none is saved. `run` and `rescore` accept `--from-studio` to start from that selection instead of naming providers or routes by hand: `free` mode restricts the run to the verified zero-price routes of the chosen harnesses and forces free-only, while `specific` mode pins exactly the routes saved there. Explicit flags still win, and a saved selection never bypasses `--free-only` or a cost ceiling.
 
 ## Calibration fitting
 
