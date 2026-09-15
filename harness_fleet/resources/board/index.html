@@ -1,0 +1,664 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Harness Fleet · results board</title>
+<style>
+  :root{
+    --bg:#0f1115; --panel:#171a21; --panel-2:#1e222b; --line:#2a2f3a;
+    --ink:#e8ecf3; --ink-dim:#9aa4b5; --ink-faint:#6b7484;
+    --accent:#5b9dff; --good:#3ecf8e; --warn:#f5a623; --bad:#ff6b6b; --gold:#ffd166;
+    --radius:12px; --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+       font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
+  a{color:var(--accent)}
+  code,pre{font-family:var(--mono)}
+  header{display:flex;align-items:center;gap:16px;padding:14px 20px;
+         background:var(--panel);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:5}
+  header h1{font-size:16px;margin:0;font-weight:650;letter-spacing:.2px}
+  header .sub{color:var(--ink-dim);font-size:12.5px}
+  header .spacer{flex:1}
+  .pill{display:inline-flex;align-items:center;gap:6px;padding:3px 9px;border-radius:999px;
+        background:var(--panel-2);border:1px solid var(--line);font-size:12px;color:var(--ink-dim)}
+  .pill.readonly{border-color:#2f4a3a;color:#8fd6ae}
+  select,input,button{font:inherit;color:var(--ink);background:var(--panel-2);
+        border:1px solid var(--line);border-radius:8px;padding:6px 9px}
+  button{cursor:pointer}
+  button:hover{border-color:#3b4252}
+  main{padding:18px 20px 60px;max-width:1600px;margin:0 auto}
+  .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(132px,1fr));gap:10px;margin-bottom:16px}
+  .stat{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:11px 13px}
+  .stat .k{font-size:11px;text-transform:uppercase;letter-spacing:.7px;color:var(--ink-faint)}
+  .stat .v{font-size:22px;font-weight:650;margin-top:3px}
+  .stat .n{font-size:11.5px;color:var(--ink-faint);margin-top:2px}
+  .filters{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);
+           padding:12px 14px;display:flex;flex-wrap:wrap;gap:12px 16px;align-items:flex-end;margin-bottom:14px}
+  .field{display:flex;flex-direction:column;gap:5px}
+  .field label{font-size:11px;text-transform:uppercase;letter-spacing:.6px;color:var(--ink-faint)}
+  .chips{display:flex;flex-wrap:wrap;gap:6px}
+  .chip{border:1px solid var(--line);background:var(--panel-2);border-radius:999px;padding:4px 10px;
+        font-size:12px;color:var(--ink-dim);cursor:pointer;user-select:none}
+  .chip:hover{border-color:#3b4252;color:var(--ink)}
+  .chip.on{background:#1d2c46;border-color:#3a5b8f;color:#cfe0ff}
+  .chip.tier_1.on{background:#3a2f12;border-color:#8a6d1f;color:var(--gold)}
+  .chip.tier_2.on{background:#132c22;border-color:#2f6d52;color:var(--good)}
+  .chip.tier_3.on{background:#2c2416;border-color:#6d5a2f;color:var(--warn)}
+  .chip.unfit.on{background:#2e1a1a;border-color:#6d2f2f;color:var(--bad)}
+  .layout{display:grid;grid-template-columns:minmax(0,1.35fr) minmax(360px,.85fr);gap:14px;align-items:start}
+  @media (max-width:1080px){.layout{grid-template-columns:1fr}}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);overflow:hidden}
+  .card h2{margin:0;padding:10px 13px;font-size:12.5px;text-transform:uppercase;letter-spacing:.7px;
+           color:var(--ink-faint);border-bottom:1px solid var(--line);background:var(--panel-2)}
+  table{width:100%;border-collapse:collapse}
+  th,td{text-align:left;padding:9px 11px;border-bottom:1px solid #21252e;vertical-align:middle}
+  th{font-size:11px;text-transform:uppercase;letter-spacing:.6px;color:var(--ink-faint);
+     cursor:pointer;white-space:nowrap;position:sticky;top:57px;background:var(--panel)}
+  tbody tr{cursor:pointer}
+  tbody tr:hover{background:#1b1f28}
+  tbody tr.sel{background:#1d2637;box-shadow:inset 3px 0 0 var(--accent)}
+  .id{font-family:var(--mono);font-size:12.5px}
+  .score{display:flex;align-items:center;gap:8px;min-width:120px}
+  .bar{height:6px;background:#232833;border-radius:4px;flex:1;overflow:hidden}
+  .bar i{display:block;height:100%;background:linear-gradient(90deg,#3a6fbf,#7db1ff)}
+  .num{font-variant-numeric:tabular-nums;font-weight:650;min-width:26px}
+  .tier{font-size:11.5px;padding:2px 8px;border-radius:999px;border:1px solid var(--line);white-space:nowrap}
+  .tier.tier_1{color:var(--gold);border-color:#8a6d1f;background:#3a2f12}
+  .tier.tier_2{color:var(--good);border-color:#2f6d52;background:#132c22}
+  .tier.tier_3{color:var(--warn);border-color:#6d5a2f;background:#2c2416}
+  .tier.unfit{color:var(--bad);border-color:#6d2f2f;background:#2e1a1a}
+  .tier.none{color:var(--ink-faint)}
+  .tag{display:inline-block;font-size:11.5px;padding:2px 7px;border:1px solid var(--line);
+       border-radius:6px;color:var(--ink-dim);background:var(--panel-2);margin:1px 3px 1px 0}
+  .muted{color:var(--ink-faint)}
+  .detail{position:sticky;top:71px}
+  .detail .body{padding:14px}
+  .detail h3{margin:0 0 4px;font-size:19px;font-family:var(--mono);word-break:break-all}
+  .hero{display:flex;align-items:center;gap:14px;margin-bottom:12px}
+  .hero .big{font-size:34px;font-weight:700;line-height:1;font-variant-numeric:tabular-nums}
+  .hero .big small{font-size:13px;color:var(--ink-faint);font-weight:500}
+  .section{margin-top:16px}
+  .section h4{margin:0 0 7px;font-size:11.5px;text-transform:uppercase;letter-spacing:.7px;color:var(--ink-faint)}
+  .check{display:flex;gap:9px;align-items:flex-start;padding:6px 0;border-bottom:1px dashed #232833}
+  .check:last-child{border-bottom:0}
+  .check .mark{font-weight:700;width:16px;flex:none}
+  .check .mark.y{color:var(--good)} .check .mark.n{color:var(--ink-faint)}
+  .check .pts{margin-left:auto;color:var(--ink-faint);font-variant-numeric:tabular-nums;white-space:nowrap}
+  .check .q{color:var(--ink-dim);font-size:12.5px}
+  .attr{padding:7px 0;border-bottom:1px dashed #232833}
+  .attr:last-child{border-bottom:0}
+  .attr .k{font-size:11.5px;color:var(--ink-faint);text-transform:uppercase;letter-spacing:.5px}
+  .attr .v{margin-top:3px}
+  .quote{background:var(--panel-2);border:1px solid var(--line);border-left:3px solid #3a6fbf;
+         border-radius:8px;padding:9px 11px;margin-bottom:8px}
+  .quote .t{white-space:pre-wrap;word-break:break-word}
+  .quote .meta{margin-top:6px;font-size:11.5px;color:var(--ink-faint);display:flex;flex-wrap:wrap;gap:8px}
+  .kv{display:grid;grid-template-columns:auto 1fr;gap:4px 12px;font-size:12.5px}
+  .kv .k{color:var(--ink-faint)}
+  .kv .v{font-family:var(--mono);word-break:break-all}
+  .empty{padding:26px;text-align:center;color:var(--ink-faint)}
+  .warnbox{background:#2c2416;border:1px solid #6d5a2f;color:#f0d9a8;border-radius:8px;
+           padding:8px 10px;font-size:12.5px;margin-bottom:10px}
+  footer{margin-top:20px;color:var(--ink-faint);font-size:12px}
+  .tabs{display:flex;gap:4px;background:var(--panel-2);border:1px solid var(--line);border-radius:10px;padding:3px}
+  .tab{background:transparent;border:0;color:var(--ink-dim);padding:5px 13px;border-radius:8px;font-size:13px}
+  .tab.on{background:#243049;color:#dbe7ff}
+  .group{border-bottom:1px solid var(--line)}
+  .group > .gh{display:flex;align-items:center;gap:9px;padding:8px 13px;background:var(--panel-2);
+               font-size:11.5px;text-transform:uppercase;letter-spacing:.6px;color:var(--ink-faint)}
+  .group > .gh .n{margin-left:auto}
+  .row{display:flex;gap:11px;align-items:center;padding:9px 13px;border-bottom:1px solid #21252e;cursor:pointer}
+  .row:hover{background:#1b1f28}
+  .row.sel{background:#1d2637;box-shadow:inset 3px 0 0 var(--accent)}
+  .row .who{flex:1;min-width:0}
+  .row .who .nm{font-family:var(--mono);font-size:12.5px}
+  .row .who .meta{color:var(--ink-faint);font-size:11.5px;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .row .side{text-align:right;flex:none}
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <h1 id="title">Results board</h1>
+    <div class="sub" id="subtitle">loading…</div>
+  </div>
+  <div class="spacer"></div>
+  <nav class="tabs" role="tablist">
+    <button class="tab on" data-view="results" role="tab">Dossiers</button>
+    <button class="tab" data-view="compare" role="tab">Compare</button>
+    <button class="tab" data-view="landscape" role="tab">Landscape</button>
+  </nav>
+  <span class="pill readonly" title="This page only reads SQLite. It never starts runs, writes records, or spends budget.">view only</span>
+  <label class="field" style="flex-direction:row;align-items:center;gap:7px">
+    <span class="muted" style="font-size:12px">run</span>
+    <select id="runPicker"></select>
+  </label>
+</header>
+
+<main>
+<div id="viewResults">
+  <div class="stats" id="stats"></div>
+
+  <div class="filters">
+    <div class="field">
+      <label for="q">Search</label>
+      <input id="q" type="search" placeholder="partner, practice, quote text…" style="min-width:230px">
+    </div>
+    <div class="field">
+      <label>Fit tier</label>
+      <div class="chips" id="tierChips"></div>
+    </div>
+    <div class="field">
+      <label for="minScore">Minimum score <span id="minScoreVal" class="muted"></span></label>
+      <input id="minScore" type="range" min="0" max="100" step="5" value="0" style="width:170px">
+    </div>
+    <div class="field">
+      <label for="routeSel">Route</label>
+      <select id="routeSel"></select>
+    </div>
+    <div class="field">
+      <label for="sortSel">Sort by</label>
+      <select id="sortSel">
+        <option value="score">Score</option>
+        <option value="id">Name</option>
+        <option value="quotes">Quote count</option>
+        <option value="diversity">Source diversity</option>
+        <option value="earned">Checklist points</option>
+      </select>
+    </div>
+    <div class="field">
+      <label>Gatekeeper questions</label>
+      <div class="chips" id="checkChips"></div>
+    </div>
+    <div class="field">
+      <label>Only with quotes</label>
+      <button class="chip" id="quotesOnly">evidence only</button>
+    </div>
+    <div class="field" id="attrFilters"></div>
+    <div class="field">
+      <label>&nbsp;</label>
+      <button id="reset">Reset</button>
+    </div>
+  </div>
+
+  <div class="layout">
+    <div class="card">
+      <h2 id="tableTitle">Records</h2>
+      <table>
+        <thead>
+          <tr>
+            <th title="Select for side-by-side comparison">cmp</th>
+            <th data-sort="rank">#</th>
+            <th data-sort="id">Record</th>
+            <th data-sort="score">Score</th>
+            <th data-sort="tier">Tier</th>
+            <th data-sort="practice">Practice / headline</th>
+            <th data-sort="earned">Checklist</th>
+            <th data-sort="quotes">Quotes</th>
+            <th data-sort="diversity">Sources</th>
+            <th data-sort="route">Route</th>
+          </tr>
+        </thead>
+        <tbody id="rows"></tbody>
+      </table>
+      <div class="empty" id="tableEmpty" hidden>No records match these filters.</div>
+    </div>
+
+    <div class="card detail">
+      <h2>Record detail</h2>
+      <div class="body" id="detail"><div class="empty">Select a record to see every attribute, the checklist behind the score, and the verbatim quotes.</div></div>
+    </div>
+  </div>
+
+  <footer id="footer"></footer>
+</div>
+
+<div id="viewCompare" hidden>
+  <div class="card">
+    <h2>Compare partners</h2>
+    <div class="empty" id="compareHint">Tick <b>compare</b> on two or more dossiers and they line up here — attribute by attribute, question by question.</div>
+    <div id="compareWrap" style="overflow:auto"></div>
+  </div>
+</div>
+
+<div id="viewLandscape" hidden>
+  <div class="stats" id="landStats"></div>
+  <div class="card">
+    <h2>Score × evidence — who is worth a conversation</h2>
+    <div id="scatter" style="padding:6px 4px"></div>
+  </div>
+  <div class="card" style="margin-top:14px">
+    <h2>Stack coverage — what they have actually delivered</h2>
+    <div id="matrix" style="overflow:auto"></div>
+  </div>
+  <footer>The landscape plots each partner by fit score against how much independent evidence backs it. A high score on a single source is a lead, not a partner; the top-right is where both hold.</footer>
+</div>
+</main>
+
+<script>
+const state = { data:null, sel:null, tiers:new Set(), checks:new Set(), attrs:{}, quotesOnly:false,
+                q:"", minScore:0, route:"", sort:"score", dir:-1, compare:new Set() };
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const fmt = (n, d=0) => (n === null || n === undefined || n === "") ? "—" : Number(n).toFixed(d);
+const CHIP_LIMIT = 14;
+
+function scoreOf(p){ return (typeof p.score === "number") ? p.score : null; }
+function routeOf(p){ return (p.provenance && p.provenance.route) || ""; }
+function searchBlob(p){
+  return [p.id, p.practice, p.reasoning,
+          (p.quotes||[]).map(q=>q.text).join(" "),
+          Object.values(p.answers||{}).flat().join(" ")].join(" ").toLowerCase();
+}
+function passes(p){
+  if (state.q && !searchBlob(p).includes(state.q.toLowerCase())) return false;
+  if (state.tiers.size && !state.tiers.has(p.tier || "none")) return false;
+  const s = scoreOf(p);
+  if (state.minScore > 0 && (s === null || s < state.minScore)) return false;
+  if (state.route && routeOf(p) !== state.route) return false;
+  if (state.quotesOnly && !(p.quotes||[]).length) return false;
+  for (const item of state.checks) if (!p.checklist[item]) return false;
+  for (const [key, val] of Object.entries(state.attrs)) {
+    if (!val) continue;
+    const v = (p.answers||{})[key];
+    const has = Array.isArray(v) ? v.includes(val) : String(v) === val;
+    if (!has) return false;
+  }
+  return true;
+}
+function visible(){
+  const rows = (state.data.partners||[]).filter(passes);
+  const dir = state.dir;
+  rows.sort((a,b)=>{
+    let av, bv;
+    switch(state.sort){
+      case "id": av=a.id.toLowerCase(); bv=b.id.toLowerCase(); break;
+      case "quotes": av=(a.quotes||[]).length; bv=(b.quotes||[]).length; break;
+      case "diversity": av=a.diversity??-1; bv=b.diversity??-1; break;
+      case "earned": av=a.earned_points; bv=b.earned_points; break;
+      case "tier": av=a.tier||""; bv=b.tier||""; break;
+      case "practice": av=(a.practice||"").toLowerCase(); bv=(b.practice||"").toLowerCase(); break;
+      case "route": av=routeOf(a); bv=routeOf(b); break;
+      default: av=scoreOf(a)??-1; bv=scoreOf(b)??-1;
+    }
+    if (av < bv) return -1*dir;
+    if (av > bv) return 1*dir;
+    return a.id.localeCompare(b.id);
+  });
+  return rows;
+}
+
+function renderStats(){
+  const s = state.data.stats;
+  const tiers = s.tier_counts || {};
+  const cells = [
+    ["Records", s.records, `${s.records_with_quotes} with quotes`],
+    ["Average score", s.average_score === null ? "—" : fmt(s.average_score,1), s.unscored ? `${s.unscored} unscored` : "all scored"],
+    ["Tier 1", tiers.tier_1 || 0, "highest fit"],
+    ["Verbatim quotes", s.quote_count, "character-exact"],
+    ["Routes used", (s.routes||[]).length, (s.routes||[])[0] ? s.routes[0].split("/")[0] : "—"],
+    ["Cost reported", "$" + fmt(s.cost_reported, 6), "free-only runs must be 0"],
+    ["Batches", `${s.batches_verified ?? "—"} ok`, `${s.batches_failed ?? 0} failed`],
+  ];
+  $("stats").innerHTML = cells.map(([k,v,n]) =>
+    `<div class="stat"><div class="k">${esc(k)}</div><div class="v">${esc(v)}</div><div class="n">${esc(n)}</div></div>`).join("");
+}
+
+function renderFilters(){
+  const tiers = state.data.stats.tier_counts || {};
+  const order = ["tier_1","tier_2","tier_3","unfit"];
+  const keys = order.filter(t=>tiers[t]).concat(Object.keys(tiers).filter(t=>!order.includes(t)));
+  $("tierChips").innerHTML = keys.map(t =>
+    `<span class="chip ${esc(t)}" data-tier="${esc(t)}">${esc(t.replace("_"," "))} ${tiers[t]}</span>`).join("");
+  $("tierChips").querySelectorAll(".chip").forEach(c => c.onclick = () => {
+    const t = c.dataset.tier;
+    state.tiers.has(t) ? state.tiers.delete(t) : state.tiers.add(t);
+    c.classList.toggle("on"); render();
+  });
+
+  $("checkChips").innerHTML = state.data.checklist.map(c =>
+    `<span class="chip" data-check="${esc(c.item_id)}" title="${esc(c.description||c.label)}">${esc(c.label)} ${c.passed}/${state.data.stats.records}</span>`).join("");
+  $("checkChips").querySelectorAll(".chip").forEach(c => c.onclick = () => {
+    const k = c.dataset.check;
+    state.checks.has(k) ? state.checks.delete(k) : state.checks.add(k);
+    c.classList.toggle("on"); render();
+  });
+
+  const routes = state.data.stats.routes || [];
+  $("routeSel").innerHTML = `<option value="">all routes</option>` +
+    routes.map(r => `<option value="${esc(r)}">${esc(r)}</option>`).join("");
+  $("routeSel").onchange = (e) => { state.route = e.target.value; render(); };
+
+  const filters = $("attrFilters");
+  filters.innerHTML = "";
+  (state.data.attributes||[]).forEach(spec => {
+    const counts = (state.data.facets||{})[spec.key] || {};
+    const keys = Object.keys(counts);
+    if (!keys.length) return;
+    const id = "attr_" + spec.key;
+    const wrap = document.createElement("div");
+    wrap.className = "field";
+    wrap.innerHTML = `<label for="${id}">${esc(spec.label)}</label>
+      <select id="${id}" data-key="${esc(spec.key)}"><option value="">any</option>${
+        keys.slice(0,40).map(k=>`<option value="${esc(k)}">${esc(k)} (${counts[k]})</option>`).join("")}</select>`;
+    filters.appendChild(wrap);
+    wrap.querySelector("select").onchange = (e) => {
+      state.attrs[spec.key] = e.target.value; render();
+    };
+  });
+}
+
+function renderTable(){
+  const rows = visible();
+  $("tableTitle").textContent = `${rows.length} of ${state.data.stats.records} records`;
+  $("tableEmpty").hidden = rows.length > 0;
+  $("rows").innerHTML = rows.map((p, i) => {
+    const s = scoreOf(p);
+    const width = s === null ? 0 : Math.max(2, s);
+    const tier = p.tier || "none";
+    const stack = (p.answers && (p.answers.target_stack || p.answers.industry_verticals)) || [];
+    const stackTags = (Array.isArray(stack) ? stack : [stack]).filter(Boolean).slice(0,3)
+      .map(v=>`<span class="tag">${esc(v)}</span>`).join("");
+    const headline = p.practice || (p.claims && (p.claims.identified_gap || p.claims.summary)) || "";
+    const cls = (state.sel === p.id) ? " class=\"sel\"" : "";
+    const ticked = state.compare.has(p.id) ? " checked" : "";
+    return `<tr data-id="${esc(p.id)}"${cls}>
+      <td><input type="checkbox" data-cmp="${esc(p.id)}"${ticked} title="compare"></td>
+      <td class="muted">${i+1}</td>
+      <td class="id">${esc(p.id)}</td>
+      <td><div class="score"><span class="num">${s===null?"—":s}</span>
+          <span class="bar"><i style="width:${width}%"></i></span></div></td>
+      <td><span class="tier ${esc(tier)}">${esc(tier.replace("_"," "))}</span></td>
+      <td>${esc(String(headline).slice(0,90))} ${stackTags}</td>
+      <td>${p.earned_points}/${state.data.checklist_total}</td>
+      <td>${(p.quotes||[]).length}</td>
+      <td>${p.diversity ?? "—"}</td>
+      <td class="muted" style="font-size:11.5px">${esc(routeOf(p) || "—")}</td>
+    </tr>`;
+  }).join("");
+  $("rows").querySelectorAll("tr").forEach(tr => tr.onclick = () => { state.sel = tr.dataset.id; renderTable(); renderDetail(); });
+  $("rows").querySelectorAll("input[data-cmp]").forEach(box => box.onclick = (ev) => {
+    ev.stopPropagation();
+    const id = box.dataset.cmp;
+    state.compare.has(id) ? state.compare.delete(id) : state.compare.add(id);
+    renderCompare();
+    document.querySelectorAll("input[data-cmp]").forEach(b => { if (b.dataset.cmp === id) b.checked = state.compare.has(id); });
+  });
+}
+
+function renderDetail(){
+  const p = (state.data.partners||[]).find(x => x.id === state.sel);
+  if (!p) return;
+  const s = scoreOf(p);
+  const cl = state.data.checklist || [];
+  const answers = p.answers || {};
+  const specs = state.data.attributes || [];
+  const prov = p.provenance || {};
+  const src = p.source || {};
+
+  const checklist = cl.map(c => {
+    const ok = !!p.checklist[c.item_id];
+    return `<div class="check">
+      <span class="mark ${ok?"y":"n"}">${ok?"✓":"✗"}</span>
+      <span><span>${esc(c.label)}</span><div class="q">${esc(c.description||"")}</div></span>
+      <span class="pts">${ok?c.points:0}/${c.points}</span></div>`;
+  }).join("");
+
+  const attrRows = specs.map(spec => {
+    const v = answers[spec.key];
+    if (v === undefined || v === null || v === "" || (Array.isArray(v) && !v.length)) return "";
+    const body = Array.isArray(v)
+      ? v.map(x=>`<span class="tag">${esc(x)}</span>`).join("")
+      : `<span>${esc(v)}</span>`;
+    return `<div class="attr" title="${esc(spec.description||"")}">
+      <div class="k">${esc(spec.label)}</div><div class="v">${body}</div></div>`;
+  }).join("");
+
+  const otherClaims = (state.data.claim_fields||[])
+    .filter(spec => !["score","fit_tier","reasoning","checklist","answers"].includes(spec.key))
+    .map(spec => {
+      const v = (p.claims||{})[spec.key];
+      if (v === undefined || v === null || v === "") return "";
+      return `<div class="attr"><div class="k">${esc(spec.label)}</div>
+        <div class="v">${esc(typeof v === "object" ? JSON.stringify(v) : v)}</div></div>`;
+    }).join("");
+
+  const quotes = (p.quotes||[]).map((q, i) => `<div class="quote">
+      <div class="t">“${esc(q.text)}”</div>
+      <div class="meta"><span>#${i+1}</span>
+        ${(q.supports||[]).map(x=>`<span class="tag">supports ${esc(x)}</span>`).join("")}
+        ${q.slice_id?`<span>slice ${esc(q.slice_id)}</span>`:""}
+        ${(q.start!==undefined&&q.start!==null)?`<span>offset ${esc(q.start)}–${esc(q.end)}</span>`:""}
+      </div></div>`).join("") || `<div class="muted">No quotes recorded for this record.</div>`;
+
+  const unscored = s === null
+    ? `<div class="warnbox">No score on this record. It is shown as “—” rather than 0: an unscored record is missing evidence, not a bad fit.</div>` : "";
+
+  $("detail").innerHTML = `
+    ${unscored}
+    <h3>${esc(p.id)}</h3>
+    <div class="hero">
+      <div class="big">${s===null?"—":s}<small>/100</small></div>
+      <span class="tier ${esc(p.tier||"none")}">${esc((p.tier||"no tier").replace("_"," "))}</span>
+      <button id="copyJson" style="margin-left:auto">copy JSON</button>
+    </div>
+    <div class="section"><h4>Headline</h4>
+      <div>${esc(p.practice || "—")}</div>
+      ${p.reasoning?`<div class="q" style="color:var(--ink-dim);margin-top:6px">${esc(p.reasoning)}</div>`:""}
+    </div>
+    <div class="section"><h4>Checklist — the score is the sum of these</h4>${checklist}</div>
+    <div class="section"><h4>Attributes</h4>${attrRows || '<div class="muted">This task records no structured attributes.</div>'}${otherClaims}</div>
+    <div class="section"><h4>Verbatim evidence (${(p.quotes||[]).length})</h4>${quotes}</div>
+    <div class="section"><h4>Provenance</h4>
+      <div class="kv">
+        <span class="k">route</span><span class="v">${esc(prov.route || "—")}</span>
+        <span class="k">provider</span><span class="v">${esc(prov.provider || "—")}</span>
+        <span class="k">cost</span><span class="v">${prov.cost===null||prov.cost===undefined?"unknown":"$"+fmt(prov.cost,6)} (${esc(prov.cost_status||"—")})</span>
+        <span class="k">duration</span><span class="v">${prov.duration_seconds?fmt(prov.duration_seconds,2)+"s":"—"}</span>
+        <span class="k">batch</span><span class="v">${esc(prov.status||"—")}${prov.attempts?` · ${esc(prov.attempts)} attempt(s)`:""}</span>
+        <span class="k">captured</span><span class="v">${esc(src.captured_at||"—")}</span>
+        <span class="k">scored</span><span class="v">${esc(src.scored_at||"—")}</span>
+        <span class="k">source</span><span class="v">${src.uri?`<a href="${esc(src.uri)}" target="_blank" rel="noreferrer">${esc(src.uri)}</a>`:"—"}</span>
+        <span class="k">digest</span><span class="v">${esc((src.digest||"—").slice(0,16))}${src.digest?"…":""}</span>
+      </div>
+    </div>
+    <div class="section"><h4>Evidence JSON</h4>
+      <pre style="background:var(--panel-2);border:1px solid var(--line);border-radius:8px;padding:10px;
+                  max-height:230px;overflow:auto;font-size:11.5px">${esc(JSON.stringify({item_id:p.id,claims:p.claims,quotes:p.quotes},null,2))}</pre>
+    </div>`;
+  const btn = $("copyJson");
+  if (btn) btn.onclick = () => {
+    navigator.clipboard.writeText(JSON.stringify({item_id:p.id, claims:p.claims, quotes:p.quotes}, null, 2));
+    btn.textContent = "copied"; setTimeout(()=>btn.textContent="copy JSON", 1200);
+  };
+}
+
+function renderFooter(){
+  const r = state.data.run;
+  $("title").textContent = (r.task ? r.task.replace(/_/g," ") : "Results") + " · board";
+  $("subtitle").innerHTML = `<code>${esc(r.run_id||"")}</code> · ${esc(r.status||"")} · `
+    + `${esc((r.created_at||"").slice(0,19).replace("T"," "))} · revision <code>${esc((r.task_revision||"").slice(0,12))}</code>`
+    + (r.instructions ? ` · ${esc(String(r.instructions).slice(0,120))}…` : "");
+  $("footer").innerHTML = `Read-only view of one run. Export the same records with `
+    + `<code>harness-fleet export ${esc(r.run_id||"RUN")} --format csv --sort-by score --desc --top 25 --rank</code>. `
+    + `Scores come from the checklist, never from the model's own grading.`;
+}
+
+function render(){ renderStats(); renderTable(); renderDetail(); }
+
+async function boot(){
+  const res = await fetch("/api/board");
+  if (!res.ok) { document.body.innerHTML = `<main><div class="warnbox">Could not load the board: ${res.status}</div></main>`; return; }
+  state.data = await res.json();
+  renderFilters(); renderFooter(); render();
+  if (state.data.partners.length) state.sel = state.data.partners[0].id, renderTable(), renderDetail();
+
+  try {
+    const runs = await (await fetch("/api/runs")).json();
+    $("runPicker").innerHTML = (runs.runs||[]).map(r =>
+      `<option value="${esc(r.run_id)}"${r.run_id===state.data.run.run_id?" selected":""}>${esc(r.run_id)} · ${esc(r.status)}</option>`).join("");
+    $("runPicker").onchange = (e) => { window.location.search = "?run_id=" + encodeURIComponent(e.target.value); };
+  } catch (e) { /* the picker is a convenience */ }
+}
+
+$("q").oninput = (e) => { state.q = e.target.value; render(); };
+$("minScore").oninput = (e) => { state.minScore = Number(e.target.value); $("minScoreVal").textContent = state.minScore ? "≥ " + state.minScore : ""; render(); };
+$("sortSel").onchange = (e) => { state.sort = e.target.value; state.dir = (state.sort==="id"||state.sort==="practice"||state.sort==="route") ? 1 : -1; render(); };
+$("quotesOnly").onclick = (e) => { state.quotesOnly = !state.quotesOnly; e.target.classList.toggle("on", state.quotesOnly); render(); };
+$("reset").onclick = () => {
+  state.tiers.clear(); state.checks.clear(); state.attrs = {}; state.quotesOnly=false;
+  state.q=""; state.minScore=0; state.route=""; state.sort="score"; state.dir=-1;
+  $("q").value=""; $("minScore").value=0; $("minScoreVal").textContent=""; $("quotesOnly").classList.remove("on");
+  renderFilters(); render();
+};
+document.querySelectorAll("th[data-sort]").forEach(th => th.onclick = () => {
+  const key = th.dataset.sort;
+  if (key === "rank") return;
+  if (state.sort === key) state.dir *= -1; else { state.sort = key; state.dir = (key==="id"||key==="practice"||key==="route") ? 1 : -1; }
+  $("sortSel").value = ["score","id","quotes","diversity","earned"].includes(key) ? key : "score";
+  renderTable();
+});
+
+/* ---------------------------------------------------------------- compare */
+function attrValue(p, key){
+  const v = (p.answers||{})[key];
+  if (v === undefined || v === null || v === "") return null;
+  return Array.isArray(v) ? v : [v];
+}
+function renderCompare(){
+  const picked = (state.data.partners||[]).filter(p => state.compare.has(p.id));
+  $("compareHint").hidden = picked.length > 0;
+  if (!picked.length){ $("compareWrap").innerHTML = ""; return; }
+  const cl = state.data.checklist || [];
+  const specs = state.data.attributes || [];
+  const row = (label, cells, cls="") =>
+    `<tr class="${cls}"><th style="text-align:left;background:var(--panel-2);position:sticky;left:0;z-index:2">${esc(label)}</th>${
+      cells.map(c => `<td>${c}</td>`).join("")}</tr>`;
+
+  const head = `<tr><th style="background:var(--panel-2);position:sticky;left:0"></th>${
+    picked.map(p => `<th style="font-family:var(--mono);font-size:12px;white-space:nowrap">${esc(p.id)}
+      <div><span class="tier ${esc(p.tier||"none")}">${esc((p.tier||"—").replace("_"," "))}</span></div></th>`).join("")}</tr>`;
+
+  const num = (v) => v === null || v === undefined ? "—" : v;
+  let rows = "";
+  rows += row("Fit score", picked.map(p => {
+    const s = scoreOf(p);
+    return `<div class="score"><span class="num">${s===null?"—":s}</span>
+      <span class="bar"><i style="width:${s===null?0:Math.max(2,s)}%"></i></span></div>`;
+  }), "hero-row");
+  rows += row("Checklist points", picked.map(p => `${p.earned_points}/${state.data.checklist_total}`));
+  cl.forEach(c => {
+    rows += row(c.label, picked.map(p => p.checklist[c.item_id]
+      ? `<span class="mark y">✓</span> <span class="muted">${c.points} pts</span>`
+      : `<span class="mark n">✗</span> <span class="muted">0/${c.points}</span>`));
+  });
+  specs.forEach(spec => {
+    rows += row(spec.label, picked.map(p => {
+      const v = attrValue(p, spec.key);
+      if (!v) return '<span class="muted">—</span>';
+      return v.map(x => `<span class="tag">${esc(x)}</span>`).join("");
+    }));
+  });
+  rows += row("Practice / headline", picked.map(p => esc(String(p.practice||"—").slice(0,160))));
+  rows += row("Verbatim quotes", picked.map(p => (p.quotes||[]).length));
+  rows += row("Sources cited", picked.map(p => num(p.diversity)));
+  rows += row("Route", picked.map(p => `<span class="muted">${esc(routeOf(p)||"—")}</span>`));
+  rows += row("Cost", picked.map(p => {
+    const c = p.provenance && p.provenance.cost;
+    return c === null || c === undefined ? '<span class="muted">unknown</span>' : "$"+fmt(c,6);
+  }));
+  rows += row("Case-study proof", picked.map(p => {
+    const v = (p.answers||{}).case_study_outcome;
+    return v ? esc(String(v).slice(0,220)) : '<span class="muted">none recorded</span>';
+  }));
+  $("compareWrap").innerHTML = `<table style="min-width:${180 + picked.length*260}px">
+    <thead>${head}</thead><tbody>${rows}</tbody></table>`;
+}
+
+/* -------------------------------------------------------------- landscape */
+function renderLandscape(){
+  const ps = state.data.partners || [];
+  const s = state.data.stats;
+  $("landStats").innerHTML = [
+    ["Partners", ps.length, "records in this run"],
+    ["Top-right", ps.filter(p => scoreOf(p) !== null && scoreOf(p) >= 70 && (p.diversity ?? 0) >= 2).length, "strong fit + independent evidence"],
+    ["Thin evidence", ps.filter(p => scoreOf(p) !== null && scoreOf(p) >= 70 && (p.diversity ?? 0) < 2).length, "high score, one source — verify"],
+    ["Unscored", s.unscored, "missing evidence, not unfit"],
+  ].map(([k,v,n]) => `<div class="stat"><div class="k">${esc(k)}</div><div class="v">${esc(v)}</div><div class="n">${esc(n)}</div></div>`).join("");
+
+  const W = 900, H = 380, pad = {l:52, r:24, t:18, b:44};
+  const maxDiv = Math.max(2, ...ps.map(p => p.diversity ?? 0));
+  const x = v => pad.l + (Math.max(0, Math.min(100, v)) / 100) * (W - pad.l - pad.r);
+  const y = v => H - pad.b - (v / maxDiv) * (H - pad.t - pad.b);
+  const bands = (state.data.tiers||[]).slice().sort((a,b)=>a.min_score-b.min_score);
+  let bg = "";
+  bands.forEach((b, i) => {
+    const next = bands[i+1] ? bands[i+1].min_score - 0.01 : 100;
+    const x0 = x(b.min_score), x1 = x(next);
+    bg += `<rect x="${x0}" y="${pad.t}" width="${Math.max(0,x1-x0)}" height="${H-pad.t-pad.b}"
+             fill="${b.tier==='tier_1'?'#3a2f12':b.tier==='tier_2'?'#132c22':b.tier==='tier_3'?'#2c2416':'#2e1a1a'}" opacity=".45"></rect>
+           <text x="${x1-6}" y="${H-pad.b-8}" fill="#8b93a3" font-size="11" text-anchor="end">${esc(b.tier.replace("_"," "))} ≥${b.min_score}</text>`;
+  });
+  let axis = "";
+  for (let v = 0; v <= 100; v += 20) {
+    axis += `<line x1="${x(v)}" y1="${pad.t}" x2="${x(v)}" y2="${H-pad.b}" stroke="#2a2f3a"></line>
+             <text x="${x(v)}" y="${H-pad.b+16}" fill="#6b7484" font-size="11" text-anchor="middle">${v}</text>`;
+  }
+  for (let v = 0; v <= maxDiv; v++) {
+    axis += `<line x1="${pad.l}" y1="${y(v)}" x2="${W-pad.r}" y2="${y(v)}" stroke="#2a2f3a" opacity=".6"></line>
+             <text x="${pad.l-9}" y="${y(v)+4}" fill="#6b7484" font-size="11" text-anchor="end">${v}</text>`;
+  }
+  const dots = ps.filter(p => scoreOf(p) !== null).map(p => {
+    const cx = x(scoreOf(p)), cy = y(p.diversity ?? 0);
+    const r = 6 + Math.min(6, (p.quotes||[]).length);
+    const fill = p.tier === "tier_1" ? "#ffd166" : p.tier === "tier_2" ? "#3ecf8e"
+               : p.tier === "tier_3" ? "#f5a623" : "#ff6b6b";
+    return `<g class="dot" data-id="${esc(p.id)}" style="cursor:pointer">
+      <circle cx="${cx}" cy="${cy}" r="${r}" fill="${fill}" fill-opacity=".78" stroke="#0f1115" stroke-width="1.5"></circle>
+      <text x="${cx}" y="${cy - r - 5}" fill="#c7cfdd" font-size="10.5" text-anchor="middle">${esc(p.id.slice(0,26))}</text>
+    </g>`;
+  }).join("");
+  $("scatter").innerHTML = `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto">
+      ${bg}${axis}${dots}
+      <text x="${pad.l}" y="${H-6}" fill="#8b93a3" font-size="11.5">fit score →</text>
+      <text x="13" y="${(pad.t + H - pad.b) / 2}" fill="#8b93a3" font-size="11.5" text-anchor="middle"
+            transform="rotate(-90 13 ${(pad.t + H - pad.b) / 2})">sources cited →</text>
+    </svg>`;
+  $("scatter").querySelectorAll("g.dot").forEach(g => g.onclick = () => {
+    state.sel = g.dataset.id; switchView("results"); render();
+  });
+
+  // Stack coverage: top technologies × partners.
+  const stackCounts = (state.data.facets || {}).target_stack || {};
+  const techs = Object.keys(stackCounts).slice(0, 14);
+  if (!techs.length) { $("matrix").innerHTML = '<div class="empty">No stack attributes recorded for this run.</div>'; return; }
+  const head = `<tr><th style="position:sticky;left:0;background:var(--panel-2)">technology</th>${
+    ps.map(p => `<th style="writing-mode:vertical-rl;transform:rotate(180deg);font-family:var(--mono);font-size:11px;white-space:nowrap">${esc(p.id.slice(0,22))}</th>`).join("")}<th>partners</th></tr>`;
+  const body = techs.map(tech => {
+    const cells = ps.map(p => {
+      const has = ((p.answers||{}).target_stack || []).includes(tech);
+      return `<td style="text-align:center">${has ? '<span style="color:var(--good)">●</span>' : '<span style="color:#2a2f3a">·</span>'}</td>`;
+    }).join("");
+    return `<tr><th style="position:sticky;left:0;background:var(--panel);text-align:left;font-weight:500">${esc(tech)}</th>${cells}<td class="muted" style="text-align:center">${stackCounts[tech]}</td></tr>`;
+  }).join("");
+  $("matrix").innerHTML = `<table>${head}${body}</table>`;
+}
+
+/* ------------------------------------------------------------------- tabs */
+function switchView(view){
+  state.view = view;
+  $("viewResults").hidden = view !== "results";
+  $("viewCompare").hidden = view !== "compare";
+  $("viewLandscape").hidden = view !== "landscape";
+  document.querySelectorAll(".tab").forEach(t => t.classList.toggle("on", t.dataset.view === view));
+  if (view === "compare") renderCompare();
+  if (view === "landscape") renderLandscape();
+}
+document.querySelectorAll(".tab").forEach(t => t.onclick = () => switchView(t.dataset.view));
+
+boot();
+</script>
+</body>
+</html>

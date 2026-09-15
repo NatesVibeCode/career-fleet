@@ -1086,6 +1086,24 @@ def cmd_studio(args: argparse.Namespace) -> None:
     run_studio_server(args.workspace_root, args.db, int(args.port))
 
 
+def cmd_board(args: argparse.Namespace) -> None:
+    """Serve the read-only results board, or print its payload with --json."""
+    from .board import build_board_payload, run_board_server
+
+    if getattr(args, "json", False):
+        store = _store(args)
+        _emit(build_board_payload(store.path, args.run_id), True, "")
+        return
+    store = _store(args)
+    run_board_server(
+        store.path,
+        args.run_id,
+        port=int(args.port),
+        host=args.host,
+        open_browser=bool(getattr(args, "open", False)),
+    )
+
+
 def _claude_config_candidates() -> list[Path]:
     home = Path.home()
     candidates: list[Path] = []
@@ -1702,6 +1720,15 @@ def build_parser() -> argparse.ArgumentParser:
     serve.add_argument("--workspace-root", default=".")
     serve.add_argument("--db", help="SQLite path below workspace root")
 
+    board = commands.add_parser(
+        "board",
+        help="Serve the read-only results board for a run (attributes, scores, quotes, provenance)",
+    )
+    board.add_argument("--run-id", default=None, help="Run to show (default: the most recent)")
+    board.add_argument("--port", type=int, default=8100, help="Localhost port (default: 8100)")
+    board.add_argument("--host", default="127.0.0.1", help="Host to listen on (default: 127.0.0.1)")
+    board.add_argument("--open", action="store_true", help="Open the page in a browser")
+    _common(board)
     studio = commands.add_parser("studio", help="Serve the local harness studio UI (localhost only)")
     studio.add_argument("--workspace-root", default=".")
     studio.add_argument("--db", help="SQLite path below workspace root")
@@ -1827,6 +1854,7 @@ def main() -> None:
         "doctor": cmd_doctor,
         "serve": cmd_serve,
         "studio": cmd_studio,
+        "board": cmd_board,
         "quickstart": cmd_quickstart,
         "discover": cmd_discover,
         "fetch": cmd_fetch,
