@@ -45,7 +45,9 @@ def test_missing_survivor_file_fails_instead_of_silently_emptying_campaign(tmp_p
         load_input_items(source, only_ids=tmp_path / "missing.csv")
 
 
-def test_cli_prog_and_mcp_install_use_harness_name(tmp_path, monkeypatch):
+def test_engine_cli_registers_this_distributions_server_name(tmp_path, monkeypatch):
+    """The vendored engine is invoked as harness_fleet.cli, but the MCP server it
+    registers belongs to the product the user installed."""
     import harness_fleet.cli as cli_module
 
     assert cli_module.build_parser().prog == "harness-fleet"
@@ -61,7 +63,8 @@ def test_cli_prog_and_mcp_install_use_harness_name(tmp_path, monkeypatch):
     )
     cmd_mcp_install(args)
     installed = json.loads(config.read_text(encoding="utf-8"))
-    assert "harness-fleet" in installed["mcpServers"]
+    assert "career-fleet" in installed["mcpServers"]
+    assert "harness-fleet" not in installed["mcpServers"]
     assert "free-fleet" not in installed["mcpServers"]
 
 

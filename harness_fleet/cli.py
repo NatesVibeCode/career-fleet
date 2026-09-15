@@ -1176,7 +1176,7 @@ def cmd_mcp_install(args: argparse.Namespace) -> None:
             servers = {}
             existing["mcpServers"] = servers
 
-        already = servers.get("harness-fleet")
+        already = servers.get("career-fleet")
         force = bool(getattr(args, "force", False))
         needs_update = force or already != server_entry
         if not needs_update:
@@ -1188,7 +1188,7 @@ def cmd_mcp_install(args: argparse.Namespace) -> None:
 
         if needs_update and not dry_run:
             config_path.parent.mkdir(parents=True, exist_ok=True)
-            servers["harness-fleet"] = server_entry
+            servers["career-fleet"] = server_entry
             # Preserve other keys (e.g., globalShortcut)
             config_path.write_text(json.dumps(existing, indent=2) + "\n", encoding="utf-8")
 
@@ -1206,7 +1206,7 @@ def cmd_mcp_install(args: argparse.Namespace) -> None:
         "\n".join(
             f"{r['client']}: {r['status']} at {r['config_path']}\n  -> {r['server']['command']} {' '.join(r['server']['args'])}"
             for r in results
-        ) + f"\nRestart {', '.join(r['client'] for r in results)} to load harness-fleet. Verify with: harness-fleet doctor --workspace-root {workspace_root} --json",
+        ) + f"\nRestart {', '.join(r['client'] for r in results)} to load career-fleet. Verify with: python -m harness_fleet.cli doctor --workspace-root {workspace_root} --json",
     )
 
 
