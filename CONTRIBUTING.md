@@ -1,36 +1,11 @@
-# Contributing to career-fleet
+# Contributing to Career Fleet
 
-Thank you for your interest in contributing to `career-fleet`!
+The `career-fleet` CLI runs the bundled printed company-discovery Process. Business behavior belongs to its typed Nodes and pinned Blocks; the Python adapter owns build, launch, journal lifecycle and output persistence only.
 
-## Philosophy
-`career-fleet` keeps its trust boundaries explicit:
-1. SQLite owns captured companies, postings, evaluations, and the current funnel status.
-2. Discovery keeps source text verbatim so evaluation quotes remain checkable.
-3. Deterministic dealbreakers run before technical and culture scoring.
-4. A company is exported as qualified only after both recon lanes pass.
-5. Source adapters must be covered by end-to-end tests, not only isolated parser tests.
+Do not restore automatic profile loading, source-count scoring, domain-based company merges, missing-data penalties, qualified-only output or fallback to the historical discovery loop.
 
-## Development Setup
+Changes to Process behavior require reauthoring through Forge and printing a new exact revision. Never edit generated worker sources and keep an old Process identity. `source-manifest.json` checks the committed runtime source inventory; it establishes source integrity, not admission.
 
-```bash
-git clone https://github.com/NatesVibeCode/career-fleet.git
-cd career-fleet
+Source Function checks are in `processes/company-discovery/author/core`. CLI integration checks execute the real printed worker through the public command and append-only SQLite projection. Keep local behavior checks, public service observations, authenticated admission and AO consumption distinct.
 
-# Install dependencies in editable mode, including discovery adapters
-python3 -m pip install -e ".[dev,discover]"
-
-# Install the assistant skill into a workspace when needed
-career-fleet setup --workspace-root .
-
-# Run test suite
-python3 -m pytest -v
-
-# Check the shared harness-fleet contract across the local sibling checkouts
-python3 scripts/check_harness_drift.py
-```
-
-Do not include credentials, private candidate data, provider responses containing private data, or local machine paths in issues, fixtures, or commits.
-
-When changing a lane, add a test that exercises the store-backed path as well as any pure scoring helper.
-
-Install one fleet per environment: each distribution ships its own console script (`uv tool install .` then `<cli> --help`).
+Do not commit credentials, execution journal keys, personal profiles, research databases, private provider responses or local-machine paths. Current development builds are labelled honestly until native qualification and release printing pass.

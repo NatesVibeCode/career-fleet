@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "career-fleet"
-version = "0.5.0"
-description = "Deterministic career and employer screening engine with multi-lane checks and exact quote verification."
+version = "0.6.0"
+description = "Career research with an explicit deterministic discovery Process and source-bound evidence."
 readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE"]
@@ -59,6 +59,8 @@ include = ["harness_fleet*", "career_fleet*"]
 
 [tool.setuptools.package-data]
 career_fleet = [
+    "resources/company_discovery/*",
+    "resources/company_discovery/**/*",
     "resources/skill/career-fleet/*.md",
     "resources/skill/career-fleet/references/*.md",
     "resources/board/*.html",

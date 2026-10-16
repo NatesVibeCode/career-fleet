@@ -1,0 +1,276 @@
+{
+  "composition": {
+    "schema": "praxis.capability_contract.v1",
+    "inputs": {
+      "url": {
+        "semantic": "discovery.url.v1"
+      }
+    },
+    "outputs": {
+      "capture": {
+        "semantic": "discovery.capture.v1"
+      }
+    },
+    "outcomes": [
+      "completed"
+    ],
+    "effects": [
+      "network.read"
+    ],
+    "failure": "error"
+  },
+  "schema": "aeltum.node_spec.v1",
+  "identity": {
+    "name": "discovery.capture.v1",
+    "kind": "integration"
+  },
+  "pattern": {
+    "key": "node.v1",
+    "digest": "144731dd834259d024c98b17ea7e62805ce5af074128133790a5dcdfafa0e24f"
+  },
+  "fields": [
+    {
+      "side": "input",
+      "name": "url",
+      "type": {
+        "type": "string"
+      },
+      "required": true,
+      "bounds": [
+        {
+          "key": "company.research.value.length.nonnegative",
+          "digest": "0eaaaf1ab915e99fce36d0a92a22349320130ffed1ff51c70820441053d41f0e"
+        }
+      ],
+      "description": {
+        "intent": "url",
+        "meaning": "One sealed public HTTPS capture retaining binary bytes, actual status and receipt references",
+        "tags": [
+          "discovery",
+          "capture"
+        ],
+        "units": "typed evidence",
+        "source": "input",
+        "declared_by": "operator-approved generic discovery plan"
+      }
+    },
+    {
+      "side": "output",
+      "name": "capture",
+      "type": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          },
+          "final_url": {
+            "type": "string"
+          },
+          "captured_at": {
+            "type": "string"
+          },
+          "status": {
+            "type": "integer"
+          },
+          "media_type": {
+            "type": "string"
+          },
+          "body_base64": {
+            "type": "string"
+          },
+          "sha256": {
+            "type": "string"
+          },
+          "outcome": {
+            "type": "string"
+          },
+          "error_code": {
+            "type": "string"
+          },
+          "redirect_location": {
+            "type": "string"
+          },
+          "receipt_refs": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "complete": {
+            "type": "boolean"
+          },
+          "requests": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "url",
+          "final_url",
+          "captured_at",
+          "status",
+          "media_type",
+          "body_base64",
+          "sha256",
+          "outcome",
+          "error_code",
+          "redirect_location",
+          "receipt_refs",
+          "complete",
+          "requests"
+        ],
+        "additionalProperties": false
+      },
+      "required": true,
+      "bounds": [
+        {
+          "key": "company.research.value.length.nonnegative",
+          "digest": "0eaaaf1ab915e99fce36d0a92a22349320130ffed1ff51c70820441053d41f0e"
+        }
+      ],
+      "description": {
+        "intent": "capture",
+        "meaning": "One sealed public HTTPS capture retaining binary bytes, actual status and receipt references",
+        "tags": [
+          "discovery",
+          "capture"
+        ],
+        "units": "typed evidence",
+        "source": "output",
+        "declared_by": "operator-approved generic discovery plan"
+      }
+    }
+  ],
+  "dimensions": [
+    {
+      "name": "surface",
+      "contents": {
+        "entry": "Entry",
+        "inputs": [
+          {
+            "field": "url",
+            "target": "param:url"
+          }
+        ],
+        "outputs": [
+          {
+            "field": "capture",
+            "target": "param:capture"
+          }
+        ]
+      }
+    },
+    {
+      "name": "egress",
+      "contents": {
+        "mode": "https",
+        "operations": [
+          {
+            "credentials": [],
+            "destination": {
+              "kind": "public_web"
+            },
+            "id": "capture",
+            "max_redirects": 0,
+            "max_request_bytes": 0,
+            "max_requests": 1,
+            "max_response_bytes": 0,
+            "method": "GET",
+            "redirect_policy": "none",
+            "timeout_ms": 0
+          }
+        ],
+        "schema": "praxis.egress_policy.v1"
+      }
+    },
+    {
+      "name": "tools",
+      "contents": {
+        "entries": [
+          {
+            "operation": "capture"
+          }
+        ]
+      }
+    },
+    {
+      "name": "access",
+      "contents": {
+        "scope": {
+          "effects": [
+            "read"
+          ],
+          "objects": [
+            "public_document"
+          ],
+          "system": "public_web"
+        },
+        "share": {
+          "digests": [
+            "8b7b0ef894923198a1ae9131b66a04eb86bd5762e7fb45a683c68f52715da163"
+          ],
+          "identity": "public.https.explicit_url.read.v1"
+        }
+      }
+    },
+    {
+      "name": "api_calls",
+      "contents": {
+        "calls": [
+          {
+            "method": "GET",
+            "request": {
+              "type": "string"
+            },
+            "response": {
+              "type": "string"
+            },
+            "target": "public_web"
+          }
+        ]
+      }
+    },
+    {
+      "name": "fields",
+      "contents": null
+    },
+    {
+      "name": "field_types",
+      "contents": null
+    }
+  ],
+  "mechanism": {
+    "capability": {
+      "capability_ref": {
+        "name": "public.https.explicit_url.read.v1",
+        "digest": "8b7b0ef894923198a1ae9131b66a04eb86bd5762e7fb45a683c68f52715da163"
+      },
+      "policy_selections": {},
+      "adapter": {
+        "pointer": "discovery.local/process/nodes/capture.Entry",
+        "digest": "c69c6180b3b1d733bb848e3e42aed16923ac760fe92833a4b3a8906bd30c0117"
+      }
+    }
+  },
+  "proof_spec": {
+    "test": {
+      "pointer": "",
+      "digest": ""
+    },
+    "mode": "real_service",
+    "target": "credential-free public HTTPS"
+  },
+  "usage": {
+    "purpose": "Retain one explicit public GET response with binary bytes and sealed receipt references",
+    "use_when": [
+      "The Process selected an authorized public HTTPS URL"
+    ],
+    "avoid_when": [
+      "Credentials, writes or implicit redirect following are needed"
+    ]
+  }
+}
+

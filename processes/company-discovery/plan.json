@@ -1,0 +1,732 @@
+{
+  "schema": "forge.author_plan.v1",
+  "module": "discovery.local/process",
+  "tool_name": "company_discovery",
+  "nodes": [
+    {
+      "key": "open",
+      "spec_file": "specs/open.json",
+      "source_file": "nodes/open/entry.go"
+    },
+    {
+      "key": "selectwork",
+      "spec_file": "specs/selectwork.json",
+      "source_file": "nodes/selectwork/entry.go"
+    },
+    {
+      "key": "request",
+      "spec_file": "specs/request.json",
+      "source_file": "nodes/request/entry.go"
+    },
+    {
+      "key": "bind",
+      "spec_file": "specs/bind.json",
+      "source_file": "nodes/bind/entry.go"
+    },
+    {
+      "key": "parse",
+      "spec_file": "specs/parse.json",
+      "source_file": "nodes/parse/entry.go"
+    },
+    {
+      "key": "merge",
+      "spec_file": "specs/merge.json",
+      "source_file": "nodes/merge/entry.go"
+    },
+    {
+      "key": "match",
+      "spec_file": "specs/match.json",
+      "source_file": "nodes/match/entry.go"
+    },
+    {
+      "key": "extract",
+      "spec_file": "specs/extract.json",
+      "source_file": "nodes/extract/entry.go"
+    },
+    {
+      "key": "conditions",
+      "spec_file": "specs/conditions.json",
+      "source_file": "nodes/conditions/entry.go"
+    },
+    {
+      "key": "planwork",
+      "spec_file": "specs/planwork.json",
+      "source_file": "nodes/planwork/entry.go"
+    },
+    {
+      "key": "done",
+      "spec_file": "specs/done.json",
+      "source_file": "nodes/done/entry.go"
+    },
+    {
+      "key": "capture",
+      "spec_file": "specs/capture.json",
+      "source_file": "nodes/capture/entry.go"
+    },
+    {
+      "key": "capturerecover",
+      "spec_file": "specs/capturerecover.json",
+      "source_file": "nodes/capturerecover/entry.go"
+    }
+  ],
+  "blocks": [
+    {
+      "key": "open",
+      "name": "discovery.open.block.v1",
+      "nodes": [
+        {
+          "key": "open",
+          "node": "open"
+        }
+      ],
+      "edges": [],
+      "inputs": [
+        {
+          "name": "request",
+          "to": {
+            "node": "open",
+            "port": "request"
+          }
+        }
+      ],
+      "outputs": [
+        {
+          "name": "state",
+          "from": {
+            "node": "open",
+            "port": "state"
+          }
+        }
+      ]
+    },
+    {
+      "key": "select",
+      "name": "discovery.select.block.v1",
+      "nodes": [
+        {
+          "key": "selectwork",
+          "node": "selectwork"
+        }
+      ],
+      "edges": [],
+      "inputs": [
+        {
+          "name": "state",
+          "to": {
+            "node": "selectwork",
+            "port": "state"
+          }
+        }
+      ],
+      "outputs": [
+        {
+          "name": "state",
+          "from": {
+            "node": "selectwork",
+            "port": "state"
+          }
+        },
+        {
+          "name": "next",
+          "from": {
+            "node": "selectwork",
+            "port": "next"
+          }
+        }
+      ]
+    },
+    {
+      "key": "acquire",
+      "name": "discovery.acquire.block.v1",
+      "nodes": [
+        {
+          "key": "request",
+          "node": "request"
+        },
+        {
+          "key": "capture",
+          "node": "capture"
+        },
+        {
+          "key": "bind",
+          "node": "bind"
+        }
+      ],
+      "edges": [
+        {
+          "from": {
+            "node": "request",
+            "port": "state"
+          },
+          "to": {
+            "node": "bind",
+            "port": "state"
+          }
+        },
+        {
+          "from": {
+            "node": "request",
+            "port": "url"
+          },
+          "to": {
+            "node": "capture",
+            "port": "url"
+          }
+        },
+        {
+          "from": {
+            "node": "capture",
+            "port": "capture"
+          },
+          "to": {
+            "node": "bind",
+            "port": "capture"
+          }
+        }
+      ],
+      "inputs": [
+        {
+          "name": "state",
+          "to": {
+            "node": "request",
+            "port": "state"
+          }
+        }
+      ],
+      "outputs": [
+        {
+          "name": "state",
+          "from": {
+            "node": "bind",
+            "port": "state"
+          }
+        },
+        {
+          "name": "next",
+          "from": {
+            "node": "bind",
+            "port": "next"
+          }
+        }
+      ]
+    },
+    {
+      "key": "parse",
+      "name": "discovery.parse.block.v1",
+      "nodes": [
+        {
+          "key": "parse",
+          "node": "parse"
+        }
+      ],
+      "edges": [],
+      "inputs": [
+        {
+          "name": "state",
+          "to": {
+            "node": "parse",
+            "port": "state"
+          }
+        }
+      ],
+      "outputs": [
+        {
+          "name": "state",
+          "from": {
+            "node": "parse",
+            "port": "state"
+          }
+        },
+        {
+          "name": "next",
+          "from": {
+            "node": "parse",
+            "port": "next"
+          }
+        }
+      ]
+    },
+    {
+      "key": "evidence",
+      "name": "discovery.evidence.block.v1",
+      "nodes": [
+        {
+          "key": "merge",
+          "node": "merge"
+        },
+        {
+          "key": "match",
+          "node": "match"
+        },
+        {
+          "key": "extract",
+          "node": "extract"
+        },
+        {
+          "key": "conditions",
+          "node": "conditions"
+        },
+        {
+          "key": "planwork",
+          "node": "planwork"
+        }
+      ],
+      "edges": [
+        {
+          "from": {
+            "node": "merge",
+            "port": "state"
+          },
+          "to": {
+            "node": "match",
+            "port": "state"
+          }
+        },
+        {
+          "from": {
+            "node": "match",
+            "port": "state"
+          },
+          "to": {
+            "node": "extract",
+            "port": "state"
+          }
+        },
+        {
+          "from": {
+            "node": "extract",
+            "port": "state"
+          },
+          "to": {
+            "node": "conditions",
+            "port": "state"
+          }
+        },
+        {
+          "from": {
+            "node": "conditions",
+            "port": "state"
+          },
+          "to": {
+            "node": "planwork",
+            "port": "state"
+          }
+        }
+      ],
+      "inputs": [
+        {
+          "name": "state",
+          "to": {
+            "node": "merge",
+            "port": "state"
+          }
+        }
+      ],
+      "outputs": [
+        {
+          "name": "state",
+          "from": {
+            "node": "planwork",
+            "port": "state"
+          }
+        },
+        {
+          "name": "next",
+          "from": {
+            "node": "planwork",
+            "port": "next"
+          }
+        }
+      ]
+    },
+    {
+      "key": "done",
+      "name": "discovery.done.block.v1",
+      "nodes": [
+        {
+          "key": "done",
+          "node": "done"
+        }
+      ],
+      "edges": [],
+      "inputs": [
+        {
+          "name": "state",
+          "to": {
+            "node": "done",
+            "port": "state"
+          }
+        }
+      ],
+      "outputs": [
+        {
+          "name": "state",
+          "from": {
+            "node": "done",
+            "port": "state"
+          }
+        },
+        {
+          "name": "result",
+          "from": {
+            "node": "done",
+            "port": "result"
+          }
+        },
+        {
+          "name": "disposition",
+          "from": {
+            "node": "done",
+            "port": "disposition"
+          }
+        }
+      ]
+    }
+  ],
+  "process": {
+    "name": "company_discovery.v1",
+    "policy": {
+      "execution_journal": "praxis.execution_journal.v2",
+      "allowed_effects": [
+        "network.read"
+      ],
+      "acceptance": {
+        "schema": "discovery.acceptance.v1",
+        "outcome": "Generic deterministic source-bound discovery with visible unknowns",
+        "requirements": [
+          "No personal defaults",
+          "Zero inference calls",
+          "Preserve all discovered candidates",
+          "Unknown evidence never rejects a candidate",
+          "Fair finite question acquisition",
+          "Retain original response bytes and typed source failures",
+          "Exact text spans for lexical and field extraction",
+          "No factory runtime dependency"
+        ]
+      },
+      "recovery": {
+        "schema": "praxis.process_recovery.v2",
+        "bindings": [
+          {
+            "semantics": "observation",
+            "target": {
+              "block": "acquire",
+              "node": "capture"
+            },
+            "reconciler": {
+              "key": "capture_observation",
+              "ref": {
+                "name": "discovery.capture_observation.block.v1",
+                "digest": "e514301abcce9544bbc98c369d07cb043e2b722aab5ee4d777d1cab81dfb62f9"
+              },
+              "block": {
+                "schema": "aeltum.block.v2",
+                "name": "discovery.capture_observation.block.v1",
+                "nodes": [
+                  {
+                    "key": "observe",
+                    "node": {
+                      "composition": {
+                        "schema": "praxis.capability_contract.v1",
+                        "inputs": {
+                          "request_digest": {
+                            "semantic": "recovery.request_digest"
+                          },
+                          "url": {
+                            "semantic": "discovery.url.v1"
+                          }
+                        },
+                        "outputs": {
+                          "capture": {
+                            "semantic": "discovery.capture.v1"
+                          },
+                          "request_digest": {
+                            "semantic": "recovery.request_digest"
+                          },
+                          "status": {
+                            "semantic": "recovery.status"
+                          }
+                        },
+                        "outcomes": [
+                          "completed"
+                        ],
+                        "effects": [
+                          "network.read"
+                        ],
+                        "failure": "error"
+                      },
+                      "schema": "aeltum.node.v2",
+                      "name": "discovery.capture_recovery.v1",
+                      "digest": "6a6301569ded543c150633b65283af6dd34da5afab4f2da8267752ca65ceaf4c",
+                      "kind": "integration",
+                      "inputs": [
+                        {
+                          "semantic": "discovery.url.v1",
+                          "name": "url",
+                          "type": {
+                            "type": "string"
+                          },
+                          "required": true
+                        },
+                        {
+                          "semantic": "recovery.request_digest",
+                          "name": "request_digest",
+                          "type": {
+                            "type": "string"
+                          },
+                          "required": true
+                        }
+                      ],
+                      "outputs": [
+                        {
+                          "semantic": "discovery.capture.v1",
+                          "name": "capture",
+                          "type": {
+                            "additionalProperties": false,
+                            "properties": {
+                              "body_base64": {
+                                "type": "string"
+                              },
+                              "captured_at": {
+                                "type": "string"
+                              },
+                              "complete": {
+                                "type": "boolean"
+                              },
+                              "error_code": {
+                                "type": "string"
+                              },
+                              "final_url": {
+                                "type": "string"
+                              },
+                              "id": {
+                                "type": "string"
+                              },
+                              "media_type": {
+                                "type": "string"
+                              },
+                              "outcome": {
+                                "type": "string"
+                              },
+                              "receipt_refs": {
+                                "items": {
+                                  "type": "string"
+                                },
+                                "type": "array"
+                              },
+                              "redirect_location": {
+                                "type": "string"
+                              },
+                              "requests": {
+                                "type": "integer"
+                              },
+                              "sha256": {
+                                "type": "string"
+                              },
+                              "status": {
+                                "type": "integer"
+                              },
+                              "url": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "id",
+                              "url",
+                              "final_url",
+                              "captured_at",
+                              "status",
+                              "media_type",
+                              "body_base64",
+                              "sha256",
+                              "outcome",
+                              "error_code",
+                              "redirect_location",
+                              "receipt_refs",
+                              "complete",
+                              "requests"
+                            ],
+                            "type": "object"
+                          },
+                          "required": true
+                        },
+                        {
+                          "semantic": "recovery.request_digest",
+                          "name": "request_digest",
+                          "type": {
+                            "type": "string"
+                          },
+                          "required": true
+                        },
+                        {
+                          "semantic": "recovery.status",
+                          "name": "status",
+                          "type": {
+                            "enum": [
+                              "completed",
+                              "unknown"
+                            ],
+                            "type": "string"
+                          },
+                          "required": true
+                        }
+                      ]
+                    }
+                  }
+                ],
+                "inputs": [
+                  {
+                    "name": "url",
+                    "to": {
+                      "node": "observe",
+                      "port": "url"
+                    }
+                  },
+                  {
+                    "name": "request_digest",
+                    "to": {
+                      "node": "observe",
+                      "port": "request_digest"
+                    }
+                  }
+                ],
+                "outputs": [
+                  {
+                    "name": "capture",
+                    "from": {
+                      "node": "observe",
+                      "port": "capture"
+                    }
+                  },
+                  {
+                    "name": "request_digest",
+                    "from": {
+                      "node": "observe",
+                      "port": "request_digest"
+                    }
+                  },
+                  {
+                    "name": "status",
+                    "from": {
+                      "node": "observe",
+                      "port": "status"
+                    }
+                  }
+                ]
+              }
+            },
+            "inputs": {
+              "url": "url"
+            },
+            "outputs": {
+              "capture": "capture"
+            }
+          }
+        ]
+      }
+    },
+    "blocks": [
+      {
+        "key": "open",
+        "block": "open"
+      },
+      {
+        "key": "select",
+        "block": "select"
+      },
+      {
+        "key": "acquire",
+        "block": "acquire"
+      },
+      {
+        "key": "parse",
+        "block": "parse"
+      },
+      {
+        "key": "evidence",
+        "block": "evidence"
+      },
+      {
+        "key": "done",
+        "block": "done"
+      }
+    ],
+    "inputs": [
+      {
+        "name": "request",
+        "to": {
+          "block": "open",
+          "port": "request"
+        }
+      }
+    ],
+    "outputs": [
+      {
+        "name": "state",
+        "from": {
+          "block": "done",
+          "port": "state"
+        }
+      },
+      {
+        "name": "result",
+        "from": {
+          "block": "done",
+          "port": "result"
+        }
+      }
+    ],
+    "progression": {
+      "schema": "praxis.process_progression.v4",
+      "prelude": {
+        "block": "open",
+        "state_output": "state"
+      },
+      "initial": "evidence",
+      "terminal": "done",
+      "phases": [
+        {
+          "key": "select",
+          "block": "select",
+          "state_input": "state",
+          "state_output": "state",
+          "next_output": "next"
+        },
+        {
+          "key": "acquire",
+          "block": "acquire",
+          "state_input": "state",
+          "state_output": "state",
+          "next_output": "next"
+        },
+        {
+          "key": "parse",
+          "block": "parse",
+          "state_input": "state",
+          "state_output": "state",
+          "next_output": "next"
+        },
+        {
+          "key": "evidence",
+          "block": "evidence",
+          "state_input": "state",
+          "state_output": "state",
+          "next_output": "next"
+        },
+        {
+          "key": "done",
+          "block": "done",
+          "state_input": "state",
+          "state_output": "state"
+        }
+      ]
+    }
+  },
+  "sources": [],
+  "assets": [
+    {
+      "file": "html-LICENSE",
+      "rel_path": "licenses/golang-x-net-LICENSE"
+    }
+  ]
+}

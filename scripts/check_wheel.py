@@ -38,18 +38,23 @@ def main():
             subprocess.run([str(python), "-c", "import career_fleet, sys; from pathlib import Path; assert Path(career_fleet.__file__).is_relative_to(Path(sys.prefix)), career_fleet.__file__"], cwd=workspace, env=env, check=True)
             run_help = subprocess.run([str(cli), "--help"], cwd=workspace, env=env, capture_output=True, text=True)
             assert run_help.returncode == 0, run_help.stderr
-            run_init = subprocess.run([str(cli), "init"], cwd=workspace, env=env, capture_output=True, text=True)
+            subprocess.run([str(cli), "build"], cwd=workspace, env=env, check=True)
+            run_init = subprocess.run([str(cli), "init", "--objective", "ceramic filtration"], cwd=workspace, env=env, capture_output=True, text=True)
             assert run_init.returncode == 0, run_init.stderr
+            assert (workspace / "research-request.json").is_file()
+            assert not (workspace / "profile.json").exists()
+            run_discover = subprocess.run([str(cli), "discover", "--request", str(repository / "examples/company-discovery/anonymous-sparse.json")], cwd=workspace, env=env, capture_output=True, text=True)
+            assert run_discover.returncode == 0, run_discover.stderr
+            import json
+            observed = json.loads(run_discover.stdout)["outputs"]["result"]
+            assert len(observed["candidates"]) == 2
+            assert observed["inference_calls"] == observed["network_requests"] == 0
             assert (workspace / "career_fleet.db").is_file()
-            assert (workspace / "profile.json").is_file()
-            run_prof = subprocess.run([str(cli), "profile"], cwd=workspace, env=env, capture_output=True, text=True)
-            assert run_prof.returncode == 0, run_prof.stderr
-            assert "IDEAL EMPLOYER PROFILE" in run_prof.stdout
             run_setup = subprocess.run([str(cli), "setup", "--workspace-root", str(workspace)], cwd=workspace, env=env, capture_output=True, text=True)
             assert run_setup.returncode == 0, run_setup.stderr
             assert (workspace / ".agents/skills/career-fleet/SKILL.md").is_file()
             mode = "reused system dependencies" if args.offline_system_deps else "fresh dependencies"
-            print(f"career-fleet: installed wheel setup, profile init, skill install, and CLI passed ({mode})")
+            print(f"career-fleet: installed wheel build, native Process execution, storage, and skill install passed ({mode})")
             return
 
 

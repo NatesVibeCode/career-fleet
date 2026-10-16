@@ -1,0 +1,116 @@
+{
+  "schema": "atlas.forge_stores.v1",
+  "patterns": [
+    {
+      "record": {
+        "kind": "node",
+        "key": "node.v1",
+        "schema_urn": "aeltum.node_spec.v1"
+      },
+      "digest": "144731dd834259d024c98b17ea7e62805ce5af074128133790a5dcdfafa0e24f"
+    }
+  ],
+  "bounds": [
+    {
+      "entry": {
+        "key": "company.research.value.length.nonnegative",
+        "kind": "count",
+        "subject": "length(*)",
+        "params": {
+          "min": 0
+        }
+      },
+      "digest": "0eaaaf1ab915e99fce36d0a92a22349320130ffed1ff51c70820441053d41f0e"
+    }
+  ],
+  "nodes": [],
+  "capabilities": [
+    {
+      "name": "public.https.explicit_url.read.v1",
+      "digest": "8b7b0ef894923198a1ae9131b66a04eb86bd5762e7fb45a683c68f52715da163"
+    }
+  ],
+  "pointers": [
+    {
+      "kind": "code",
+      "pointer": "discovery.local/process/nodes/open.Entry",
+      "path": "nodes/open/entry.go",
+      "digest": "752c5b9200071556ac01aecc4218dfb22848b88de04535749d5169ea5fbb5b0c"
+    },
+    {
+      "kind": "code",
+      "pointer": "discovery.local/process/nodes/selectwork.Entry",
+      "path": "nodes/selectwork/entry.go",
+      "digest": "a562a40d8503ea6faae8a1ed46dccdf93120631cc182213a10ff8289782a2c57"
+    },
+    {
+      "kind": "code",
+      "pointer": "discovery.local/process/nodes/request.Entry",
+      "path": "nodes/request/entry.go",
+      "digest": "52ba26638dd8ea8724907900d4c9b7b386d8b5426c6194d2e1a7bf5913951dbd"
+    },
+    {
+      "kind": "code",
+      "pointer": "discovery.local/process/nodes/bind.Entry",
+      "path": "nodes/bind/entry.go",
+      "digest": "d83bcb8fa4bf9dab12e2eec19d621f90e763b3bbff34158c1e033cfa0ee3fbae"
+    },
+    {
+      "kind": "code",
+      "pointer": "discovery.local/process/nodes/parse.Entry",
+      "path": "nodes/parse/entry.go",
+      "digest": "39f906ef70aa3d1bbc3f4f05fc279b01574e41b3f9ea0e782a900c54d67332f1"
+    },
+    {
+      "kind": "code",
+      "pointer": "discovery.local/process/nodes/merge.Entry",
+      "path": "nodes/merge/entry.go",
+      "digest": "c39ad8528e1faafc40801635a969f157223d305385c2c491c8fb0945b27d75b4"
+    },
+    {
+      "kind": "code",
+      "pointer": "discovery.local/process/nodes/match.Entry",
+      "path": "nodes/match/entry.go",
+      "digest": "dfafaef5be9e978e06e99f6e99c3a4def1add123a6ee60508607a13cf730f5c1"
+    },
+    {
+      "kind": "code",
+      "pointer": "discovery.local/process/nodes/extract.Entry",
+      "path": "nodes/extract/entry.go",
+      "digest": "7b6611882fdf423d0901665d9fe38615cc08b9b44c64bf772de6df8264a983fd"
+    },
+    {
+      "kind": "code",
+      "pointer": "discovery.local/process/nodes/conditions.Entry",
+      "path": "nodes/conditions/entry.go",
+      "digest": "c9a9a2566374c13630d0918e8da3b0aacfab9d44627bb04d6a520ca14a1858f1"
+    },
+    {
+      "kind": "code",
+      "pointer": "discovery.local/process/nodes/planwork.Entry",
+      "path": "nodes/planwork/entry.go",
+      "digest": "bf53bcd6000c3f539bbfc5ba4d6e60d2f20de0acbd590e824654be578a7a86e1"
+    },
+    {
+      "kind": "code",
+      "pointer": "discovery.local/process/nodes/done.Entry",
+      "path": "nodes/done/entry.go",
+      "digest": "66b92127795b2f6ce40fadde65516450eb5f277bb964f6dfd033a75b61aff803"
+    },
+    {
+      "kind": "adapter",
+      "pointer": "discovery.local/process/nodes/capture.Entry",
+      "path": "nodes/capture/entry.go",
+      "digest": "c69c6180b3b1d733bb848e3e42aed16923ac760fe92833a4b3a8906bd30c0117"
+    },
+    {
+      "kind": "adapter",
+      "pointer": "discovery.local/process/nodes/capturerecover.Entry",
+      "path": "nodes/capturerecover/entry.go",
+      "digest": "2702a3448a4b47a9509bb7951d76870ba85706eb0235c76dac9b9ce009903660"
+    }
+  ],
+  "routes": null,
+  "prompts": [],
+  "interpreters": null
+}

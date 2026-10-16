@@ -9,6 +9,7 @@ authenticated but answers with a bad receipt is a wiring regression, so it
 fails here rather than hiding as another skip — otherwise this file can never
 report the breakage it exists to catch.
 """
+import os
 import shutil
 
 import pytest
@@ -38,6 +39,7 @@ CASES = [
 ]
 
 
+@pytest.mark.skipif(os.environ.get("HARNESS_FLEET_LIVE_TESTS") != "1", reason="live harness execution requires explicit opt-in and existing provider authority")
 @pytest.mark.parametrize("name,binary,provider_cls,route_id", CASES)
 def test_live_ping(name, binary, provider_cls, route_id):
     if shutil.which(binary) is None:

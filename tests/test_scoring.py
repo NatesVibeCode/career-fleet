@@ -1,4 +1,5 @@
 import time
+from datetime import datetime, timezone
 
 from harness_fleet.models import RoutePolicy
 from harness_fleet.scoring import RouteScorer, filter_and_rank_routes
@@ -14,6 +15,8 @@ def test_route_scoring_ranks_verified_over_failed(tmp_path):
         {"id": "route/bad", "provider": "openrouter", "enabled": True},
     ]
 
+    # This check compares fresh observations; a fixed historical date would decay.
+    created_at = datetime.now(timezone.utc).isoformat()
     # Insert fake model runs
     with store.connect() as conn:
         for i in range(10):
@@ -21,16 +24,16 @@ def test_route_scoring_ranks_verified_over_failed(tmp_path):
                 """INSERT INTO model_runs(
                     receipt_id, run_id, batch_id, provider, requested_route, status,
                     cost, cost_status, error, duration_seconds, receipt_json, created_at
-                ) VALUES(?, 'r1', 'b1', 'openrouter', 'route/good', 'complete', 0, 'reported_zero', NULL, 1.2, '{}', '2026-09-09')""",
-                (f"rec-good-{i}",),
+                ) VALUES(?, 'r1', 'b1', 'openrouter', 'route/good', 'complete', 0, 'reported_zero', NULL, 1.2, '{}', ?)""",
+                (f"rec-good-{i}", created_at),
             )
         for i in range(10):
             conn.execute(
                 """INSERT INTO model_runs(
                     receipt_id, run_id, batch_id, provider, requested_route, status,
                     cost, cost_status, error, duration_seconds, receipt_json, created_at
-                ) VALUES(?, 'r1', 'b1', 'openrouter', 'route/bad', 'failed', 0, 'reported_zero', 'malformed JSON', 5.0, '{}', '2026-09-09')""",
-                (f"rec-bad-{i}",),
+                ) VALUES(?, 'r1', 'b1', 'openrouter', 'route/bad', 'failed', 0, 'reported_zero', 'malformed JSON', 5.0, '{}', ?)""",
+                (f"rec-bad-{i}", created_at),
             )
 
     scores = scorer.score_routes(routes)
