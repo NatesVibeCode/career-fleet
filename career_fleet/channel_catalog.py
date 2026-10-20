@@ -210,7 +210,7 @@ def default_sources(pages: int = 1, enable_browser: bool = False) -> list[dict]:
             if source["id"] == "marketplace.producthunt":
                 source["record_kind"] = "product"
                 source["detail_url_template"] = "https://www.producthunt.com/products/{slug}"
-                source["readiness"]["results_selector"] = 'button[data-test^="spotlight-result-product-"]' 
+                source["readiness"]["results_selector"] = 'button[data-test^="spotlight-result-product-"]'
                 source["browser_mapping"] = {
                     "item_selector": 'button[data-test^="spotlight-result-product-"]',
                     "title_selector": "span.text-base.font-semibold",
@@ -219,7 +219,7 @@ def default_sources(pages: int = 1, enable_browser: bool = False) -> list[dict]:
                 }
             elif source["id"] == "marketplace.wellfound":
                 source["record_kind"] = "organization"
-                source["readiness"]["results_selector"] = 'a[href^="/company/"] h2' 
+                source["readiness"]["results_selector"] = 'a[href^="/company/"] h2'
                 source["browser_mapping"] = {
                     "item_selector": "div.rounded-lg.border.border-gray-400",
                     "title_selector": 'a[href^="/company/"] h2',
