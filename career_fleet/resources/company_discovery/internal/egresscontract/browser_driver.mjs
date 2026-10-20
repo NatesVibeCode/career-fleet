@@ -8,6 +8,7 @@ import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
 const contexts = new Map();
+const openingContexts = new Set();
 const networkWaiters = new Map();
 let browser;
 let initialized = false;
@@ -24,6 +25,7 @@ async function finish() {
   networkWaiters.clear();
   if (browser) await browser.close().catch(() => {});
   contexts.clear();
+  openingContexts.clear();
 }
 
 async function initialize(message) {
@@ -48,16 +50,29 @@ async function routed(state, route, scope) {
   const selected = {};
   for (const name of ['accept', 'accept-language', 'cookie']) if (typeof headers[name] === 'string') selected[name] = headers[name];
   const response = new Promise((resolve, reject) => {
-    const timer = setTimeout(() => { networkWaiters.delete(id); reject(new Error('request_timeout')); }, scope.timeout_ms);
+    const timer = scope.timeout_ms > 0 ? setTimeout(() => { networkWaiters.delete(id); reject(new Error('request_timeout')); }, scope.timeout_ms) : null;
     networkWaiters.set(id, { resolve: value => { clearTimeout(timer); resolve(value); }, reject: error => { clearTimeout(timer); reject(error); } });
   });
   send({ type: 'request', call_id: scope.call_id, request_id: id, url: request.url(), method: request.method(),
     resource_type: request.resourceType(), redirects, headers: selected });
   try {
     const value = await response;
-    if (value.denied) { await route.abort('blockedbyclient'); return; }
+    if (value.denied) {
+      if (value.error === 'request_allowance_exhausted' && scope.abort) scope.abort(value.error);
+      await route.abort('blockedbyclient'); return;
+    }
     await route.fulfill({ status: value.status, headers: value.headers, body: Buffer.from(value.body_base64, 'base64') });
   } catch { await route.abort('blockedbyclient').catch(() => {}); }
+}
+
+async function captureProgram(page, body) {
+  // Go verifies the exact program digest before transport. The argument value
+  // stays separately serialized; it cannot rewrite the selected program.
+  return page.evaluate(({program,args}) => {
+    const capture = (0, eval)('(' + program + '\n)');
+    if (typeof capture !== 'function') throw new Error('capture_function_required');
+    return capture(args);
+  }, {program:body.program,args:body.arguments});
 }
 
 async function call(message) {
@@ -67,30 +82,78 @@ async function call(message) {
     const old = contexts.get(body.context_id);
     if (old) {
       if (old.owner !== message.owner || old.intent !== body.intent_digest || old.origin_hash !== message.origin_hash) throw new Error('context_intent_conflict');
+      if (message.exclusive) throw new Error('context_busy');
       return { ...ref(old), expires_at: old.expires_at, status: 'opened' };
     }
-    if (contexts.size >= message.max_contexts) throw new Error('context_bound');
-    const context = await browser.newContext({ serviceWorkers: 'block', acceptDownloads: false });
-    const state = { id: body.context_id, owner: message.owner, intent: body.intent_digest, origin_hash: message.origin_hash,
-      context, page: null, generation: 0, active: null, uncertain: false, last_status: 0,
-      expires_at: new Date(Date.now() + message.lease_ms).toISOString(), lease: null };
-    await context.route('**/*', route => {
-      const scope = state.active;
-      const pending = routed(state, route, scope);
-      if (scope) {
-        scope.pending.add(pending);
-        pending.then(() => scope.pending.delete(pending), () => scope.pending.delete(pending));
-      }
-      return pending;
+    if (openingContexts.has(body.context_id)) throw new Error('context_busy');
+    if (message.max_contexts > 0 && contexts.size + openingContexts.size >= message.max_contexts) throw new Error('context_bound');
+    // Reserve before the first await: input frames execute concurrently.
+    openingContexts.add(body.context_id);
+    let context;
+    try {
+      context = await browser.newContext({ serviceWorkers: 'block', acceptDownloads: false });
+      const state = { id: body.context_id, owner: message.owner, intent: body.intent_digest, origin_hash: message.origin_hash,
+        context, page: null, generation: 0, active: null, uncertain: false, last_status: 0,
+        expires_at: message.lease_ms > 0 ? new Date(Date.now() + message.lease_ms).toISOString() : '', lease: null };
+      await context.route('**/*', route => {
+        const scope = state.active;
+        const pending = routed(state, route, scope);
+        if (scope) {
+          scope.pending.add(pending);
+          pending.then(() => scope.pending.delete(pending), () => scope.pending.delete(pending));
+        }
+        return pending;
+      });
+      await context.routeWebSocket('**/*', ws => ws.close());
+      context.on('page', page => { if (state.page && page !== state.page) page.close().catch(() => {}); });
+      const page = await context.newPage(); state.page = page;
+      page.on('dialog', dialog => dialog.dismiss().catch(() => {}));
+      page.on('response', response => { try { const request = response.request(); if (request.isNavigationRequest() && request.frame() === page.mainFrame()) state.last_status = response.status(); } catch {} });
+      if (message.lease_ms > 0) {
+        state.lease = setTimeout(async () => { contexts.delete(state.id); await context.close().catch(() => {}); }, message.lease_ms);
+        state.lease.unref();
+      } contexts.set(state.id, state);
+      return { ...ref(state), expires_at: state.expires_at, status: 'opened' };
+    } catch (error) {
+      if (context) await context.close().catch(() => {});
+      throw error;
+    } finally {
+      openingContexts.delete(body.context_id);
+    }
+  }
+  if (message.method === 'READ') {
+    // One anonymous document read owns its entire ephemeral context. The exact
+    // Node-pinned program decides readiness/extraction; there is no idle gap
+    // between navigation and capture that would silently block later XHRs.
+    await call({ ...message, method: 'OPEN', exclusive: true, body: { context_id: body.context_id, intent_digest: body.intent_digest } });
+    const state = contexts.get(body.context_id);
+    if (state.active) throw new Error('context_busy');
+    const page = state.page;
+    const scope = { call_id: message.id, timeout_ms: message.timeout_ms, pending: new Set(), failure: '' };
+    const refused = new Promise((_, reject) => {
+      scope.abort = code => { scope.failure = code; reject(new Error(code)); };
     });
-    await context.routeWebSocket('**/*', ws => ws.close());
-    context.on('page', page => { if (state.page && page !== state.page) page.close().catch(() => {}); });
-    const page = await context.newPage(); state.page = page;
-    page.on('dialog', dialog => dialog.dismiss().catch(() => {}));
-    page.on('response', response => { try { const request = response.request(); if (request.isNavigationRequest() && request.frame() === page.mainFrame()) state.last_status = response.status(); } catch {} });
-    state.lease = setTimeout(async () => { contexts.delete(state.id); await context.close().catch(() => {}); }, message.lease_ms);
-    state.lease.unref(); contexts.set(state.id, state);
-    return { ...ref(state), expires_at: state.expires_at, status: 'opened' };
+    state.active = scope;
+    page.setDefaultTimeout(message.timeout_ms); page.setDefaultNavigationTimeout(message.timeout_ms);
+    try {
+      state.generation++;
+      const reading = (async () => {
+        await page.goto(body.url, { waitUntil: 'domcontentloaded', timeout: message.timeout_ms });
+        if (state.last_status < 200 || state.last_status >= 300) throw new Error('document_http_failure');
+        return captureProgram(page, body);
+      })();
+      const payload = await Promise.race([reading, refused]);
+      return { ...ref(state), status: 'read', status_code: state.last_status,
+        captured_at: new Date().toISOString(), payload };
+    } finally {
+      const scope = state.active;
+      state.active = null;
+      await Promise.allSettled([...scope.pending]);
+      clearTimeout(state.lease);
+      await state.context.close().catch(() => {});
+      contexts.delete(state.id);
+      if (scope.failure) throw new Error(scope.failure);
+    }
   }
   const state = contexts.get(body.context_id);
   if (!state || state.owner !== message.owner || state.origin_hash !== message.origin_hash) throw new Error('session_lost');
@@ -174,11 +237,7 @@ async function call(message) {
       // The Go side verifies this program's exact policy-pinned SHA-256.
       // Playwright treats a string as an expression. Explicitly invoke the
       // Node-owned function with its separately serialized arguments.
-      const payload = await page.evaluate(({program,args}) => {
-        const capture = (0, eval)('(' + program + '\n)');
-        if (typeof capture !== 'function') throw new Error('capture_function_required');
-        return capture(args);
-      }, {program:body.program,args:body.arguments});
+      const payload = await captureProgram(page, body);
       return { ...ref(state), status: 'captured', status_code: state.last_status,
         captured_at: new Date().toISOString(), payload };
     }
@@ -198,10 +257,13 @@ input.on('line', line => {
     const waiter = networkWaiters.get(message.request_id);
     if (waiter) { networkWaiters.delete(message.request_id); waiter.resolve(message); }
   } else if (message.type === 'initialize') {
-    initialize(message).catch(() => errorResult(0, 'runtime_unavailable'));
+    initialize(message).catch(error => {
+      console.error('browser initialization failed:', error.stack || error.message);
+      errorResult(0, 'runtime_unavailable');
+    });
   } else if (message.type === 'call') {
     call(message).then(result => send({ type: 'result', id: message.id, result }),
-      error => errorResult(message.id, ['session_lost','stale_page','context_busy','context_intent_conflict','context_bound','driver_numeric_representation','control_cardinality','control_type','submission_scope','submission_validate','submission_fill','submission_form_data','submission_navigation','continuation_scope','unsupported_primitive'].includes(error.message) ? error.message : 'browser_operation_failed'));
+      error => errorResult(message.id, ['session_lost','stale_page','context_busy','context_intent_conflict','context_bound','driver_numeric_representation','control_cardinality','control_type','submission_scope','submission_validate','submission_fill','submission_form_data','submission_navigation','continuation_scope','unsupported_primitive','request_allowance_exhausted','document_http_failure'].includes(error.message) ? error.message : 'browser_operation_failed'));
   } else errorResult(0, 'invalid_frame');
 });
 input.on('close', () => { finish().finally(() => process.exit(0)); });

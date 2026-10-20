@@ -1,0 +1,34 @@
+{
+  "schema": "forge.node_boundary_assessment.v2",
+  "node_spec_digest": "08b731771da607413d57c8689d6642cf7be05b8265f7ead503996eb9d2f1dcce",
+  "source_bundle_digest": "7e18fa7a2628a5a1db5c1760e606e2f58f68f3129efd9ae46895be9988bbb0ae",
+  "test_bundle_digest": "83d50fadd0d73ce80762832747695de7fa28148ad088297263c73ffbc8b8c63c",
+  "outcome": "Bind explicit organization identity and website relationships with source evidence",
+  "outcome_id": "completed",
+  "decision": "keep",
+  "rationale": "Reviewed the selected Entry adapter and its reachable core helpers. Its public fields jointly describe this single transformation or effect result. Selection, acquisition, retention, byte loading, extraction, identity, evidence assessment and recovery are independently composed Nodes; this adapter does not choose another workflow.",
+  "reuse": [
+    {
+      "scope": "Existing Career Fleet deterministic core, codecs and selected tokenizer source closure",
+      "evidence_digest": "7e18fa7a2628a5a1db5c1760e606e2f58f68f3129efd9ae46895be9988bbb0ae",
+      "finding": "atomic_helper",
+      "rationale": "These copied helpers implement this Entry result and carry no independently invoked Node authority. The exact selected Node is reused by the authored Process and source Blocks; no self-reuse or inferred catalog admission is claimed."
+    }
+  ],
+  "stages": [
+    {
+      "name": "identity",
+      "role": "outcome",
+      "outcome": "Bind explicit organization identity and website relationships with source evidence",
+      "independently_useful": true,
+      "separate_authority": false,
+      "separate_recovery": false,
+      "atomic_helper": false,
+      "decision": "keep",
+      "rationale": "The source-reviewed Entry exposes this outcome. Auxiliary phase selectors and carried state deliver the same transformation; effect and recovery boundaries remain explicit in the Process.",
+      "output_fields": [
+        "state"
+      ]
+    }
+  ]
+}

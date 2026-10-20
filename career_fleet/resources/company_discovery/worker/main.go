@@ -187,7 +187,7 @@ func runtimeFillsFor(n processNode, runtimeValues map[string]string, sequence in
 				return nil, fmt.Errorf("runtime input %s requires event identity", field)
 			}
 			out[field] = value
-		case "receipt_replacement_producer", "receipt_replacement_custody", "activation_context":
+		case "receipt_replacement_producer", "receipt_replacement_custody", "activation_context", "settled_checkpoint":
             // Resolved from actual phase preparation by the private kernel.
             continue
 		case "invocation_authority", "settled_failures", "continuation_status":
@@ -222,7 +222,7 @@ func main() {
 	}
 }
 
-func run() error {
+func run() (runErr error) {
 	start := time.Now()
 	f, err := flags(os.Args[1:])
 	if err != nil {
@@ -292,7 +292,7 @@ if false {
 		record.TokenEnv = f.approvalTokenEnv
 		harnessResume = record
 	}
-	if f.authority {return describeAuthority(comp,nodes)}
+	if f.authority {return describeAuthority(comp,processDoc,nodes)}
 	edges := processEdges(processDoc)
 	if dep != nil {
 		if p,ok:=processDoc["process"].(map[string]any);ok&&p["policy"]!=nil&&len(dep.fills)>0{return fmt.Errorf("process configuration requires a new configured Process revision")}
@@ -324,6 +324,18 @@ if false {
 	}
 	boundary, err := bindProcess(processDoc, nodes, f, dep, edges)
 	if err != nil { return err }
+	var eventClaim *executionjournal.Journal
+	// A refusal after boundary binding retains its actual Process context.
+	// Event execution is claimed only after beginEvent acquired real custody;
+	// this does not complete, publish or authorize recovery of failed work.
+	defer func(){
+		if runErr==nil || boundary==nil{return};if _,reported:=runErr.(reportedFailure);reported{return}
+		result:=map[string]any{"ok":false,"error":runErr.Error(),"failure":failureFields(runErr),"process":boundary.ref,"exposure":boundary.exposure,"composition":comp}
+		var sourceFailure *processFailure
+		if errors.As(runErr,&sourceFailure){result["source"]=sourceFailure.source;result["node"]=sourceFailure.node}
+		if eventClaim!=nil{result["event_id"]=f.eventID;result["event_payload_digest"]=eventClaim.PayloadDigest();result["execution_mode"]="executed_event";if eventClaim.Resumed(){result["execution_mode"]="resumed_event"}}
+		raw,e:=marshalWorkerResponse(result);if e!=nil{return};fmt.Println(string(raw));runErr=reportedFailure{}
+	}()
  if err:=validateRuntimePortBindings(nodes,edges);err!=nil{return err}
 	inv, err := checkTriggerGate(comp, dep, nodes, f)
 	if err != nil {
@@ -418,7 +430,7 @@ if false {
 		var retained map[string]any
 		if err:=decodeProcessJSON(cached.Response,&retained);err!=nil{return err}
 		retained["execution_mode"]="retained_event"
-		raw,err:=marshalWorkerResponse(retained);if err!=nil{return err};fmt.Println(string(raw))
+		raw,err:=marshalWorkerResponse(retained);if err!=nil{return err};printDevelopmentOutcome(raw)
 		if cached.Failed{return reportedFailure{}};return nil
 	}
 	beginNodeTimings(progression == nil && len(loops) == 0)
@@ -429,6 +441,7 @@ if false {
 	// strings, so the loop API and existing readers are unchanged.
 	typedFailures:=map[string]map[string]any{}
 	recovery:=newRecoveryRun(boundary,eventClaim)
+ recovery.settledCheckpoints,err=settledCheckpointBindings(processDoc);if err!=nil{return err}
 	// Intrinsic runtime inputs are generated here: the event identity comes
 	// from the execution flags and the invocation identity is the exact
 	// digest of composition, event and payload. A Node that declares runtime
@@ -454,7 +467,7 @@ if false {
 	if progression != nil {
 		if eventClaim==nil {return fmt.Errorf("progression requires event identity and execution-owned state directory")}
 		activationBodies, err = runWorkerProgression(progression, nodes, edges, specs, bv, recovery, comp, boundary, f, deployEnv, results, failures, unknowns, typedFailures, runtimeValues, continuation)
-		if err != nil { return err }
+		if err != nil && !retainProgressionFailure(err, activationBodies, failures, typedFailures) { return err }
 	} else {
 	if runtimeNeeded {
 		ordinal:=0
@@ -582,10 +595,11 @@ if false {
 	// one shipped; without one, the composition is the root.
 	prev := comp
 	declarationDigest:=""
- receiptProjection:=""
+	receiptProjection:=""
+	if process,ok:=processDoc["process"].(map[string]any);ok{if policy,ok:=process["policy"].(map[string]any);ok{receiptProjection,_=policy["receipt_projection"].(string)}}
 	if declRaw, err := os.ReadFile("declaration.json"); err == nil {
 		var declaration map[string]json.RawMessage
- if json.Unmarshal(declRaw,&declaration)==nil{_ = json.Unmarshal(declaration["receipt_projection"],&receiptProjection)}
+ if json.Unmarshal(declRaw,&declaration)==nil && receiptProjection==""{_ = json.Unmarshal(declaration["receipt_projection"],&receiptProjection)}
  sum := sha256.Sum256(declRaw)
 		declarationDigest=hex.EncodeToString(sum[:])
 		rooted, ok := canonDigest(map[string]any{
@@ -667,18 +681,23 @@ if false {
 	if progression!=nil {result["activation_count"]=len(activationBodies)}
 	if boundary!=nil && (boundary.recovery!=nil || boundary.progression) && declarationDigest!=""{result["declaration_digest"]=declarationDigest}
 	if eventClaim!=nil {result["event_id"]=f.eventID;result["event_payload_digest"]=eventClaim.PayloadDigest();result["execution_mode"]="executed_event"}
+	// A validated frontier terminal may deliver useful pending outputs while
+	// original child failures remain sealed. This is neither head publication
+	// nor successful settlement of that work. Unknown outcomes retain refusal.
+	pendingDelivery := boundary != nil && progression != nil && progression.Frontier != nil && continuation.isPending() && len(unknowns) == 0
 	if len(failures)>0 {keys:=make([]string,0,len(failures));for key:=range failures {keys=append(keys,key)};sort.Strings(keys);result["ok"]=false;result["node"]=keys[0];result["error"]=failures[keys[0]];if record,ok:=typedFailures[keys[0]];ok{result["failure"]=record}}
 	if len(unknowns)>0 {keys:=make([]string,0,len(unknowns));for key:=range unknowns {keys=append(keys,key)};sort.Strings(keys);result["ok"]=false;result["status"]="outcome_unknown";result["error"]="process outcome remains unknown; unresolved Nodes require reconciliation";if record,ok:=typedFailures[keys[0]];ok{result["failure"]=record}}
 	if boundary != nil {
 		result["process"]=boundary.ref;result["exposure"]=boundary.exposure
-		if len(failures)==0 && len(unknowns)==0 {outputs,err:=boundary.project(results);if err!=nil {return err};result["outputs"]=outputs} else if len(failures)>0 {
+		if pendingDelivery || len(failures)==0 && len(unknowns)==0 {outputs,err:=boundary.project(results);if err!=nil {return err};result["outputs"]=outputs}
+		if len(failures)>0 {
 			keys:=make([]string,0,len(failures));for key:=range failures {keys=append(keys,key)};sort.Strings(keys);key:=keys[0]
 			result["ok"]=false;result["error"]=failures[key];result["node"]=key;result["source"]=boundary.sources[key];if record,ok:=typedFailures[key];ok{result["failure"]=record}
 		}
 	}
+	if pendingDelivery { result["ok"] = true }
 	if eventClaim!=nil && eventClaim.Resumed(){result["execution_mode"]="resumed_event"}
 	if len(unknowns)>0 {keys:=make([]string,0,len(unknowns));for key:=range unknowns {keys=append(keys,key)};sort.Strings(keys);result["ok"]=false;result["status"]="outcome_unknown";result["error"]="process outcome remains unknown; unresolved Nodes require reconciliation";if record,ok:=typedFailures[keys[0]];ok{result["failure"]=record}}
-	if boundary!=nil && (boundary.recovery!=nil || boundary.progression) && !f.diagnostics {delete(result,"nodes");delete(result,"continuation")}
 	out, err := marshalWorkerResponse(result)
 	if err != nil {
 		return err
@@ -690,6 +709,7 @@ if false {
 	}
 	// Freeze exact private execution bytes before public projection mutates receipt maps.
 	privateExecutionJSON:=string(out)
+	if boundary!=nil && (boundary.recovery!=nil || boundary.progression) && !f.diagnostics {delete(result,"nodes");delete(result,"continuation");out,err=marshalWorkerResponse(result);if err!=nil{return err}}
 	if boundary!=nil && (boundary.recovery==nil || receiptProjection=="public_process_outputs") && f.tool!="" && !f.diagnostics {
 		delete(result,"nodes")
 		for _,entry:=range receipts {receipt:=entry.(map[string]any);delete(receipt,"outputs");delete(receipt,"error");delete(receipt,"failure");if execution,ok:=receipt["execution"].(map[string]any);ok{delete(execution,"settled_failure_capsule");delete(execution,"receipt_replacement");delete(execution,"target_checkpoint");delete(execution,"resolution")}}
@@ -698,10 +718,42 @@ if false {
  if receiptProjection=="public_process_outputs" {result["diagnostic_outputs_omitted"]=true}
 		out,err=marshalWorkerResponse(result);if err!=nil {return err}
 	}
+	if eventClaim!=nil && continuation.isPending() { if err:=continuation.recordPendingDelivery(out,privateExecutionJSON,len(failures)>0||len(unknowns)>0);err!=nil{return fmt.Errorf("pending delivery not recorded; retained work is unchanged: %w",err)} }
 	if eventClaim!=nil && len(unknowns)==0 && !continuation.isPending() {if err:=eventClaim.Complete(executionjournal.Outcome{Response:out,ExecutionResponseJSON:privateExecutionJSON,Failed:len(failures)>0});err!=nil{return fmt.Errorf("event completion not recorded; inspect before retrying: %w",err)}}
 	printDevelopmentOutcome(out)
-	if len(failures)>0 || len(unknowns)>0 {return reportedFailure{}}
+	if len(unknowns)>0 || len(failures)>0 && !pendingDelivery {return reportedFailure{}}
 	return nil
+}
+
+// Preserve the actual failed activation chain for an ordinary Node refusal.
+// Setup, custody, approval and unresolved outcomes still leave through their
+// original refusal path; an error without a matching activation is not evidence.
+func retainProgressionFailure(err error, records []map[string]any, failures map[string]string, typedFailures map[string]map[string]any) bool {
+ if err==nil{return false}
+ var checkpoint *checkpointFailure
+ var unknown *recoveryUnknown
+ var approval *harnessApproval
+ if errors.As(err,&checkpoint)||errors.As(err,&unknown)||errors.As(err,&approval){return false}
+ matched:=false
+ for _,record:=range records {
+  state,_:=record["state"].(string)
+  if state!="succeeded"&&state!="failed"{return false}
+  if state!="failed"{continue}
+  key,_:=record["node"].(string)
+  activation,_:=record["activation"].(string)
+  message,_:=record["error"].(string)
+  failure,ok:=record["failure"].(map[string]any)
+  if key==""||activation==""||message==""||!ok||failure["display"]!=message{return false}
+  if message==err.Error(){matched=true}
+ }
+ if !matched{return false}
+ for _,record:=range records {
+  if record["state"]!="failed"{continue}
+  key:=record["node"].(string)
+  failures[key]=record["error"].(string)
+  typedFailures[key]=record["failure"].(map[string]any)
+ }
+ return true
 }
 
 // JSON receipts carry text as UTF-8; redundant HTML escaping is unnecessary.
@@ -741,6 +793,8 @@ type cliFlags struct {
  invocationAuthorityPackageDigest string
 	eventID string
 	eventState string
+	providerHTTPSPipe bool
+	providerHTTPSPackageDigest string
 	publicReadPipe bool
 	publicReadPackageDigest string
 	authority bool
@@ -768,11 +822,12 @@ func flags(args []string) (cliFlags, error) {
 	var f cliFlags
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
+		case "-provider-https-pipe": f.providerHTTPSPipe=true
 		case "-public-read-pipe": f.publicReadPipe=true
 		case "-authority": f.authority=true
 		case "-diagnostics": f.diagnostics=true
 		case "-h", "-help", "--help": f.help=true
-		case "-invocation-authority-fd", "-invocation-authority-package-digest", "-process", "-token-env", "-deployment-key-env", "-trigger", "-trigger-sig-env", "-evidence-get", "-input", "-tool", "-flow", "-credential-grants", "-credential-mode", "-egress-bindings", "-event-id", "-event-state-dir", "-public-read-package-digest", "-cwd", "-resume", "-approval-token-env", "-execution-control", "-control-sequence", "-control-reason":
+		case "-invocation-authority-fd", "-invocation-authority-package-digest", "-process", "-token-env", "-deployment-key-env", "-trigger", "-trigger-sig-env", "-evidence-get", "-input", "-tool", "-flow", "-credential-grants", "-credential-mode", "-egress-bindings", "-event-id", "-event-state-dir", "-provider-https-package-digest", "-public-read-package-digest", "-cwd", "-resume", "-approval-token-env", "-execution-control", "-control-sequence", "-control-reason":
 			if i+1 >= len(args) {
 				return cliFlags{}, fmt.Errorf("flag %s needs a value", args[i])
 			}
@@ -789,6 +844,7 @@ func flags(args []string) (cliFlags, error) {
 			case "-resume": f.resume=args[i]
 			case "-approval-token-env": f.approvalTokenEnv=args[i]
 			case "-event-state-dir": f.eventState=args[i]
+			case "-provider-https-package-digest": f.providerHTTPSPackageDigest=args[i]
 			case "-public-read-package-digest": f.publicReadPackageDigest=args[i]
 			case "-egress-bindings": f.egressBindings=args[i]
 			case "-credential-grants": f.credentialGrants=args[i]
@@ -824,6 +880,8 @@ func flags(args []string) (cliFlags, error) {
 		return cliFlags{}, fmt.Errorf("need -process PATH [-seal [-token-env key=NAME]] [-deployment-key-env NAME] [-trigger ID -trigger-sig-env NAME] [-evidence-get KEY]")
 	}
 	if (f.eventID=="")!=(f.eventState=="") {return cliFlags{},fmt.Errorf("event identity and execution-owned state directory must be supplied together")}
+	if f.providerHTTPSPipe != (f.providerHTTPSPackageDigest!="") || (f.providerHTTPSPipe && f.publicReadPipe) {return cliFlags{},fmt.Errorf("provider HTTPS pipe requires exclusive sealed package transport")}
+	if f.providerHTTPSPipe {if !strings.HasPrefix(f.providerHTTPSPackageDigest,"sha256:") || len(f.providerHTTPSPackageDigest)!=71 {return cliFlags{},fmt.Errorf("provider HTTPS package digest is invalid")};if _,err:=hex.DecodeString(strings.TrimPrefix(f.providerHTTPSPackageDigest,"sha256:"));err!=nil{return cliFlags{},fmt.Errorf("provider HTTPS package digest is invalid")}}
 	if f.publicReadPipe != (f.publicReadPackageDigest!="") {return cliFlags{},fmt.Errorf("public-read pipe and sealed package identity must be supplied together")}
 	if f.publicReadPipe {if !strings.HasPrefix(f.publicReadPackageDigest,"sha256:") || len(f.publicReadPackageDigest)!=71 {return cliFlags{},fmt.Errorf("public-read package digest is invalid")};if _,err:=hex.DecodeString(strings.TrimPrefix(f.publicReadPackageDigest,"sha256:"));err!=nil{return cliFlags{},fmt.Errorf("public-read package digest is invalid")}}
 	if (f.invocationAuthorityFD!=0)!=(f.invocationAuthorityPackageDigest!=""){return cliFlags{},fmt.Errorf("invocation authority descriptor and package identity required together")}
@@ -2697,7 +2755,7 @@ func (p *processRun) project(results map[string]map[string]any)(map[string]any,e
 }
 
 func readInferencePolicies()(map[string]egress.InferencePolicy,error){raw,err:=os.ReadFile("worker/inference.json");if os.IsNotExist(err){return map[string]egress.InferencePolicy{},nil};if err!=nil{return nil,err};return egress.ParseInferencePolicies(raw)}
-func describeAuthority(comp string,nodes []processNode) error {
+func describeAuthority(comp string,document map[string]any,nodes []processNode) error {
  inferencePolicies,err:=readInferencePolicies();if err!=nil{return err}
  descriptions:=[]any{}
  for _,node:=range nodes {
@@ -2719,7 +2777,8 @@ func describeAuthority(comp string,nodes []processNode) error {
   digest,err:=policy.Digest();if err!=nil{return err}
   descriptions=append(descriptions,map[string]any{"node_key":node.key,"execution":"trusted_shared_memory","policy_digest":digest,"policy":policy})
  }
- raw,err:=json.Marshal(map[string]any{"process_digest":comp,"nodes":descriptions});if err!=nil{return err};fmt.Println(string(raw));return nil
+ var processRef any;if process,ok:=document["process"].(map[string]any);ok{processRef=process["ref"]}
+ raw,err:=json.Marshal(map[string]any{"process_digest":comp,"process_ref":processRef,"nodes":descriptions});if err!=nil{return err};fmt.Println(string(raw));return nil
 }
 
 // operationClient deliberately hides handle cancellation and resolver
@@ -2794,8 +2853,11 @@ func(c inferenceClient)Infer(ctx context.Context,request egress.InferRequest)(eg
 }
 func (c operationClient) Do(ctx context.Context, request egress.OperationRequest) (egress.OperationResponse,error) {
  raw,err:=json.Marshal(request);if err!=nil{return egress.OperationResponse{},err}
- result,err:=c.handle.Invoke(ctx,raw);if err!=nil{return egress.OperationResponse{},err}
- var response egress.OperationResponse;err=json.Unmarshal(result.Response,&response);return response,err
+ result,callErr:=c.handle.Invoke(ctx,raw)
+ var response egress.OperationResponse
+ if len(result.Response)==0{if callErr!=nil{return response,callErr};return response,fmt.Errorf("operation response absent")}
+ if err:=json.Unmarshal(result.Response,&response);err!=nil{if callErr!=nil{return egress.OperationResponse{},fmt.Errorf("%w; operation response decoding failed: %v",callErr,err)};return egress.OperationResponse{},err}
+ return response,callErr
 }
 func (c operationClient) Stream(ctx context.Context, request egress.OperationRequest, onEvent egress.EventStreamHandler) (egress.OperationResponse,error) {
  if onEvent==nil{return egress.OperationResponse{},fmt.Errorf("event stream handler required")}
@@ -2830,10 +2892,15 @@ func prepareSelectedEgress(comp string,boundary *processRun,all []processNode,se
  handles:=map[string]egress.InvocationHandle{}
  browserAdapter:=egress.NewNativeBrowser()
  scoped:=false;for _,node:=range nodes {if dispatch[node.reference()].scoped!=nil || dispatch[node.reference()].scopedConfig!=nil || dispatch[node.reference()].infer!=nil {scoped=true}}
- if !scoped && f.credentialGrants=="" && f.egressBindings=="" && !f.publicReadPipe {return handles,nil}
+ if !scoped && f.credentialGrants=="" && f.egressBindings=="" && !f.publicReadPipe && !f.providerHTTPSPipe {return handles,nil}
  good:=false
  var err error
  var publicReadPipe *egress.PublicReadPipeClient
+ var providerHTTPSPipe *egress.ProviderHTTPSPipeClient
+ if f.providerHTTPSPipe {
+  if boundary==nil || f.eventID=="" || f.providerHTTPSPackageDigest=="" {return nil,fmt.Errorf("provider HTTPS pipe requires exact Process, EventID and package identity")}
+  providerHTTPSPipe,err=egress.OpenProviderHTTPSPipeClient();if err!=nil{return nil,fmt.Errorf("selected provider HTTPS pipe unavailable")}
+ }
  defer func(){if !good {cancelEgressHandles(handles);if publicReadPipe!=nil{_ = publicReadPipe.Close()}}}()
  if f.publicReadPipe {
   if boundary==nil || f.eventID=="" || f.publicReadPackageDigest=="" {return nil,fmt.Errorf("public-read pipe requires exact Process, EventID, and package identity")}
@@ -2888,7 +2955,13 @@ func prepareSelectedEgress(comp string,boundary *processRun,all []processNode,se
    selected:=map[string]bool{};for _,name:=range selection{selected[name]=true}
    for _,b:=range p.Bindings {if selection!=nil&&!selected[b.ID]{continue};if b.CredentialRef==""{continue};matches:=0;for i,g:=range grants {if g.NodeKey==node.key&&g.Operation==b.ID {if g.PolicyDigest!=digest||g.Ref!=b.CredentialRef{return nil,fmt.Errorf("inference grant binding mismatch")};used[i]=true;matches++}};if matches!=1{return nil,fmt.Errorf("node %s: exact inference binding grant required",node.key)}}
    sum:=sha256.Sum256(raw);id:=egress.Identity{RunID:runID,ProcessDigest:comp,NodeKey:node.key,NodeName:node.node,NodeDigest:node.digest,NodeSpecDigest:hex.EncodeToString(sum[:]),PolicyDigest:digest,Operation:"infer"}
-   handle,err:=egress.StartInference(context.Background(),id,p,selection,provider);if err!=nil{return nil,err};handles[node.key]=handle;continue
+   var handle egress.InvocationHandle
+   if f.providerHTTPSPipe {
+    policyRaw,marshalErr:=json.Marshal(p);if marshalErr!=nil{return nil,marshalErr};policySum:=sha256.Sum256(policyRaw)
+    claim:=egress.ProviderHTTPSClaim{PackageDigest:f.providerHTTPSPackageDigest,ProcessName:processName,ProcessDigest:processDigest,EventID:f.eventID,NodeKey:node.key,NodeName:node.node,NodeDigest:node.digest,NodeSpecDigest:hex.EncodeToString(sum[:]),PolicyDigest:hex.EncodeToString(policySum[:])}
+    handle,err=egress.StartInferenceWithTransport(context.Background(),id,p,selection,provider,func(b egress.ModelBinding)egress.TargetAdapter{selectedClaim:=claim;selectedClaim.Operation=b.ID;return egress.ProviderHTTPSPipe{Client:providerHTTPSPipe,Claim:selectedClaim}})
+   } else {handle,err=egress.StartInference(context.Background(),id,p,selection,provider)}
+   if err!=nil{return nil,err};handles[node.key]=handle;continue
   }
   var policy egress.Policy
   var policyRaw json.RawMessage
@@ -2921,6 +2994,12 @@ func prepareSelectedEgress(comp string,boundary *processRun,all []processNode,se
     claim:=egress.PublicReadClaim{PackageDigest:f.publicReadPackageDigest,ProcessName:processName,ProcessDigest:processDigest,EventID:f.eventID,NodeKey:node.key,NodeName:node.node,NodeDigest:node.digest,NodeSpecDigest:specDigest,PolicyDigest:hex.EncodeToString(policySum[:]),Operation:operation.ID}
     adapter=egress.PublicReadPipeHTTPS{Client:publicReadPipe,Claim:claim}
    }
+   if f.providerHTTPSPipe && policy.Mode==egress.ModeHTTPS {
+    policySum:=sha256.Sum256(policyRaw)
+    claim:=egress.ProviderHTTPSClaim{PackageDigest:f.providerHTTPSPackageDigest,ProcessName:processName,ProcessDigest:processDigest,EventID:f.eventID,NodeKey:node.key,NodeName:node.node,NodeDigest:node.digest,NodeSpecDigest:specDigest,PolicyDigest:hex.EncodeToString(policySum[:]),Operation:operation.ID}
+    adapter=egress.ProviderHTTPSPipe{Client:providerHTTPSPipe,Claim:claim}
+   }
+   if f.providerHTTPSPipe && (policy.Mode==egress.ModeBrowser || policy.Mode==egress.ModeLoopbackHTTP || policy.Mode==egress.ModeInfer) {return nil,fmt.Errorf("selected provider HTTPS pipe cannot transport %s",policy.Mode)}
    configurationDigest,configurationErr:=egress.ConfigurationSelectionDigest(node.configuration);if configurationErr!=nil{return nil,configurationErr};id.ConfigurationDigest=configurationDigest
    handle,err:=egress.StartBound(context.Background(),adapter,egress.Invocation{Identity:id,Policy:policy,Binding:binding,Credentials:provider});if err!=nil{
     cancelOperationHandles(policy,operationHandles)
@@ -3481,6 +3560,7 @@ func harnessInvoke(specPath string, inputs map[string]any) (outputs map[string]a
 	if handoff == nil {
 		return nil, nil, fmt.Errorf("harness handoff missing")
 	}
+	if handoff["executor"] == "sdk" { return harnessSDKInvoke(doc, handoff, inputs, specSurfaceTargets(doc, "inputs")) }
 	name, _ := handoff["harness"].(string)
 	contractRef, _ := handoff["contract"].(map[string]any)
 	wantDigest, _ := contractRef["digest"].(string)
@@ -3707,6 +3787,86 @@ func bindHarnessArms(nodes []processNode) error {
 		}
 	}
 	return nil
+}
+
+type harnessSDKFailure struct{ cause error; receipt map[string]any }
+func(e *harnessSDKFailure) Error()string{return e.cause.Error()}
+func(e *harnessSDKFailure) Unwrap()error{return e.cause}
+func(e *harnessSDKFailure) FailureRecord()map[string]any{return map[string]any{"code":"harness.sdk.execution_failed","identity":map[string]any{"attempt":e.receipt}}}
+
+// Only the launcher's pre-start refusal establishes an absent SDK effect.
+// A failed or interrupted child that actually started remains uncertain.
+func settledSDKStartupFailure(doc,evidence map[string]any)bool{
+ identity,_:=doc["identity"].(map[string]any);if identity["kind"]!="harness"{return false}
+ composition,_:=doc["composition"].(map[string]any);effects,_:=composition["effects"].([]any);if len(effects)!=1||effects[0]!="harness.invoke"{return false}
+ handoff:=specDimension(doc,"handoff");if handoff["executor"]!="sdk"{return false}
+ driver,_:=evidence["driver"].(map[string]any);if driver["type"]!="harness"{return false};attempt,_:=driver["receipt"].(map[string]any)
+ started,known:=attempt["started"].(bool);if !known||started||attempt["executor"]!="sdk"||attempt["status"]!="failed"||attempt["effect_outcome"]!="not_started"||attempt["harness"]!=handoff["harness"]{return false}
+ class,ok:=attempt["error_class"].(string);if !ok||class==""{return false}
+ for _,field:=range []string{"stdout_digest","stderr_digest","partial_stdout","diagnostics"}{if _,present:=attempt[field];present{return false}}
+ return true
+}
+
+func harnessSDKInvoke(doc, handoff map[string]any, inputs map[string]any, targets map[string]string) (outputs map[string]any, receipt map[string]any, err error) {
+ name,_:=handoff["harness"].(string)
+ sdk,ok:=handoff["sdk"].(map[string]any);if !ok{return nil,nil,fmt.Errorf("SDK declaration missing")}
+ get:=func(key string)string{v,_:=sdk[key].(string);return v}
+ receipt=map[string]any{"harness":name,"executor":"sdk","status":"failed","started":false,"effect_outcome":"not_started"}
+ fail:=func(class string,cause error)(map[string]any,map[string]any,error){receipt["error_class"]=class;return nil,receipt,&harnessSDKFailure{cause:cause,receipt:receipt}}
+ contractBytes,err:=os.ReadFile(get("contract_file"));if err!=nil{return fail("contract",err)}
+ var contractEnvelope map[string]map[string]string;if err=json.Unmarshal(contractBytes,&contractEnvelope);err!=nil{return fail("contract",err)}
+ raw,ok:=contractEnvelope["contracts"][name];if !ok{return fail("contract",fmt.Errorf("SDK contract not shipped"))}
+ ref,_:=handoff["contract"].(map[string]any);if ref["digest"]!="sha256:"+harnessContractDigest(raw){return fail("contract",fmt.Errorf("SDK contract changed"))}
+ contract,err:=harnessContractDocument(raw);if err!=nil{return fail("contract",err)}
+ declared,_:=contract["sdk"].(map[string]any);packages,_:=declared["packages"].(map[string]any);entries,_:=declared["entrypoints"].(map[string]any)
+ if packages[get("language")]!=get("package")||entries[get("language")]!=get("entrypoint"){return fail("contract",fmt.Errorf("SDK contract selection changed"))}
+ sha:=func(raw []byte)string{sum:=sha256.Sum256(raw);return hex.EncodeToString(sum[:])}
+ files,ok:=sdk["files"].(map[string]any);if !ok{return fail("material",fmt.Errorf("SDK material absent"))}
+ for file,pin:=range files{if filepath.IsAbs(file)||filepath.Clean(file)!=file||strings.HasPrefix(file,"../")||strings.Contains(file,"\\"){return fail("material",fmt.Errorf("SDK material path invalid"))};raw,e:=os.ReadFile(file);if e!=nil||"sha256:"+sha(raw)!=pin{return fail("material",fmt.Errorf("SDK material changed: %s",file))}}
+ runtimePin,ok:=sdk["runtime"].(map[string]any);if !ok{return fail("runtime",fmt.Errorf("SDK runtime absent"))}
+ binary,_:=runtimePin["binary"].(string)
+ selected:="";runtimeRoot:=""
+ if bundle,_:=runtimePin["bundle_file"].(string);bundle!=""{
+  pin,_:=runtimePin["bundle_digest"].(string);target,_:=runtimePin["target"].(string)
+  var cleanup func();runtimeRoot,selected,cleanup,err=egress.PrepareSDKRuntime(bundle,pin,binary,target);if err!=nil{return fail("runtime",err)};defer cleanup()
+ }else{selected,err=exec.LookPath(binary);if err!=nil{return fail("runtime",err)}}
+ binaryRaw,err:=os.ReadFile(selected);if err!=nil||sha(binaryRaw)!=runtimePin["sha256"]{return fail("runtime",fmt.Errorf("SDK runtime differs from Node pin"))}
+ runner,err:=filepath.Abs(get("runner_file"));if err!=nil{return fail("material",err)}
+ if files[get("runner_file")]!=get("runner_digest"){return fail("material",fmt.Errorf("SDK runner pin changed"))}
+ args:=[]string{};for _,raw:=range runtimePin["arguments"].([]any){value,ok:=raw.(string);if !ok{return fail("runtime",fmt.Errorf("SDK runtime argument shape"))};args=append(args,value)};args=append(args,runner)
+ request:=map[string]any{"harness":name,"distribution":get("package")}
+ for _,key:=range []string{"operation","version","module","entrypoint","adapter","adapter_digest","runner_digest","contract_digest","bindings_digest"}{request[key]=get(key)}
+ for field,target:=range targets{slot,ok:=strings.CutPrefix(target,"slot:");if !ok{return fail("input",fmt.Errorf("SDK input must bind an explicit slot"))};if _,exists:=request[slot];exists{return fail("input",fmt.Errorf("SDK input cannot replace implementation identity"))};request[slot]=inputs[field]}
+ body,err:=json.Marshal(request);if err!=nil{return fail("input",err)}
+ receipt["request_digest"]=sha(body);receipt["runtime_digest"]=runtimePin["sha256"]
+ ctx,stopSignals:=egress.SDKInvocationContext(context.Background());defer stopSignals();cancel:=func(){};defer func(){cancel()}()
+ if millis,ok:=runtimePin["timeout_ms"].(json.Number);ok{n,e:=millis.Int64();if e!=nil||n<0{return fail("runtime",fmt.Errorf("SDK timeout shape"))};if n>0{ctx,cancel=context.WithTimeout(ctx,time.Duration(n)*time.Millisecond)}}
+ cmd:=exec.CommandContext(ctx,selected,args...)
+ if err:=egress.ConfigureSDKCommand(cmd);err!=nil{return fail("runtime",err)}
+ if slot,_:=sdk["working_directory_slot"].(string);slot!=""{dir,_:=request[slot].(string);info,e:=os.Stat(dir);if !filepath.IsAbs(dir)||e!=nil||!info.IsDir(){return fail("input",fmt.Errorf("SDK working directory must be an existing absolute directory"))};cmd.Dir=dir}
+ cmd.Env=harnessChildEnv()
+ if runtimeRoot!=""{for i,value:=range cmd.Env{if strings.HasPrefix(value,"PATH="){cmd.Env[i]="PATH="+filepath.Join(runtimeRoot,"bin")+string(os.PathListSeparator)+strings.TrimPrefix(value,"PATH=")}};cmd.Env=append(cmd.Env,"PRAXIS_SDK_RUNTIME_ROOT="+runtimeRoot)}
+ secrets:=[]string{}
+ if names,ok:=sdk["environment"].([]any);ok{for _,raw:=range names{key,ok:=raw.(string);if !ok{return fail("environment",fmt.Errorf("SDK environment shape"))};if value,present:=os.LookupEnv(key);present{cmd.Env=append(cmd.Env,key+"="+value);if value!=""{secrets=append(secrets,value)}}}}
+ redact:=func(value string)string{sort.Slice(secrets,func(i,j int)bool{return len(secrets[i])>len(secrets[j])});for _,secret:=range secrets{value=strings.ReplaceAll(value,secret,"[redacted-credential]")};return value}
+ var stdout,stderr bytes.Buffer
+ outLog:=egress.NewSDKDiagnostics(os.Stderr,secrets);errLog:=egress.NewSDKDiagnostics(os.Stderr,secrets)
+ defer outLog.Close();defer errLog.Close()
+ cmd.Stdin=bytes.NewReader(body);cmd.Stdout=io.MultiWriter(&stdout,outLog);cmd.Stderr=io.MultiWriter(&stderr,errLog)
+ retainAttempt:=func(){raw,_:=json.Marshal(receipt);fmt.Fprintln(os.Stderr,"PRAXIS_SDK_ATTEMPT:"+string(raw))}
+ retainAttempt()
+ if err=cmd.Start();err!=nil{return fail("startup",err)}
+ receipt["started"]=true;receipt["effect_outcome"]="unknown"
+ retainAttempt()
+ err=cmd.Wait()
+ receipt["stdout_digest"]=sha(stdout.Bytes());receipt["stderr_digest"]=sha(stderr.Bytes());receipt["diagnostics"]=redact(stderr.String())
+ if err!=nil{receipt["partial_stdout"]=redact(stdout.String());return fail("process",fmt.Errorf("SDK operation failed: %w",err))}
+ result,err:=contractschema.DecodeJSON(stdout.Bytes());if err!=nil{receipt["partial_stdout"]=redact(stdout.String());return fail("output_shape",err)}
+ resultObject,ok:=result.(map[string]any);if !ok{return fail("output_shape",fmt.Errorf("SDK output must be an object"))}
+ outputs=map[string]any{}
+ for field,target:=range specSurfaceTargets(doc,"outputs"){key,ok:=strings.CutPrefix(target,"result:");if !ok{return fail("output_mapping",fmt.Errorf("SDK output mapping invalid"))};if key=="json"{outputs[field]=resultObject}else{value,present:=resultObject[key];if !present{return fail("output_mapping",fmt.Errorf("SDK output field missing: %s",key))};outputs[field]=value}}
+ receipt["status"]="succeeded";receipt["effect_outcome"]="returned"
+ return outputs,receipt,nil
 }
 
 // --- loop executor (F1) --------------------------------------------------
@@ -3988,6 +4148,8 @@ func restoreCheckpointFailure(out *executionjournal.NodeOutcome)error{
 }
 type checkpointFailure struct {cause error};func(e *checkpointFailure)Error()string{return "recovery checkpoint refused: "+e.cause.Error()};func(e *checkpointFailure)Unwrap()error{return e.cause}
 type recoveryRun struct {
+ settledCheckpoints []runtimeSettledCheckpointBinding
+ checkpointObservations sync.Map
  claim *executionjournal.Journal
  replacement *receiptReplacementNoop
  activationKeys map[string]string
@@ -4147,7 +4309,7 @@ func(r *recoveryRun)noteUnknown(key,digest,message string,cause error,probeKey s
 // or a claimed failure disposition. A sealed failure never becomes success.
 func settledRecoveryFailure(nodes []processNode,key string,evidence map[string]any)bool{
  var effects []any;found:=false
- for _,node:=range nodes{if node.key!=key{continue};found=true;entry,ok:=dispatch[node.reference()];if !ok{return false};doc,err:=specDocument(entry.spec);if err!=nil{return false};composition,ok:=doc["composition"].(map[string]any);if !ok{return false};effects,ok=composition["effects"].([]any);if !ok{return false};identity,_:=doc["identity"].(map[string]any);if len(effects)==0&&identity["kind"]!="function"{return false};break}
+ for _,node:=range nodes{if node.key!=key{continue};found=true;entry,ok:=dispatch[node.reference()];if !ok{return false};doc,err:=specDocument(entry.spec);if err!=nil{return false};composition,ok:=doc["composition"].(map[string]any);if !ok{return false};effects,ok=composition["effects"].([]any);if !ok{return false};identity,_:=doc["identity"].(map[string]any);if settledSDKStartupFailure(doc,evidence){return true};if len(effects)==0&&identity["kind"]!="function"{return false};break}
  if !found{return false};if len(effects)==0{return true}
  readOnly:=true;atomicOnly:=true
  for _,effect:=range effects{switch effect{case "infer.api","decision.api","network.read","filesystem.read":default:readOnly=false};if effect!="filesystem.read"&&effect!="filesystem.write"{atomicOnly=false}}
@@ -4160,7 +4322,7 @@ func settledRecoveryFailure(nodes []processNode,key string,evidence map[string]a
   id:=receipt.Identity
   if id.NodeKey!=key||id.NodeName==""||id.NodeSpecDigest==""||id.NodeDigest==""||id.ProcessDigest==""||id.RunID==""||id.PolicyDigest==""||receipt.PolicyDigest!=id.PolicyDigest||receipt.Operation!=id.Operation||receipt.Requests<0||receipt.Responses<0||receipt.DeniedRequests<0{return false}
   if receipt.Requests==0&&receipt.Responses==0&&receipt.Transmission=="not_sent"&&(receipt.Outcome=="unused"||receipt.Outcome=="refused"||receipt.Outcome=="failed"){continue}
-  if readOnly&&receipt.Requests>0&&receipt.Responses==receipt.Requests&&receipt.Transmission=="response_received"&&(receipt.Outcome=="completed"||receipt.Outcome=="failed"||receipt.Outcome=="refused"){continue}
+  if readOnly&&receipt.Requests>0&&receipt.Responses==receipt.Requests&&receipt.Transmission=="response_received"&&(receipt.Outcome=="completed"||receipt.Outcome=="succeeded"||receipt.Outcome=="failed"||receipt.Outcome=="refused"){continue}
   a:=receipt.AtomicFile
   if !atomicOnly||receipt.Adapter!="native.atomic_file.v1"||a==nil||a.Schema!="praxis.atomic_file_receipt.v1"||receipt.Requests!=1||receipt.Transmission!="sent"{return false}
   switch a.Method{case "REPLACE":if a.Write==nil{return false};case "ACKNOWLEDGE":if a.Acknowledgement==nil{return false};case "READ","RECONCILE":default:return false}
@@ -4898,6 +5060,8 @@ func runWorkerRegionLoop(declaration *progressionDeclaration, nodes []processNod
 				if origin, ok := recovery.origins.Load(activation); ok {
 					record["execution"] = origin
 				}
+ attachSettledCheckpoints(record,recovery,activation)
+ attachSettledCheckpoints(record,recovery,activation)
 				if boundary != nil {
 					record["source"] = boundary.sources[key]
 					record["process"] = boundary.ref
@@ -5036,6 +5200,7 @@ func runWorkerRegionLoop(declaration *progressionDeclaration, nodes []processNod
 				}
 			}
             if err:=resolveActivationContexts(phaseNodes,level,recovery,phase.Key,round,f);err!=nil{cancelEgressHandles(handles);return records,err}
+if err:=resolveSettledCheckpoints(phaseNodes,level,recovery);err!=nil{cancelEgressHandles(handles);return records,err}
             if err:=recovery.replacement.resolveContexts(phaseNodes,local,recovery.activationKeys,level);err!=nil{cancelEgressHandles(handles);return records,err}
             if err:=recovery.replacement.resolveCustodies(phaseNodes,recovery.activationKeys,level);err!=nil{cancelEgressHandles(handles);return records,err}
 			snapshot := map[string]map[string]any{}
@@ -5084,6 +5249,7 @@ func runWorkerRegionLoop(declaration *progressionDeclaration, nodes []processNod
 					record["execution"] = origin
                     for _,candidate:=range phaseNodes{if candidate.key==key{for _,source:=range candidate.runtime{if source=="settled_failures"{var capsule map[string]any;if err:=decodeProcessJSON([]byte(runtimeValues[source]),&capsule);err!=nil{return records,err};origin.(map[string]any)["settled_failure_capsule"]=capsule}}}}
 				}
+ attachSettledCheckpoints(record,recovery,activation)
 				if boundary != nil {
 					record["source"] = boundary.sources[key]
 					record["process"] = boundary.ref
@@ -6093,6 +6259,7 @@ func(r *continuationRun)selectMode(local map[string]map[string]any,f cliFlags)er
 func(r *continuationRun)publish(records []map[string]any,local map[string]map[string]any)error{return nil}
 func(r *continuationRun)finish(phase string,round int,records []map[string]any,local map[string]map[string]any)(string,error){return "",nil}
 func(r *continuationRun)isPending()bool{return false}
+func(r *continuationRun)recordPendingDelivery(response []byte,private string,failed bool)error{return fmt.Errorf("versioned journal owner has no generation pending-delivery capability")}
 func(r *continuationRun)evidence()any{return nil}
 
 // Replacement custody is a canonical v1-invocation capability. A v4 journal
@@ -6159,6 +6326,11 @@ func settledFailureHandoff(d *progressionDeclaration,r *recoveryRun,phase,round 
 func resolveActivationContexts(nodes []processNode,level []string,r *recoveryRun,phase string,round int,f cliFlags)error{
  for _,node:=range nodes{for _,source:=range node.runtime{if source=="activation_context"{return fmt.Errorf("activation context requires canonical invocation-owner custody")}}};return nil
 }
+
+type runtimeSettledCheckpointBinding struct { Source string; Capsule struct { Node string; Field string } }
+func settledCheckpointBindings(doc map[string]any)([]runtimeSettledCheckpointBinding,error){ if doc["settled_checkpoints"]!=nil{return nil,fmt.Errorf("settled checkpoint requires invocation-owner custody")};return nil,nil }
+func resolveSettledCheckpoints(nodes []processNode,level []string,r *recoveryRun)error{for _,n:=range nodes{for _,source:=range n.runtime{if source=="settled_checkpoint"{return fmt.Errorf("settled checkpoint requires invocation-owner custody")}}};return nil}
+func attachSettledCheckpoints(record map[string]any,r *recoveryRun,activation string){}
 
 type runtimeFrontier struct{}
 

@@ -121,6 +121,9 @@
       },
       "type": "array"
     },
+    "mode": {
+      "type": "string"
+    },
     "objective": {
       "type": "string"
     },
@@ -147,6 +150,9 @@
             "type": "string"
           },
           "type": "array"
+        },
+        "resolve_identity": {
+          "type": "boolean"
         },
         "result_order": {
           "type": "string"
@@ -375,7 +381,16 @@
                 "lead_id": {
                   "type": "string"
                 },
+                "link_url": {
+                  "type": "string"
+                },
                 "published_at": {
+                  "type": "string"
+                },
+                "record_key": {
+                  "type": "string"
+                },
+                "record_kind": {
                   "type": "string"
                 },
                 "scope": {
@@ -391,6 +406,9 @@
                   "type": "string"
                 },
                 "url": {
+                  "type": "string"
+                },
+                "website_url": {
                   "type": "string"
                 }
               },
@@ -522,7 +540,16 @@
       "items": {
         "additionalProperties": false,
         "properties": {
+          "acquisition_mode": {
+            "type": "string"
+          },
           "body_base64": {
+            "type": "string"
+          },
+          "body_record": {
+            "type": "string"
+          },
+          "body_record_digest": {
             "type": "string"
           },
           "captured_at": {
@@ -559,6 +586,9 @@
             "type": "integer"
           },
           "sha256": {
+            "type": "string"
+          },
+          "source_digest": {
             "type": "string"
           },
           "status": {
@@ -613,7 +643,16 @@
           "lead_id": {
             "type": "string"
           },
+          "link_url": {
+            "type": "string"
+          },
           "published_at": {
+            "type": "string"
+          },
+          "record_key": {
+            "type": "string"
+          },
+          "record_kind": {
             "type": "string"
           },
           "scope": {
@@ -629,6 +668,9 @@
             "type": "string"
           },
           "url": {
+            "type": "string"
+          },
+          "website_url": {
             "type": "string"
           }
         },
@@ -651,14 +693,256 @@
       },
       "type": "array"
     },
+    "source_blocks": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "block": {
+            "additionalProperties": false,
+            "properties": {
+              "digest": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "digest"
+            ],
+            "type": "object"
+          },
+          "pages": {
+            "type": "integer"
+          },
+          "queries": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "block"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "source_families": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
     "sources": {
       "items": {
         "additionalProperties": false,
         "properties": {
+          "block": {
+            "additionalProperties": false,
+            "properties": {
+              "digest": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "digest"
+            ],
+            "type": "object"
+          },
+          "block_key": {
+            "type": "string"
+          },
+          "browser_mapping": {
+            "additionalProperties": false,
+            "properties": {
+              "item_selector": {
+                "type": "string"
+              },
+              "key_attribute": {
+                "type": "string"
+              },
+              "label_selector": {
+                "type": "string"
+              },
+              "label_text": {
+                "type": "string"
+              },
+              "split_text": {
+                "type": "string"
+              },
+              "text_selector": {
+                "type": "string"
+              },
+              "title_attribute": {
+                "type": "string"
+              },
+              "title_selector": {
+                "type": "string"
+              },
+              "url_attribute": {
+                "type": "string"
+              },
+              "url_selector": {
+                "type": "string"
+              },
+              "website_selector": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "item_selector",
+              "title_selector"
+            ],
+            "type": "object"
+          },
+          "detail_url_template": {
+            "type": "string"
+          },
+          "embedded_prefix": {
+            "type": "string"
+          },
+          "embedded_selector": {
+            "type": "string"
+          },
+          "external_links_only": {
+            "type": "boolean"
+          },
+          "family": {
+            "type": "string"
+          },
+          "html_mapping": {
+            "additionalProperties": false,
+            "properties": {
+              "item_selector": {
+                "type": "string"
+              },
+              "key_attribute": {
+                "type": "string"
+              },
+              "label_selector": {
+                "type": "string"
+              },
+              "label_text": {
+                "type": "string"
+              },
+              "split_text": {
+                "type": "string"
+              },
+              "text_selector": {
+                "type": "string"
+              },
+              "title_attribute": {
+                "type": "string"
+              },
+              "title_selector": {
+                "type": "string"
+              },
+              "url_attribute": {
+                "type": "string"
+              },
+              "url_selector": {
+                "type": "string"
+              },
+              "website_selector": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "item_selector",
+              "title_selector"
+            ],
+            "type": "object"
+          },
           "id": {
             "type": "string"
           },
           "kind": {
+            "type": "string"
+          },
+          "mapping": {
+            "additionalProperties": false,
+            "properties": {
+              "date_path": {
+                "type": "string"
+              },
+              "item_url_template": {
+                "type": "string"
+              },
+              "items_path": {
+                "type": "string"
+              },
+              "lead_key_path": {
+                "type": "string"
+              },
+              "name_path": {
+                "type": "string"
+              },
+              "text_path": {
+                "type": "string"
+              },
+              "title_path": {
+                "type": "string"
+              },
+              "url_path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "items_path",
+              "title_path",
+              "url_path",
+              "text_path",
+              "date_path",
+              "name_path",
+              "lead_key_path"
+            ],
+            "type": "object"
+          },
+          "page_size": {
+            "type": "integer"
+          },
+          "pages": {
+            "type": "integer"
+          },
+          "pagination": {
+            "additionalProperties": false,
+            "properties": {
+              "cursor_parameter": {
+                "type": "string"
+              },
+              "cursor_path": {
+                "type": "string"
+              },
+              "mode": {
+                "type": "string"
+              },
+              "next_path": {
+                "type": "string"
+              },
+              "next_selector": {
+                "type": "string"
+              },
+              "next_strategy": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "mode",
+              "next_selector",
+              "next_path",
+              "cursor_path",
+              "cursor_parameter"
+            ],
+            "type": "object"
+          },
+          "preset": {
             "type": "string"
           },
           "queries": {
@@ -666,6 +950,39 @@
               "type": "string"
             },
             "type": "array"
+          },
+          "readiness": {
+            "additionalProperties": false,
+            "properties": {
+              "blocked_selector": {
+                "type": "string"
+              },
+              "empty_selector": {
+                "type": "string"
+              },
+              "results_selector": {
+                "type": "string"
+              },
+              "timeout_ms": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "results_selector",
+              "empty_selector",
+              "blocked_selector",
+              "timeout_ms"
+            ],
+            "type": "object"
+          },
+          "record_kind": {
+            "type": "string"
+          },
+          "source_digest": {
+            "type": "string"
+          },
+          "subject_name": {
+            "type": "string"
           },
           "url_template": {
             "type": "string"

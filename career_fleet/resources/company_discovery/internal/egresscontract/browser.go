@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/netip"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -147,6 +148,7 @@ type browserCall struct {
 	requests sync.WaitGroup
 	handle   *browserHandle
 	ctx      context.Context
+	cancel   context.CancelFunc
 	response chan browserFrame
 }
 type browserFrame struct {
@@ -163,31 +165,53 @@ type browserFrame struct {
 	Headers      map[string]string `json:"headers"`
 }
 type browserBody struct {
-	ContextID    string          `json:"context_id"`
-	IntentDigest string          `json:"intent_digest,omitempty"`
-	Generation   int64           `json:"generation,omitempty"`
-	URL          string          `json:"url,omitempty"`
-	TextExact    string          `json:"text_exact,omitempty"`
-	ExpectedURL  string          `json:"expected_url,omitempty"`
-	Selector     string          `json:"selector,omitempty"`
-	Values       []browserValue  `json:"values,omitempty"`
-	Program      string          `json:"program,omitempty"`
-	Arguments    json.RawMessage `json:"arguments,omitempty"`
+	RequestAllowance *int            `json:"request_allowance,omitempty"`
+	ContextID        string          `json:"context_id"`
+	IntentDigest     string          `json:"intent_digest,omitempty"`
+	Generation       int64           `json:"generation,omitempty"`
+	URL              string          `json:"url,omitempty"`
+	TextExact        string          `json:"text_exact,omitempty"`
+	ExpectedURL      string          `json:"expected_url,omitempty"`
+	Selector         string          `json:"selector,omitempty"`
+	Values           []browserValue  `json:"values,omitempty"`
+	Program          string          `json:"program,omitempty"`
+	Arguments        json.RawMessage `json:"arguments,omitempty"`
 }
 type browserValue struct {
 	Selector string `json:"selector"`
 	Kind     string `json:"kind"`
 	Value    string `json:"value"`
 }
+
+// BrowserSourceResponse retains original response bytes separately from the
+// decoded bytes Chromium sees. Failed/denied requests remain explicit records.
+// READ returns these records as part of its one rendered-document outcome.
+type BrowserSourceResponse struct {
+	RequestID        int64               `json:"request_id"`
+	URL              string              `json:"url"`
+	Method           string              `json:"method"`
+	ResourceType     string              `json:"resource_type"`
+	RequestStartedAt string              `json:"request_started_at"`
+	CapturedAt       string              `json:"captured_at"`
+	Status           int                 `json:"status"`
+	Headers          map[string][]string `json:"headers"`
+	BodyBase64       string              `json:"body_base64"`
+	SHA256           string              `json:"sha256"`
+	Outcome          string              `json:"outcome"`
+	Complete         bool                `json:"complete"`
+}
+
 type browserHandle struct {
-	mu       sync.Mutex
-	manager  *browserManager
-	ctx      context.Context
-	cancel   context.CancelFunc
-	op       Operation
-	identity Identity
-	receipt  Receipt
-	closed   bool
+	mu               sync.Mutex
+	manager          *browserManager
+	ctx              context.Context
+	cancel           context.CancelFunc
+	op               Operation
+	identity         Identity
+	receipt          Receipt
+	captures         []BrowserSourceResponse
+	requestAllowance *int
+	closed           bool
 }
 
 func (h *browserHandle) Accounting() Accounting { return ReceiptAccounting(h.Receipt()) }
@@ -227,7 +251,7 @@ func (h *browserHandle) Do(ctx context.Context, req OperationRequest) (Operation
 	if ctx == nil || ctx.Err() != nil || h.ctx.Err() != nil {
 		return empty, fmt.Errorf("browser invocation cancelled")
 	}
-	if (req.Operation != "" && req.Operation != h.op.ID) || req.URL != "" || len(req.PathParameters) > 0 || len(req.QueryParameters) > 0 || len(req.RepeatedQueryParameters) > 0 || len(req.Body) == 0 || len(req.Body) > h.op.MaxRequestBytes || !utf8.Valid(req.Body) {
+	if (req.Operation != "" && req.Operation != h.op.ID) || req.URL != "" || len(req.PathParameters) > 0 || len(req.QueryParameters) > 0 || len(req.RepeatedQueryParameters) > 0 || len(req.Body) == 0 || (h.op.MaxRequestBytes > 0 && len(req.Body) > h.op.MaxRequestBytes) || !utf8.Valid(req.Body) {
 		return empty, fmt.Errorf("browser primitive refused before execution")
 	}
 	body, err := h.decodeBody(req.Body)
@@ -240,33 +264,53 @@ func (h *browserHandle) Do(ctx context.Context, req OperationRequest) (Operation
 		return empty, fmt.Errorf("browser primitive already consumed")
 	}
 	h.receipt.BrowserCalls++
+	if body.RequestAllowance != nil {
+		allowance := *body.RequestAllowance
+		h.requestAllowance = &allowance
+	}
 	h.mu.Unlock()
-	callCtx, cancel := context.WithTimeout(h.ctx, time.Duration(h.op.TimeoutMillis)*time.Millisecond)
+	callCtx, cancel := context.WithCancel(h.ctx)
+	if h.op.TimeoutMillis > 0 {
+		cancel()
+		callCtx, cancel = context.WithTimeout(h.ctx, time.Duration(h.op.TimeoutMillis)*time.Millisecond)
+	}
 	defer cancel()
 	stop := context.AfterFunc(ctx, cancel)
 	defer stop()
 	result, err := h.manager.call(callCtx, h, body)
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	if err != nil {
+	operationErr := err
+	value := map[string]any{}
+	if operationErr != nil {
 		h.receipt.Outcome = "execution_failed"
-		return empty, err
-	}
-	if len(result) == 0 || len(result) > h.op.MaxResponseBytes {
+		if h.op.Method != "READ" {
+			return empty, operationErr
+		}
+		value = map[string]any{"status": "failed", "error": operationErr.Error(), "context_id": body.ContextID}
+	} else if len(result) == 0 || (h.op.MaxResponseBytes > 0 && len(result) > h.op.MaxResponseBytes) {
 		h.receipt.Outcome = "response_bound"
 		return empty, fmt.Errorf("browser response bound")
-	}
-	var value map[string]any
-	if json.Unmarshal(result, &value) != nil {
+	} else if json.Unmarshal(result, &value) != nil {
 		return empty, fmt.Errorf("browser response invalid")
 	}
 	value["network_requests"] = h.receipt.Requests
 	value["network_responses"] = h.receipt.Responses
 	value["denied_requests"] = h.receipt.DeniedRequests
+	if h.op.Method == "READ" {
+		captures := append([]BrowserSourceResponse{}, h.captures...)
+		sort.Slice(captures, func(i, j int) bool { return captures[i].RequestID < captures[j].RequestID })
+		value["source_responses"] = captures
+	}
 	output, err := json.Marshal(value)
-	if err != nil || len(output) > h.op.MaxResponseBytes {
+	if err != nil || (h.op.MaxResponseBytes > 0 && len(output) > h.op.MaxResponseBytes) {
+		h.receipt.Outcome = "response_bound"
 		return empty, fmt.Errorf("browser response bound")
 	}
+	if operationErr != nil {
+		return OperationResponse{URL: DestinationBrowser, ContentType: "application/json", Body: output}, operationErr
+	}
+
 	h.receipt.Outcome = "completed"
 	if h.receipt.Requests == 0 {
 		h.receipt.Transmission = "not_sent"
@@ -286,6 +330,18 @@ func (h *browserHandle) decodeBody(raw []byte) (browserBody, error) {
 	json.Unmarshal(raw, &fields)
 	keys := []string{"context_id"}
 	switch h.op.Method {
+	case "READ":
+		keys = append(keys, "intent_digest", "url", "program", "arguments")
+		if _, present := fields["request_allowance"]; present {
+			keys = append(keys, "request_allowance")
+			if body.RequestAllowance == nil || *body.RequestAllowance < 0 {
+				return body, fmt.Errorf("browser read request allowance must be a nonnegative integer")
+			}
+		}
+		sum := sha256.Sum256([]byte(body.Program))
+		if !browserHex64(body.IntentDigest) || !h.permittedURL(body.URL) || hex.EncodeToString(sum[:]) != h.op.Browser.ProgramSHA256 || len(body.Arguments) == 0 || body.Arguments[0] != '{' || !json.Valid(body.Arguments) {
+			return body, fmt.Errorf("browser read scope, program or arguments refused")
+		}
 	case "OPEN":
 		keys = append(keys, "intent_digest")
 		if !browserHex64(body.IntentDigest) {
@@ -343,7 +399,19 @@ func browserSelector(s string) bool {
 }
 func (h *browserHandle) permittedURL(raw string) bool {
 	u, e := ValidateURL(raw)
-	return e == nil && containsOrigin(h.op.Destination.Origins, OriginOf(u))
+	if e != nil {
+		return false
+	}
+	if h.op.Browser.PublicRead {
+		if address, err := netip.ParseAddr(u.Hostname()); err == nil && !publicAddress(address) {
+			return false
+		}
+		if u.Hostname() == "localhost" || strings.HasSuffix(u.Hostname(), ".localhost") {
+			return false
+		}
+		return true
+	}
+	return containsOrigin(h.op.Destination.Origins, OriginOf(u))
 }
 func containsOrigin(list []string, s string) bool {
 	want, err := CanonicalOrigin(s)
@@ -397,7 +465,13 @@ func (m *browserManager) start(ctx context.Context) error {
 		m.mu.Unlock()
 		return err
 	}
-	command := exec.CommandContext(m.ctx, "/usr/bin/sandbox-exec", "-p", "(version 1)(allow default)(deny network*)", selected.Browser.NodeExecutable, script)
+	profile, err := browserSandboxProfile(selected, directory, script)
+	if err != nil {
+		os.RemoveAll(directory)
+		m.mu.Unlock()
+		return err
+	}
+	command := exec.CommandContext(m.ctx, "/usr/bin/sandbox-exec", "-p", profile, selected.Browser.NodeExecutable, script)
 	command.Env = append(browserCleanEnvironment(), "TMPDIR="+directory)
 	input, err := command.StdinPipe()
 	if err != nil {
@@ -412,7 +486,10 @@ func (m *browserManager) start(ctx context.Context) error {
 		m.mu.Unlock()
 		return err
 	}
-	command.Stderr = io.Discard
+	// Keep native launch diagnostics on the worker's separate diagnostic
+	// stream. Discarding these hid actual OS-boundary failures behind an empty
+	// browser result; stdout remains exclusively the typed driver protocol.
+	command.Stderr = os.Stderr
 	if err = command.Start(); err != nil {
 		input.Close()
 		os.RemoveAll(directory)
@@ -479,10 +556,11 @@ func (m *browserManager) call(ctx context.Context, h *browserHandle, body browse
 	m.mu.Lock()
 	m.sequence++
 	id := m.sequence
-	call := &browserCall{handle: h, ctx: ctx, response: make(chan browserFrame, 1)}
+	requestContext, cancelRequests := context.WithCancel(ctx)
+	call := &browserCall{handle: h, ctx: requestContext, cancel: cancelRequests, response: make(chan browserFrame, 1)}
 	m.pending[id] = call
 	m.mu.Unlock()
-	defer func() { m.mu.Lock(); delete(m.pending, id); m.mu.Unlock(); call.requests.Wait() }()
+	defer func() { cancelRequests(); m.mu.Lock(); delete(m.pending, id); m.mu.Unlock(); call.requests.Wait() }()
 	origins := append([]string(nil), h.op.Destination.Origins...)
 	sort.Strings(origins)
 	raw, _ := json.Marshal(origins)
@@ -491,7 +569,7 @@ func (m *browserManager) call(ctx context.Context, h *browserHandle, body browse
 	// Keep generation=0 explicit: zero is a real page generation, not omission.
 	var payload map[string]any
 	json.Unmarshal(mustBrowserJSON(body), &payload)
-	if h.op.Method != "OPEN" && h.op.Method != "CLOSE" {
+	if h.op.Method != "OPEN" && h.op.Method != "CLOSE" && h.op.Method != "READ" {
 		payload["generation"] = body.Generation
 	}
 	if h.op.Method == "ADVANCE" {
@@ -613,6 +691,15 @@ func (m *browserManager) stop() {
 }
 func (m *browserManager) network(call *browserCall, frame browserFrame) {
 	h := call.handle
+	capture := BrowserSourceResponse{RequestID: frame.RequestID, URL: frame.URL, Method: frame.Method, ResourceType: frame.ResourceType, RequestStartedAt: time.Now().UTC().Format(time.RFC3339Nano), Outcome: "policy_denied", Headers: map[string][]string{}}
+	defer func() {
+		if h.op.Method == "READ" {
+			capture.CapturedAt = time.Now().UTC().Format(time.RFC3339Nano)
+			h.mu.Lock()
+			h.captures = append(h.captures, capture)
+			h.mu.Unlock()
+		}
+	}()
 	response := map[string]any{"type": "network_response", "request_id": frame.RequestID, "denied": true}
 	deny := func() { h.mu.Lock(); h.receipt.DeniedRequests++; h.mu.Unlock(); m.send(response) }
 	resource := false
@@ -626,14 +713,24 @@ func (m *browserManager) network(call *browserCall, frame browserFrame) {
 		return
 	}
 	h.mu.Lock()
-	if h.closed || h.receipt.Requests >= h.op.MaxRequests {
+	if h.closed {
 		h.mu.Unlock()
 		deny()
+		return
+	}
+	if (h.op.MaxRequests > 0 && h.receipt.Requests >= h.op.MaxRequests) || (h.requestAllowance != nil && h.receipt.Requests >= *h.requestAllowance) {
+		h.mu.Unlock()
+		response["error"] = "request_allowance_exhausted"
+		deny()
+		if h.op.Method == "READ" && call.cancel != nil {
+			call.cancel()
+		}
 		return
 	}
 	h.receipt.Requests++
 	h.receipt.Transmission = "attempted_unknown"
 	h.mu.Unlock()
+	capture.Outcome = "transport_failure"
 	request, e := http.NewRequestWithContext(call.ctx, frame.Method, frame.URL, nil)
 	if e != nil {
 		deny()
@@ -655,6 +752,8 @@ func (m *browserManager) network(call *browserCall, frame browserFrame) {
 		return
 	}
 	defer result.Body.Close()
+	capture.Status = result.StatusCode
+	capture.Headers = result.Header.Clone()
 	h.mu.Lock()
 	h.receipt.Responses++
 	if h.receipt.Requests == h.receipt.Responses {
@@ -665,14 +764,25 @@ func (m *browserManager) network(call *browserCall, frame browserFrame) {
 	// can send a cached compressed entity even after Accept-Encoding: identity.
 	// Decode under the same response cap and remove the encoding header before
 	// fulfillment; raw compressed bytes would become a binary DOM document.
-	var entity io.Reader = result.Body
+	rawBody, readErr := readHTTPResponse(result.Body, h.op.MaxResponseBytes)
+	capture.BodyBase64 = base64.StdEncoding.EncodeToString(rawBody)
+	sum := sha256.Sum256(rawBody)
+	capture.SHA256 = hex.EncodeToString(sum[:])
+	if readErr != nil || (h.op.MaxResponseBytes > 0 && len(rawBody) > h.op.MaxResponseBytes) {
+		capture.Outcome = "response_failure"
+		m.send(response)
+		return
+	}
+	capture.Complete = true
+	capture.Outcome = "success"
+	var entity io.Reader = bytes.NewReader(rawBody)
 	var decompressor io.ReadCloser
 	switch strings.ToLower(strings.TrimSpace(result.Header.Get("Content-Encoding"))) {
 	case "", "identity":
 	case "gzip":
-		decompressor, e = gzip.NewReader(result.Body)
+		decompressor, e = gzip.NewReader(bytes.NewReader(rawBody))
 	case "deflate":
-		decompressor, e = zlib.NewReader(result.Body)
+		decompressor, e = zlib.NewReader(bytes.NewReader(rawBody))
 	default:
 		m.send(response)
 		return
@@ -685,8 +795,8 @@ func (m *browserManager) network(call *browserCall, frame browserFrame) {
 		defer decompressor.Close()
 		entity = decompressor
 	}
-	body, e := io.ReadAll(io.LimitReader(entity, int64(h.op.MaxResponseBytes)+1))
-	if e != nil || len(body) > h.op.MaxResponseBytes {
+	body, e := readHTTPResponse(entity, h.op.MaxResponseBytes)
+	if e != nil || (h.op.MaxResponseBytes > 0 && len(body) > h.op.MaxResponseBytes) {
 		m.send(response)
 		return
 	}

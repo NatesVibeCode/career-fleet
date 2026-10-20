@@ -41,13 +41,57 @@ func Tokens(text string) []Token {
 // The language-neutral path preserves Unicode terms; this small grammatical
 // English stop set removes task scaffolding, not industries or user traits.
 func QueryConcepts(objective string) []Concept {
-	stop := map[string]bool{"a": true, "an": true, "the": true, "and": true, "or": true, "of": true, "to": true, "for": true, "with": true, "that": true, "which": true, "find": true, "show": true, "me": true, "please": true, "company": true, "companies": true}
+	stop := map[string]bool{"a": true, "an": true, "the": true, "and": true, "or": true, "of": true, "to": true, "for": true, "with": true, "that": true, "which": true, "find": true, "show": true, "me": true, "please": true}
+	thesaurus := map[string][]string{
+		"company":     {"business", "firm", "organization", "provider", "vendor", "startup"},
+		"companies":   {"businesses", "firms", "organizations", "providers", "vendors", "startups"},
+		"business":    {"company", "firm", "provider", "vendor"},
+		"businesses":  {"companies", "firms", "providers", "vendors"},
+		"startup":     {"early-stage company", "new venture", "scaleup"},
+		"startups":    {"early-stage companies", "new ventures", "scaleups"},
+		"software":    {"application", "platform", "product", "SaaS", "tool"},
+		"platform":    {"application", "product", "service", "software", "tool"},
+		"product":     {"application", "platform", "service", "software", "tool"},
+		"partner":     {"alliance", "ecosystem", "integration", "marketplace", "reseller"},
+		"partnership": {"alliance", "ecosystem", "integration", "marketplace", "reseller"},
+		"integration": {"alliance", "ecosystem", "partnership", "marketplace"},
+		"customer":    {"buyer", "case study", "client", "deployment"},
+		"customers":   {"buyers", "case studies", "clients", "deployments"},
+		"funding":     {"investment", "seed round", "venture capital"},
+		"hiring":      {"careers", "job openings", "open roles", "recruiting"},
+		"jobs":        {"careers", "hiring", "job openings", "open roles"},
+		"careers":     {"hiring", "job openings", "open roles", "recruiting"},
+		"culture":     {"founders", "leadership", "team practices", "work environment"},
+		"team":        {"founders", "leadership", "work environment"},
+		"marketplace": {"app directory", "ecosystem", "integration catalog"},
+	}
 	seen := map[string]bool{}
 	out := []Concept{}
 	for _, t := range Tokens(objective) {
 		if !stop[t.Text] && !seen[t.Text] {
 			seen[t.Text] = true
-			out = append(out, Concept{ID: "query:" + t.Text, Terms: []string{t.Text}, Relations: []Relation{}})
+			relations := []Relation{}
+			for _, term := range thesaurus[t.Text] {
+				relations = append(relations, Relation{Term: term, Kind: "equivalent", Provenance: "discovery.generic_thesaurus.v1"})
+			}
+			out = append(out, Concept{ID: "query:" + t.Text, Terms: []string{t.Text}, Relations: relations})
+		}
+	}
+	return out
+}
+
+// AddGenericQueryConcepts preserves caller vocabulary and adds deterministic
+// thesaurus expansions for objective terms not already declared.
+func AddGenericQueryConcepts(objective string, declared []Concept) []Concept {
+	out := append([]Concept(nil), declared...)
+	seen := map[string]bool{}
+	for _, concept := range declared {
+		seen[concept.ID] = true
+	}
+	for _, concept := range QueryConcepts(objective) {
+		if !seen[concept.ID] {
+			out = append(out, concept)
+			seen[concept.ID] = true
 		}
 	}
 	return out

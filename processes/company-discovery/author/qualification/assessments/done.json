@@ -1,0 +1,36 @@
+{
+  "schema": "forge.node_boundary_assessment.v2",
+  "node_spec_digest": "0fabdac1c7caf6f4d560a77fbbf4f0976352608b05ddf2c21ded2b9db70f9125",
+  "source_bundle_digest": "4b0a6d3f15a0b876d4916797baef53fedfe29ebf94a662bba14dbd7bb401e2b0",
+  "test_bundle_digest": "b21add0f1743c083ae8daef24a6ce29aba23dc42e11585c3ff2a0d6d6f376b25",
+  "outcome": "Expose all candidates, evidence gaps, dispositions and source coverage",
+  "outcome_id": "completed",
+  "decision": "keep",
+  "rationale": "Reviewed the selected Entry adapter and its reachable core helpers. Its public fields jointly describe this single transformation or effect result. Selection, acquisition, retention, byte loading, extraction, identity, evidence assessment and recovery are independently composed Nodes; this adapter does not choose another workflow.",
+  "reuse": [
+    {
+      "scope": "Existing Career Fleet deterministic core, codecs and selected tokenizer source closure",
+      "evidence_digest": "4b0a6d3f15a0b876d4916797baef53fedfe29ebf94a662bba14dbd7bb401e2b0",
+      "finding": "atomic_helper",
+      "rationale": "These copied helpers implement this Entry result and carry no independently invoked Node authority. The exact selected Node is reused by the authored Process and source Blocks; no self-reuse or inferred catalog admission is claimed."
+    }
+  ],
+  "stages": [
+    {
+      "name": "done",
+      "role": "outcome",
+      "outcome": "Expose all candidates, evidence gaps, dispositions and source coverage",
+      "independently_useful": true,
+      "separate_authority": false,
+      "separate_recovery": false,
+      "atomic_helper": false,
+      "decision": "keep",
+      "rationale": "The source-reviewed Entry exposes this outcome. Auxiliary phase selectors and carried state deliver the same transformation; effect and recovery boundaries remain explicit in the Process.",
+      "output_fields": [
+        "disposition",
+        "result",
+        "state"
+      ]
+    }
+  ]
+}

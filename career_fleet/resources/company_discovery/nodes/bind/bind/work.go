@@ -3,17 +3,16 @@ package bind
 import (
 	"fmt"
 	"net/url"
+	"strconv"
 	"strings"
 )
 
 func Open(r Request) (State, error) {
+	r = SourceDiscoveryRequest(r)
 	if err := ValidateRequest(r); err != nil {
 		return State{}, err
 	}
-	concepts := r.Concepts
-	if len(concepts) == 0 {
-		concepts = QueryConcepts(r.Objective)
-	}
+	concepts := AddGenericQueryConcepts(r.Objective, r.Concepts)
 	s := State{Request: r, RequestDigest: Digest(r), Concepts: concepts, CurrentAction: -1, CurrentCandidate: -1, Phase: "select"}
 	// Prior records are evidence inputs, never permission to reuse old judgments.
 	for _, c := range r.Prior {
@@ -25,12 +24,42 @@ func Open(r Request) (State, error) {
 		s.Candidates = MergeObservation(s.Candidates, o)
 	}
 	for _, source := range r.Sources {
-		queries := source.Queries
-		if len(queries) == 0 && r.Objective != "" {
-			queries = ExpandedQueries(r.Objective, concepts)
+		patterns := source.Queries
+		if len(patterns) == 0 && r.Objective != "" {
+			patterns = []string{"{objective}"}
 		}
-		for _, query := range queries {
-			s = AppendAction(s, Action{Kind: "search", SourceID: source.ID, Query: query, URL: strings.ReplaceAll(source.URLTemplate, "{query}", url.QueryEscape(query)), Tier: 0})
+		pages := source.Pages
+		if pages == 0 {
+			pages = 1
+		}
+		seenQueries := map[string]bool{}
+		seenTargets := map[string]bool{}
+		for _, pattern := range patterns {
+			seed := strings.TrimSpace(strings.ReplaceAll(pattern, "{objective}", r.Objective))
+			if seed == "" {
+				continue
+			}
+			for _, query := range ExpandedQueries(seed, concepts) {
+				if seenQueries[query] {
+					continue
+				}
+				seenQueries[query] = true
+				for page := 1; page <= pages; page++ {
+					if source.Pagination != nil && (source.Pagination.Mode == "next_link" || source.Pagination.Mode == "cursor") && page > 1 {
+						break
+					}
+					target := strings.ReplaceAll(source.URLTemplate, "{query}", url.QueryEscape(query))
+					target = strings.ReplaceAll(target, "{page}", strconv.Itoa(page))
+					target = strings.ReplaceAll(target, "{offset}", strconv.Itoa((page-1)*source.PageSize))
+					// Enumeration endpoints may not accept a query parameter. They still
+					// participate once per exact page while lexical matching happens later.
+					if seenTargets[target] {
+						continue
+					}
+					seenTargets[target] = true
+					s = AppendAction(s, Action{Kind: "search", SourceID: source.ID, Query: query, URL: target, Tier: 0})
+				}
+			}
 		}
 	}
 	return s, nil
@@ -58,6 +87,7 @@ func AppendAction(s State, a Action) State {
 // Each explicitly supplied question earns one finite query per identified
 // candidate. A missing field never creates an unbounded generic research loop.
 func PlanQuestions(s State) State {
+	s = PlanIdentity(s)
 	for _, candidate := range s.Candidates {
 		for _, q := range s.Request.Questions {
 			known := false
@@ -93,7 +123,16 @@ func PlanQuestions(s State) State {
 			for _, source := range s.Request.Sources {
 				if source.ID == q.SourceID {
 					query := strings.ReplaceAll(q.QueryTemplate, "{entity}", candidate.Name)
-					s = AppendAction(s, Action{Kind: "question", SourceID: source.ID, CandidateID: candidate.ID, QuestionID: q.ID, Query: query, URL: strings.ReplaceAll(source.URLTemplate, "{query}", url.QueryEscape(query)), Tier: 1})
+					pages := source.Pages
+					if pages == 0 {
+						pages = 1
+					}
+					for page := 1; page <= pages; page++ {
+						target := strings.ReplaceAll(source.URLTemplate, "{query}", url.QueryEscape(query))
+						target = strings.ReplaceAll(target, "{page}", strconv.Itoa(page))
+						target = strings.ReplaceAll(target, "{offset}", strconv.Itoa((page-1)*source.PageSize))
+						s = AppendAction(s, Action{Kind: "question", SourceID: source.ID, CandidateID: candidate.ID, QuestionID: q.ID, Query: query, URL: target, Tier: 1})
+					}
 				}
 			}
 		}
@@ -106,7 +145,7 @@ func PlanQuestions(s State) State {
 // a large dossier. The caller's explicit request allowance is the only budget.
 func ReusableCapture(r Request, target string) (Capture, bool) {
 	for _, capture := range r.ReusableCaptures {
-		if capture.URL == target {
+		if capture.URL == target && reusableForSource(r, capture, target) {
 			return capture, true
 		}
 	}
@@ -138,6 +177,25 @@ func SelectWork(s State) (State, string) {
 		if a.Tier != s.Actions[index].Tier {
 			continue
 		}
+		servedSource := func(id string) int {
+			if id == "" {
+				return 0
+			}
+			count := 0
+			for _, prior := range s.Actions {
+				if prior.SourceID == id && prior.Tier == a.Tier && prior.Status != "pending" && prior.Status != "deferred" && prior.Status != "unsupported" {
+					count++
+				}
+			}
+			return count
+		}
+		if servedSource(a.SourceID) < servedSource(s.Actions[index].SourceID) {
+			index = i
+			continue
+		}
+		if servedSource(a.SourceID) > servedSource(s.Actions[index].SourceID) {
+			continue
+		}
 		served := func(id string) int {
 			for _, c := range s.Candidates {
 				if c.ID == id {
@@ -156,7 +214,7 @@ func SelectWork(s State) (State, string) {
 	}
 	// Explicitly selected retained bytes are cheap evidence, not a fresh read.
 	for _, capture := range s.Request.ReusableCaptures {
-		if capture.URL != s.Actions[index].URL {
+		if capture.URL != s.Actions[index].URL || !reusableForSource(s.Request, capture, s.Actions[index].URL) {
 			continue
 		}
 		s.CurrentAction = index
@@ -174,8 +232,9 @@ func SelectWork(s State) (State, string) {
 		s.Actions[index].Status = "captured"
 		s.Actions[index].CaptureID = capture.ID
 		s.Actions[index].Reason = "caller-selected retained capture; no fresh acquisition"
-		s.Phase = "parse"
-		return s, "parse"
+		phase := selectedSourcePhase(s, "parse")
+		s.Phase = phase
+		return s, phase
 	}
 	if !s.Request.Policy.AcquisitionEnabled || (s.Request.Policy.MaxRequests != nil && s.NetworkRequests >= *s.Request.Policy.MaxRequests) {
 		reason := "acquisition disabled by request"
@@ -193,8 +252,16 @@ func SelectWork(s State) (State, string) {
 		return s, "done"
 	}
 	s.CurrentAction = index
-	s.Phase = "acquire"
-	return s, "acquire"
+	phase := "acquire"
+	for _, source := range s.Request.Sources {
+		if source.ID == s.Actions[index].SourceID && source.Kind == "browser_html_search" {
+			phase = "acquire_browser"
+			break
+		}
+	}
+	phase = selectedSourcePhase(s, phase)
+	s.Phase = phase
+	return s, phase
 }
 
 func BindCapture(s State, c Capture) (State, error) {
@@ -202,6 +269,13 @@ func BindCapture(s State, c Capture) (State, error) {
 		return s, fmt.Errorf("discovery: no selected action")
 	}
 	a := &s.Actions[s.CurrentAction]
+	if a.Status == "captured" && a.URL == c.URL {
+		if a.CaptureID != c.ID || s.Capture.ID != c.ID || s.Capture.SHA256 != c.SHA256 {
+			return s, fmt.Errorf("discovery: retained capture binding changed")
+		}
+		s.Capture = c
+		return s, nil
+	}
 	if a.Status != "pending" || a.URL != c.URL {
 		return s, fmt.Errorf("discovery: capture does not bind selected pending URL")
 	}
@@ -210,6 +284,13 @@ func BindCapture(s State, c Capture) (State, error) {
 	}
 	a.Status = "captured"
 	a.CaptureID = c.ID
+	source := sourceFor(s, a.SourceID)
+	c.SourceDigest = SourceRevision(source)
+	if source.Kind == "browser_html_search" {
+		c.AcquisitionMode = "browser"
+	} else {
+		c.AcquisitionMode = "static"
+	}
 	s.NetworkRequests += c.Requests
 	s.Captures = append(s.Captures, c)
 	s.Capture = c
@@ -239,8 +320,26 @@ func ParseWork(s State) (State, error) {
 	}
 	// A selected result link is a document acquisition, not another feed query.
 	// Choose only a supported response media type; do not guess from body text.
-	if origin == "question_link" || origin == "source_document" {
+	if origin == "question_link" || origin == "source_document" || origin == "detail_probe" || origin == "identity_document" {
 		source.Kind = DocumentKind(s.Capture.MediaType)
+	}
+	if origin == "source_probe" {
+		source.Kind = "collection_html"
+		source.Preset = "auto_collection"
+		source.Mapping = nil
+		source.HTMLMapping = nil
+		source.Readiness = nil
+	}
+	if origin == "identity_document" && DocumentKind(s.Capture.MediaType) == "html" {
+		source.Kind = "collection_html"
+		source.Preset = "organization_detail"
+		for _, candidate := range s.Candidates {
+			if candidate.ID == a.CandidateID {
+				source.SubjectName = candidate.Name
+			}
+		}
+		source.HTMLMapping = nil
+		source.Readiness = nil
 	}
 	d, err := ParseCapture(s.Capture, source)
 	if err != nil {
@@ -487,5 +586,32 @@ func Report(s State) Result {
 	for _, gap := range s.Gaps {
 		report.WriteString("- " + MarkdownText(gap) + "\n")
 	}
-	return Result{Feedback: s.Request.Feedback, Comparisons: comparisons, ReusedCaptureIDs: s.ReusedCaptureIDs, RequestDigest: s.RequestDigest, Candidates: s.Candidates, Actions: s.Actions, Captures: s.Captures, Gaps: s.Gaps, Coverage: "selected sources and explicit acquisition policy; no exhaustive discovery claim", NetworkRequests: s.NetworkRequests, InferenceCalls: 0, Report: report.String()}
+	return Result{SourceCandidates: s.SourceCandidates, SourceHealth: s.SourceHealth, Relationships: s.Relationships, Summary: Summarize(s), Feedback: s.Request.Feedback, Comparisons: comparisons, ReusedCaptureIDs: s.ReusedCaptureIDs, RequestDigest: s.RequestDigest, Candidates: s.Candidates, Actions: s.Actions, Captures: s.Captures, Gaps: s.Gaps, Coverage: "selected sources and explicit acquisition policy; no exhaustive discovery claim", NetworkRequests: s.NetworkRequests, InferenceCalls: 0, Report: report.String()}
+}
+
+func reusableForSource(r Request, c Capture, target string) bool {
+	if c.URL != target {
+		return false
+	}
+	for _, s := range r.Sources {
+		if s.ID == "" {
+			continue
+		}
+		if c.SourceDigest != "" && c.SourceDigest == SourceRevision(s) {
+			return true
+		}
+	}
+	// Unpinned legacy captures are only explicit replay inputs, never implicit freshness.
+	return c.SourceDigest == ""
+}
+
+func selectedSourcePhase(s State, fallback string) string {
+	if s.CurrentAction >= 0 && s.CurrentAction < len(s.Actions) {
+		for _, source := range s.Request.Sources {
+			if source.ID == s.Actions[s.CurrentAction].SourceID && source.Block != nil {
+				return source.BlockKey
+			}
+		}
+	}
+	return fallback
 }

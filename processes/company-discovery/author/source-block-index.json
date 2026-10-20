@@ -1,0 +1,161 @@
+{
+  "schema": "career_fleet.source_blocks.v1",
+  "entries": [
+    {
+      "id": "associations.w3c",
+      "kind": "block",
+      "key": "source_associations_w3c",
+      "family": "associations",
+      "block": {
+        "name": "career.source.associations.w3c.v1",
+        "digest": "a8a87f59b1dde7e010033ccf5435c10f5c7b97514685c322aaa1e3fb135fe533"
+      },
+      "artifact": "nodes/open/open/source_block_source_associations_w3c.json",
+      "status": "development_unverified",
+      "admitted": false
+    },
+    {
+      "id": "associations.khronos",
+      "kind": "block",
+      "key": "source_associations_khronos",
+      "family": "associations",
+      "block": {
+        "name": "career.source.associations.khronos.v1",
+        "digest": "593620e322e7a4df3176f3b16b652481a43f3ae5734fb729bbb70cd5b10e362d"
+      },
+      "artifact": "nodes/open/open/source_block_source_associations_khronos.json",
+      "status": "development_unverified",
+      "admitted": false
+    },
+    {
+      "id": "exhibitors.aquatech",
+      "kind": "block",
+      "key": "source_exhibitors_aquatech",
+      "family": "exhibitors",
+      "block": {
+        "name": "career.source.exhibitors.aquatech.v1",
+        "digest": "440b090ead9fd5547aa2d582a5a922eda7ca2f39e546309080fec4dd29bcec53"
+      },
+      "artifact": "nodes/open/open/source_block_source_exhibitors_aquatech.json",
+      "status": "development_unverified",
+      "admitted": false
+    },
+    {
+      "id": "exhibitors.filtech",
+      "kind": "block",
+      "key": "source_exhibitors_filtech",
+      "family": "exhibitors",
+      "block": {
+        "name": "career.source.exhibitors.filtech.v1",
+        "digest": "daea018f06c1d30df71e02a3ca0f6d5468c6d6bd79c802403443f19cac19f88d"
+      },
+      "artifact": "nodes/open/open/source_block_source_exhibitors_filtech.json",
+      "status": "development_unverified",
+      "admitted": false
+    },
+    {
+      "id": "suppliers.made_in_china",
+      "kind": "block",
+      "key": "source_suppliers_made_in_china",
+      "family": "suppliers",
+      "block": {
+        "name": "career.source.suppliers.made_in_china.v1",
+        "digest": "2265bb8ffce74550e7148c0050587915f8563a75b276bf89a18e0c9a4789bb5a"
+      },
+      "artifact": "nodes/open/open/source_block_source_suppliers_made_in_china.json",
+      "status": "development_unverified",
+      "admitted": false
+    },
+    {
+      "id": "suppliers.indiamart",
+      "kind": "block",
+      "key": "source_suppliers_indiamart",
+      "family": "suppliers",
+      "block": {
+        "name": "career.source.suppliers.indiamart.v1",
+        "digest": "a7f5e54a0900d61c14682245458b794732dcfc70b55684ba5ff66247bd1c7f4b"
+      },
+      "artifact": "nodes/open/open/source_block_source_suppliers_indiamart.json",
+      "status": "development_unverified",
+      "admitted": false
+    },
+    {
+      "id": "procurement.contractsfinder",
+      "kind": "block",
+      "key": "source_procurement_contractsfinder",
+      "family": "procurement",
+      "block": {
+        "name": "career.source.procurement.contractsfinder.v1",
+        "digest": "2973bc5ee41b37219a540f8d2e14601d2deeb32d6e862405d1d02a52de387aae"
+      },
+      "artifact": "nodes/open/open/source_block_source_procurement_contractsfinder.json",
+      "status": "development_unverified",
+      "admitted": false
+    },
+    {
+      "id": "procurement.find_tender",
+      "kind": "block",
+      "key": "source_procurement_find_tender",
+      "family": "procurement",
+      "block": {
+        "name": "career.source.procurement.find_tender.v1",
+        "digest": "d38c2d68ecc0c7f4a7851ab2296103bdd9a6ab82f49c579af2219ae494ae8d4f"
+      },
+      "artifact": "nodes/open/open/source_block_source_procurement_find_tender.json",
+      "status": "development_unverified",
+      "admitted": false
+    },
+    {
+      "id": "geographic.sf_chamber",
+      "kind": "block",
+      "key": "source_geographic_sf_chamber",
+      "family": "geographic",
+      "block": {
+        "name": "career.source.geographic.sf_chamber.v1",
+        "digest": "e3c84c335e3230147fc5e1414e445fef73977bbffe6d9a82e27d2db22b27f519"
+      },
+      "artifact": "nodes/open/open/source_block_source_geographic_sf_chamber.json",
+      "status": "development_unverified",
+      "admitted": false
+    },
+    {
+      "id": "geographic.tacoma_chamber",
+      "kind": "block",
+      "key": "source_geographic_tacoma_chamber",
+      "family": "geographic",
+      "block": {
+        "name": "career.source.geographic.tacoma_chamber.v1",
+        "digest": "082089c1c5b850c60905094ec07dbbaa5640c03fc9e33cf8ad804596e9d50553"
+      },
+      "artifact": "nodes/open/open/source_block_source_geographic_tacoma_chamber.json",
+      "status": "development_unverified",
+      "admitted": false
+    },
+    {
+      "id": "ecosystems.cloudflare",
+      "kind": "block",
+      "key": "source_ecosystems_cloudflare",
+      "family": "ecosystems",
+      "block": {
+        "name": "career.source.ecosystems.cloudflare.v1",
+        "digest": "b8546d04c3bada5d476284892c56599bcdef851fcb6f153dad142659cf287665"
+      },
+      "artifact": "nodes/open/open/source_block_source_ecosystems_cloudflare.json",
+      "status": "development_unverified",
+      "admitted": false
+    },
+    {
+      "id": "ecosystems.vercel",
+      "kind": "block",
+      "key": "source_ecosystems_vercel",
+      "family": "ecosystems",
+      "block": {
+        "name": "career.source.ecosystems.vercel.v1",
+        "digest": "14b111f931d9b531c3e22082188744b4af99a3a6c13b0af3ce5f0baebe077c63"
+      },
+      "artifact": "nodes/open/open/source_block_source_ecosystems_vercel.json",
+      "status": "development_unverified",
+      "admitted": false
+    }
+  ]
+}

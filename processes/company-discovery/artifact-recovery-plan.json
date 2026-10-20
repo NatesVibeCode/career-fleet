@@ -1,0 +1,119 @@
+{
+  "schema": "forge.author_plan.v1",
+  "library": true,
+  "module": "discovery.local/process",
+  "nodes": [
+    {
+      "key": "retainrecover",
+      "source_file": "nodes/retainrecover/entry.go",
+      "spec_file": "specs/retainrecover.json"
+    },
+    {
+      "key": "loadrecover",
+      "source_file": "nodes/loadrecover/entry.go",
+      "spec_file": "specs/loadrecover.json"
+    }
+  ],
+  "blocks": [
+    {
+      "key": "retainrecover",
+      "name": "discovery.retainrecover.block.v1",
+      "nodes": [
+        {
+          "key": "observe",
+          "node": "retainrecover"
+        }
+      ],
+      "edges": [],
+      "inputs": [
+        {
+          "name": "capture",
+          "to": {
+            "node": "observe",
+            "port": "capture"
+          }
+        },
+        {
+          "name": "request_digest",
+          "to": {
+            "node": "observe",
+            "port": "request_digest"
+          }
+        }
+      ],
+      "outputs": [
+        {
+          "name": "capture",
+          "from": {
+            "node": "observe",
+            "port": "capture"
+          }
+        },
+        {
+          "name": "request_digest",
+          "from": {
+            "node": "observe",
+            "port": "request_digest"
+          }
+        },
+        {
+          "name": "status",
+          "from": {
+            "node": "observe",
+            "port": "status"
+          }
+        }
+      ]
+    },
+    {
+      "key": "loadrecover",
+      "name": "discovery.loadrecover.block.v1",
+      "nodes": [
+        {
+          "key": "observe",
+          "node": "loadrecover"
+        }
+      ],
+      "edges": [],
+      "inputs": [
+        {
+          "name": "state",
+          "to": {
+            "node": "observe",
+            "port": "state"
+          }
+        },
+        {
+          "name": "request_digest",
+          "to": {
+            "node": "observe",
+            "port": "request_digest"
+          }
+        }
+      ],
+      "outputs": [
+        {
+          "name": "state",
+          "from": {
+            "node": "observe",
+            "port": "state"
+          }
+        },
+        {
+          "name": "request_digest",
+          "from": {
+            "node": "observe",
+            "port": "request_digest"
+          }
+        },
+        {
+          "name": "status",
+          "from": {
+            "node": "observe",
+            "port": "status"
+          }
+        }
+      ]
+    }
+  ]
+}

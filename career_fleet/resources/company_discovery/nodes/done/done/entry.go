@@ -1,3 +1,4 @@
+// career-fleet-author-closure-sha256: 23d2f2c881c7f783ff53246fc82451bfc628a49a2b4ee2344b840986ddad7357
 package done
 
 func Entry(in map[string]any) (map[string]any, error) {

@@ -76,6 +76,8 @@ def test_projection_does_not_merge_domains_or_delete_on_empty_run(tmp_path):
     store.record({'event_id': 'source-failed', 'outputs': {'result': {'candidates': []}}})
     assert len(store.leads()) == 2
     assert store.connection.execute('SELECT id FROM companies').fetchone()[0] == 'existing'
-    with pytest.raises(sqlite3.IntegrityError):
-        store.record({'event_id': 'one', 'outputs': {}})
+    # Resume/retained-event delivery is idempotent; attempts remain inspectable.
+    store.record({'event_id': 'one', 'outputs': {}})
+    assert len(store.leads()) == 2
+    assert store.connection.execute('SELECT COUNT(*) FROM process_runs WHERE event_id=?', ('one',)).fetchone()[0] == 1
     store.close()

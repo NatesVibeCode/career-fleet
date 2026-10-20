@@ -147,6 +147,10 @@ func schemaRequiredExactly(schema map[string]any, names ...string) bool {
 
 func (c InferNodeContract) validateRequestProfile() error {
 	switch c.RequestProfile {
+	case RequestProfileJSONSchemaCompletion:
+		if c.OutputSchema == nil {
+			return fmt.Errorf("JSON Schema completion profile requires an explicit output schema")
+		}
 	case RequestProfileScaleDownSummarize:
 		inputs, ok := exactSchemaProperties(c.InputSchema, "text", "focus", "format", "language", "length")
 		if !ok || !schemaIsType(inputs["text"], "string") || !schemaIsType(inputs["focus"], "string") || !schemaIsType(inputs["format"], "string") || !schemaIsType(inputs["language"], "string") || !schemaIsType(inputs["length"], "string") {

@@ -1,0 +1,3 @@
+package loadrecover
+import("testing";"encoding/json")
+func TestProof(t *testing.T){var in map[string]any;if e:=json.Unmarshal([]byte(`{"request_digest":""}`),&in);e!=nil{t.Fatal(e)};if _,e:=Entry(nil, in);e==nil{t.Fatal("malformed input produced a result")}}

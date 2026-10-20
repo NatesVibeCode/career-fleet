@@ -133,6 +133,9 @@ func encodeScaleDownExtract(b ModelBinding, req InferRequest) (map[string]any, e
 }
 
 func encodeInference(b ModelBinding, req InferRequest) ([]byte, error) {
+	if normalizedRequestProfile(req.RequestProfile) == RequestProfileJSONSchemaCompletion && (b.Protocol != ProtocolCompletion || req.OutputSchema == nil) {
+		return nil, fmt.Errorf("JSON Schema completion requires completion protocol and a declared output schema")
+	}
 	if _, err := inferenceSchema(req); err != nil {
 		return nil, err
 	}
@@ -170,6 +173,9 @@ func encodeInference(b ModelBinding, req InferRequest) ([]byte, error) {
 			prompt += "\n\nReturn only one JSON value satisfying this schema, without markdown:\n" + string(schema)
 		}
 		body = map[string]any{"model": b.Model, "messages": []map[string]string{{"role": "user", "content": prompt}}, "stream": false, "n": 1, "temperature": 0, "provider": map[string]any{"allow_fallbacks": false}}
+		if profile == RequestProfileJSONSchemaCompletion {
+			body["response_format"] = map[string]any{"type": "json_schema", "json_schema": map[string]any{"name": "node_outcome", "strict": true, "schema": req.OutputSchema}}
+		}
 		if b.MaxOutputTokens > 0 {
 			body["max_tokens"] = b.MaxOutputTokens
 		}

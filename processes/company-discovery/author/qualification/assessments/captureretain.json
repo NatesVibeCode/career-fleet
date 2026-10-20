@@ -1,0 +1,34 @@
+{
+  "schema": "forge.node_boundary_assessment.v2",
+  "node_spec_digest": "f703a290b4493744da41d261ee237f9cb706fc8a80f33c15815d43b35d117c56",
+  "source_bundle_digest": "316bf245aaff7f4f6985537293610f515cadad888be4cc3170896d4f67cf0e74",
+  "test_bundle_digest": "1000ddec0016557fdb26ccc78b94ab32f00334e1c9b17668479a73ef0812cf29",
+  "outcome": "Retain immutable raw capture bytes with a compact witness",
+  "outcome_id": "completed",
+  "decision": "keep",
+  "rationale": "Reviewed the selected Entry adapter and its reachable core helpers. Its public fields jointly describe this single transformation or effect result. Selection, acquisition, retention, byte loading, extraction, identity, evidence assessment and recovery are independently composed Nodes; this adapter does not choose another workflow.",
+  "reuse": [
+    {
+      "scope": "Existing Career Fleet deterministic core, codecs and selected tokenizer source closure",
+      "evidence_digest": "316bf245aaff7f4f6985537293610f515cadad888be4cc3170896d4f67cf0e74",
+      "finding": "atomic_helper",
+      "rationale": "These copied helpers implement this Entry result and carry no independently invoked Node authority. The exact selected Node is reused by the authored Process and source Blocks; no self-reuse or inferred catalog admission is claimed."
+    }
+  ],
+  "stages": [
+    {
+      "name": "captureretain",
+      "role": "outcome",
+      "outcome": "Retain immutable raw capture bytes with a compact witness",
+      "independently_useful": true,
+      "separate_authority": false,
+      "separate_recovery": false,
+      "atomic_helper": false,
+      "decision": "keep",
+      "rationale": "The source-reviewed Entry exposes this outcome. Auxiliary phase selectors and carried state deliver the same transformation; effect and recovery boundaries remain explicit in the Process.",
+      "output_fields": [
+        "capture"
+      ]
+    }
+  ]
+}

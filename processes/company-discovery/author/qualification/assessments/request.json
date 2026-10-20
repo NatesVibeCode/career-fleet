@@ -1,0 +1,35 @@
+{
+  "schema": "forge.node_boundary_assessment.v2",
+  "node_spec_digest": "3d0ba0684ac3abf40762030d1ef78959936c775b132d913cadd0221064c52fad",
+  "source_bundle_digest": "32b16369eb754b11ffe032874d914601964d1f9b3212d83caa01334bf4d87b58",
+  "test_bundle_digest": "b9c2409b459e0d89b48912c2ac1701b4f7ee030bba0b314625926df76291cffa",
+  "outcome": "Expose exactly the URL of the selected pending acquisition",
+  "outcome_id": "completed",
+  "decision": "keep",
+  "rationale": "Reviewed the selected Entry adapter and its reachable core helpers. Its public fields jointly describe this single transformation or effect result. Selection, acquisition, retention, byte loading, extraction, identity, evidence assessment and recovery are independently composed Nodes; this adapter does not choose another workflow.",
+  "reuse": [
+    {
+      "scope": "Existing Career Fleet deterministic core, codecs and selected tokenizer source closure",
+      "evidence_digest": "32b16369eb754b11ffe032874d914601964d1f9b3212d83caa01334bf4d87b58",
+      "finding": "atomic_helper",
+      "rationale": "These copied helpers implement this Entry result and carry no independently invoked Node authority. The exact selected Node is reused by the authored Process and source Blocks; no self-reuse or inferred catalog admission is claimed."
+    }
+  ],
+  "stages": [
+    {
+      "name": "request",
+      "role": "outcome",
+      "outcome": "Expose exactly the URL of the selected pending acquisition",
+      "independently_useful": true,
+      "separate_authority": false,
+      "separate_recovery": false,
+      "atomic_helper": false,
+      "decision": "keep",
+      "rationale": "The source-reviewed Entry exposes this outcome. Auxiliary phase selectors and carried state deliver the same transformation; effect and recovery boundaries remain explicit in the Process.",
+      "output_fields": [
+        "state",
+        "url"
+      ]
+    }
+  ]
+}

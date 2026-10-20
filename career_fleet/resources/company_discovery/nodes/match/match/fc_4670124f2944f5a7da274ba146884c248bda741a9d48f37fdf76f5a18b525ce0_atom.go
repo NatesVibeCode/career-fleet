@@ -15,7 +15,7 @@
 // whether atom.H1 < atom.H2 may also change. The codes are not guaranteed to
 // be dense. The only guarantees are that e.g. looking up "div" will yield
 // atom.Div, calling atom.Div.String will return "div", and atom.Div != 0.
-package match // import "golang.org/x/net/html/atom"
+package match
 
 // Atom is an integer code for a string. The zero value maps to "".
 type fc_4670124f2944f5a7da274ba146884c248bda741a9d48f37fdf76f5a18b525ce0_Atom uint32

@@ -109,6 +109,7 @@ const InferenceRequestDigestSchema = "praxis.inference_request_digest.v1"
 // semantic edges whose provider wire contract differs from ordinary JSON
 // completion. They are not a provider passthrough surface.
 const RequestProfileJSONCompletion = "completion.json.v1"
+const RequestProfileJSONSchemaCompletion = "completion.json_schema.v1"
 const RequestProfileScaleDownSummarize = "openrouter.scaledown.summarize.v1"
 const RequestProfileScaleDownExtract = "openrouter.scaledown.extract.v1"
 
@@ -372,6 +373,13 @@ func startInference(ctx context.Context, id Identity, p InferencePolicy, selecti
 	return startInferenceWithSelector(ctx, id, p, selection, credentials, func(ModelBinding) TargetAdapter { return transport })
 }
 
+// StartInferenceWithTransport preserves the sealed policy and native request
+// preparation while trusted caller transport selects the physical adapter.
+// The selector cannot change a binding's model, endpoint, budget or credentials.
+func StartInferenceWithTransport(ctx context.Context, id Identity, p InferencePolicy, selection []string, credentials CredentialProvider, selectTransport func(ModelBinding) TargetAdapter) (InvocationHandle, error) {
+	return startInferenceWithSelector(ctx, id, p, selection, credentials, selectTransport)
+}
+
 func startInferenceWithSelector(ctx context.Context, id Identity, p InferencePolicy, selection []string, credentials CredentialProvider, selectTransport func(ModelBinding) TargetAdapter) (InvocationHandle, error) {
 	digest, err := p.Digest()
 	if err != nil {
@@ -599,6 +607,7 @@ func (h *inferenceHandle) Infer(ctx context.Context, req InferRequest) (InferRes
 		}
 		if availabilityFallbackStatus(response.StatusCode) {
 			attempt.Error = "provider_unavailable"
+			attempt.Diagnostic = inferenceFailureDiagnostic(bodies[i], response, "provider", fmt.Sprintf("http_%d", response.StatusCode), "provider route unavailable")
 			h.receipt.InferenceAttempts = append(h.receipt.InferenceAttempts, attempt)
 			if h.policy.FallbackOnUnavailable && i+1 < len(h.children) {
 				if i+1 < maxAttempts {

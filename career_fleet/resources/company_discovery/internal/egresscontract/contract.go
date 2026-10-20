@@ -186,18 +186,19 @@ type Receipt struct {
 	FailureDiagnostic *FailureDiagnostic        `json:"failure_diagnostic,omitempty"`
 	// BrowserCalls counts local primitive calls separately from Requests,
 	// which counts transmitted HTTP requests for the browser adapter.
-	BrowserCalls       int                 `json:"browser_calls,omitempty"`
-	DeniedRequests     int                 `json:"denied_requests,omitempty"`
-	InferenceAttempts  []InferenceAttempt  `json:"inference_attempts,omitempty"`
-	PublicReadReceipts []PublicReadReceipt `json:"public_read_receipts,omitempty"`
-	Transmission       string              `json:"transmission"`
-	Responses          int                 `json:"responses"`
-	Identity           Identity            `json:"identity"`
-	Requests           int                 `json:"requests"`
-	PolicyDigest       string              `json:"policy_digest"`
-	Operation          string              `json:"operation"`
-	Adapter            string              `json:"adapter"`
-	Outcome            string              `json:"outcome"`
+	BrowserCalls          int                    `json:"browser_calls,omitempty"`
+	DeniedRequests        int                    `json:"denied_requests,omitempty"`
+	InferenceAttempts     []InferenceAttempt     `json:"inference_attempts,omitempty"`
+	PublicReadReceipts    []PublicReadReceipt    `json:"public_read_receipts,omitempty"`
+	ProviderHTTPSReceipts []ProviderHTTPSReceipt `json:"provider_https_receipts,omitempty"`
+	Transmission          string                 `json:"transmission"`
+	Responses             int                    `json:"responses"`
+	Identity              Identity               `json:"identity"`
+	Requests              int                    `json:"requests"`
+	PolicyDigest          string                 `json:"policy_digest"`
+	Operation             string                 `json:"operation"`
+	Adapter               string                 `json:"adapter"`
+	Outcome               string                 `json:"outcome"`
 }
 
 // CredentialProvider resolves references inside a trusted target adapter.
@@ -304,6 +305,11 @@ func Normalize(policy Policy) Policy {
 			}
 			op.WorkspaceDelivery = &permission
 		}
+		if op.Browser != nil {
+			permission := *op.Browser
+			permission.ResourceTypes = append([]string{}, permission.ResourceTypes...)
+			op.Browser = &permission
+		}
 		op.Destination.Origins = normalizeOrigin(op.Destination.Origins)
 		op.RuntimeMaterial = append([]RuntimeMaterialPermission(nil), op.RuntimeMaterial...)
 		sort.Slice(op.RuntimeMaterial, func(i, j int) bool { return op.RuntimeMaterial[i].ID < op.RuntimeMaterial[j].ID })
@@ -331,7 +337,7 @@ func (p Policy) Validate() error {
 		if err := validateRuntimeMaterialPermissions(op.RuntimeMaterial); err != nil {
 			return err
 		}
-		if op.GoInputs != nil && p.Mode != ModeGoInputs || op.GoCommand != nil && p.Mode != ModeGoCommand || op.ConditionalRecord != nil && p.Mode != ModeConditionalRecord || op.NativeExec != nil && p.Mode != ModeNativeExec || op.RecordStore != nil && p.Mode != ModeRecordStore || op.WorkspaceDelivery != nil && p.Mode != ModeWorkspaceDelivery || op.AtomicFile != nil && p.Mode != ModeAtomicFile {
+		if op.Browser != nil && p.Mode != ModeBrowser || op.GoInputs != nil && p.Mode != ModeGoInputs || op.GoCommand != nil && p.Mode != ModeGoCommand || op.ConditionalRecord != nil && p.Mode != ModeConditionalRecord || op.NativeExec != nil && p.Mode != ModeNativeExec || op.RecordStore != nil && p.Mode != ModeRecordStore || op.WorkspaceDelivery != nil && p.Mode != ModeWorkspaceDelivery || op.AtomicFile != nil && p.Mode != ModeAtomicFile {
 			return fmt.Errorf("local permission mode mismatch")
 		}
 	}

@@ -4,7 +4,61 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 )
+
+// The printed Process installs this profile after the explicitly selected
+// system-launcher transition. It grants no network access and no ambient user
+// data. Chromium's rendezvous and power-monitor resources are mechanical OS
+// dependencies, not page-selected authorities. Clipboard services stay denied.
+func browserSandboxProfile(selected Binding, directory, script string) (string, error) {
+	if selected.Browser == nil || !browserAbsolute(directory) || !browserAbsolute(script) {
+		return "", fmt.Errorf("browser sandbox material is absent")
+	}
+	// Seatbelt matches the resolved filesystem object. In particular the
+	// platform's /var and /tmp aliases must not turn exact grants into denials.
+	browser := *selected.Browser
+	selected.Browser = &browser
+	for _, path := range []*string{&directory, &script, &browser.NodeExecutable, &browser.PlaywrightDirectory, &browser.BrowserDirectory} {
+		if !browserAbsolute(*path) {
+			return "", fmt.Errorf("browser sandbox path is invalid")
+		}
+		real, err := filepath.EvalSymlinks(*path)
+		if err != nil {
+			return "", fmt.Errorf("browser sandbox material cannot be resolved")
+		}
+		*path = real
+	}
+	var p strings.Builder
+	p.WriteString("(version 1)\n(deny default)\n(allow process-fork)\n(allow signal (target same-sandbox))\n(allow sysctl-read)\n(allow process-info*)\n(allow file-read-metadata)\n")
+	for _, name := range []string{"com.apple.system.notification_center", "com.apple.system.logger", "com.apple.logd", "com.apple.system.opendirectoryd", "com.apple.system.opendirectoryd.libinfo", "com.apple.CoreServices.coreservicesd"} {
+		fmt.Fprintf(&p, "(allow mach-lookup (global-name %q))\n", name)
+	}
+	p.WriteString("(allow ipc-posix-shm-read-data (ipc-posix-name \"apple.shm.notification_center\"))\n(allow iokit-open (iokit-user-client-class \"RootDomainUserClient\"))\n")
+	p.WriteString("(allow mach-register (global-name-prefix \"org.chromium.Chromium.MachPortRendezvousServer.\"))\n(allow mach-lookup (global-name-prefix \"org.chromium.Chromium.MachPortRendezvousServer.\"))\n")
+	p.WriteString("(allow file-read*)\n")
+	for _, root := range []string{"/Library", "/opt", "/usr/local", "/private/etc", "/Users", "/Volumes", "/Network", "/private/var/folders", "/private/tmp", "/Home"} {
+		fmt.Fprintf(&p, "(deny file-read* (subpath %q))\n", root)
+	}
+	for _, root := range []string{directory, selected.Browser.NodeExecutable, selected.Browser.PlaywrightDirectory, selected.Browser.BrowserDirectory} {
+		if !browserAbsolute(root) {
+			return "", fmt.Errorf("browser sandbox path is invalid")
+		}
+		for parent := filepath.Dir(root); parent != "."; parent = filepath.Dir(parent) {
+			fmt.Fprintf(&p, "(allow file-read* (literal %q))\n", parent)
+			if filepath.Dir(parent) == parent {
+				break
+			}
+		}
+		fmt.Fprintf(&p, "(allow file-read* (subpath %q))\n", root)
+	}
+	fmt.Fprintf(&p, "(allow file-write* (literal \"/dev/null\") (subpath %q))\n", directory)
+	for _, root := range []string{selected.Browser.NodeExecutable, selected.Browser.PlaywrightDirectory, selected.Browser.BrowserDirectory, script} {
+		fmt.Fprintf(&p, "(deny file-write* (subpath %q))\n", root)
+	}
+	fmt.Fprintf(&p, "(allow process-exec* (literal %q) (subpath %q))\n", selected.Browser.NodeExecutable, selected.Browser.BrowserDirectory)
+	return p.String(), nil
+}
 
 // Snapshot the selected multi-file runtime before launching it. The manager
 // retains the original deployment binding for cross-Node identity; only the

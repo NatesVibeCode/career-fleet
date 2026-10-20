@@ -1,0 +1,35 @@
+{
+  "schema": "forge.node_boundary_assessment.v2",
+  "node_spec_digest": "3be3572f608cca5f98fbc802280270cf7586c5a52774f01e7084b51e6c5ccd9e",
+  "source_bundle_digest": "69703bd6fc5c9ceb0724aff3f9c5fd2a2dac9f7aed0b4dd19fa1516bedad8cfe",
+  "test_bundle_digest": "3e6318ef44597828f1f4c061391eb93b2a93e6093827b5d5f88b4061dcee15cd",
+  "outcome": "Derive format-specific text and observations from a byte-pinned capture",
+  "outcome_id": "completed",
+  "decision": "keep",
+  "rationale": "Reviewed the selected Entry adapter and its reachable core helpers. Its public fields jointly describe this single transformation or effect result. Selection, acquisition, retention, byte loading, extraction, identity, evidence assessment and recovery are independently composed Nodes; this adapter does not choose another workflow.",
+  "reuse": [
+    {
+      "scope": "Existing Career Fleet deterministic core, codecs and selected tokenizer source closure",
+      "evidence_digest": "69703bd6fc5c9ceb0724aff3f9c5fd2a2dac9f7aed0b4dd19fa1516bedad8cfe",
+      "finding": "atomic_helper",
+      "rationale": "These copied helpers implement this Entry result and carry no independently invoked Node authority. The exact selected Node is reused by the authored Process and source Blocks; no self-reuse or inferred catalog admission is claimed."
+    }
+  ],
+  "stages": [
+    {
+      "name": "parse",
+      "role": "outcome",
+      "outcome": "Derive format-specific text and observations from a byte-pinned capture",
+      "independently_useful": true,
+      "separate_authority": false,
+      "separate_recovery": false,
+      "atomic_helper": false,
+      "decision": "keep",
+      "rationale": "The source-reviewed Entry exposes this outcome. Auxiliary phase selectors and carried state deliver the same transformation; effect and recovery boundaries remain explicit in the Process.",
+      "output_fields": [
+        "next",
+        "state"
+      ]
+    }
+  ]
+}

@@ -11,17 +11,20 @@ import (
 
 // Request contains task data, never an ambient profile or a personal default.
 type Request struct {
-	Feedback         []Feedback       `json:"feedback"`
-	ReusableCaptures []Capture        `json:"reusable_captures"`
-	Objective        string           `json:"objective"`
-	Concepts         []Concept        `json:"concepts"`
-	Criteria         []Criterion      `json:"criteria"`
-	Sources          []Source         `json:"sources"`
-	Seeds            []Observation    `json:"seeds"`
-	Questions        []Question       `json:"questions"`
-	Policy           Policy           `json:"policy"`
-	Prior            []Candidate      `json:"prior"`
-	SubjectBindings  []SubjectBinding `json:"subject_bindings"`
+	SourceBlocks     []SourceBlockSelection `json:"source_blocks,omitempty"`
+	Mode             string                 `json:"mode,omitempty"`
+	SourceFamilies   []string               `json:"source_families,omitempty"`
+	Feedback         []Feedback             `json:"feedback"`
+	ReusableCaptures []Capture              `json:"reusable_captures"`
+	Objective        string                 `json:"objective"`
+	Concepts         []Concept              `json:"concepts"`
+	Criteria         []Criterion            `json:"criteria"`
+	Sources          []Source               `json:"sources"`
+	Seeds            []Observation          `json:"seeds"`
+	Questions        []Question             `json:"questions"`
+	Policy           Policy                 `json:"policy"`
+	Prior            []Candidate            `json:"prior"`
+	SubjectBindings  []SubjectBinding       `json:"subject_bindings"`
 }
 
 // SubjectBinding is explicit caller attribution for one exact document URL.
@@ -60,12 +63,61 @@ type Criterion struct {
 	Scope    string `json:"scope"`
 }
 type Source struct {
-	ID          string   `json:"id"`
-	Kind        string   `json:"kind"`
-	URLTemplate string   `json:"url_template"`
-	Queries     []string `json:"queries"`
+	Block             *BlockReference    `json:"block,omitempty"`
+	BlockKey          string             `json:"block_key,omitempty"`
+	EmbeddedPrefix    string             `json:"embedded_prefix,omitempty"`
+	SubjectName       string             `json:"subject_name,omitempty"`
+	EmbeddedSelector  string             `json:"embedded_selector,omitempty"`
+	DetailURLTemplate string             `json:"detail_url_template,omitempty"`
+	Family            string             `json:"family,omitempty"`
+	Preset            string             `json:"preset,omitempty"`
+	SourceDigest      string             `json:"source_digest,omitempty"`
+	RecordKind        string             `json:"record_kind,omitempty"`
+	HTMLMapping       *HTMLResultMapping `json:"html_mapping,omitempty"`
+	Readiness         *Readiness         `json:"readiness,omitempty"`
+	Pagination        *Pagination        `json:"pagination,omitempty"`
+	ID                string             `json:"id"`
+	Kind              string             `json:"kind"`
+	URLTemplate       string             `json:"url_template"`
+	Queries           []string           `json:"queries"`
+	Pages             int                `json:"pages,omitempty"`
+	PageSize          int                `json:"page_size,omitempty"`
+	ExternalLinksOnly bool               `json:"external_links_only,omitempty"`
+	Mapping           *JSONMapping       `json:"mapping,omitempty"`
+	BrowserMapping    *HTMLResultMapping `json:"browser_mapping,omitempty"`
+}
+
+// JSONMapping is an explicit RFC 6901 projection for one public JSON source.
+// The source response remains byte-pinned in Capture; this mapping only chooses
+// which returned fields become candidate observations.
+type JSONMapping struct {
+	ItemsPath       string `json:"items_path"`
+	TitlePath       string `json:"title_path"`
+	URLPath         string `json:"url_path"`
+	ItemURLTemplate string `json:"item_url_template,omitempty"`
+	TextPath        string `json:"text_path"`
+	DatePath        string `json:"date_path"`
+	NamePath        string `json:"name_path"`
+	LeadKeyPath     string `json:"lead_key_path"`
+}
+
+// HTMLResultMapping declares source-owned CSS extraction for rendered result
+// cards that do not expose their target as an anchor link.
+type HTMLResultMapping struct {
+	TitleAttribute  string `json:"title_attribute,omitempty"`
+	LabelSelector   string `json:"label_selector,omitempty"`
+	LabelText       string `json:"label_text,omitempty"`
+	SplitText       string `json:"split_text,omitempty"`
+	WebsiteSelector string `json:"website_selector,omitempty"`
+	URLAttribute    string `json:"url_attribute,omitempty"`
+	ItemSelector    string `json:"item_selector"`
+	TitleSelector   string `json:"title_selector"`
+	URLSelector     string `json:"url_selector,omitempty"`
+	TextSelector    string `json:"text_selector,omitempty"`
+	KeyAttribute    string `json:"key_attribute,omitempty"`
 }
 type Policy struct {
+	ResolveIdentity    bool     `json:"resolve_identity,omitempty"`
 	ResultOrder        string   `json:"result_order"`
 	CompareFields      []string `json:"compare_fields"`
 	AcquisitionEnabled bool     `json:"acquisition_enabled"`
@@ -91,6 +143,10 @@ type ExtractRule struct {
 	Scope   string `json:"scope"`
 }
 type Observation struct {
+	LinkURL     string `json:"link_url,omitempty"`
+	RecordKind  string `json:"record_kind,omitempty"`
+	RecordKey   string `json:"record_key,omitempty"`
+	WebsiteURL  string `json:"website_url,omitempty"`
 	LeadID      string `json:"lead_id"`
 	ActionID    string `json:"action_id"`
 	ID          string `json:"id"`
@@ -106,6 +162,10 @@ type Observation struct {
 	Scope       string `json:"scope"`
 }
 type Capture struct {
+	BodyRecord       string   `json:"body_record,omitempty"`
+	BodyRecordDigest string   `json:"body_record_digest,omitempty"`
+	SourceDigest     string   `json:"source_digest,omitempty"`
+	AcquisitionMode  string   `json:"acquisition_mode,omitempty"`
 	ID               string   `json:"id"`
 	URL              string   `json:"url"`
 	FinalURL         string   `json:"final_url"`
@@ -192,31 +252,38 @@ type Link struct {
 	Text string `json:"text"`
 }
 type Document struct {
-	CaptureID string        `json:"capture_id"`
-	Outcome   string        `json:"outcome"`
-	Title     string        `json:"title"`
-	Text      string        `json:"text"`
-	Links     []Link        `json:"links"`
-	Results   []Observation `json:"results"`
-	Coverage  string        `json:"coverage"`
-	Gap       string        `json:"gap"`
+	Preset      string        `json:"preset"`
+	Health      string        `json:"health"`
+	NextURL     string        `json:"next_url"`
+	Fingerprint string        `json:"fingerprint"`
+	CaptureID   string        `json:"capture_id"`
+	Outcome     string        `json:"outcome"`
+	Title       string        `json:"title"`
+	Text        string        `json:"text"`
+	Links       []Link        `json:"links"`
+	Results     []Observation `json:"results"`
+	Coverage    string        `json:"coverage"`
+	Gap         string        `json:"gap"`
 }
 type State struct {
-	ReusedCaptureIDs []string      `json:"reused_capture_ids"`
-	Request          Request       `json:"request"`
-	RequestDigest    string        `json:"request_digest"`
-	Concepts         []Concept     `json:"concepts"`
-	Candidates       []Candidate   `json:"candidates"`
-	Actions          []Action      `json:"actions"`
-	Captures         []Capture     `json:"captures"`
-	Pending          []Observation `json:"pending"`
-	CurrentAction    int           `json:"current_action"`
-	CurrentCandidate int           `json:"current_candidate"`
-	Capture          Capture       `json:"capture"`
-	Document         Document      `json:"document"`
-	NetworkRequests  int           `json:"network_requests"`
-	Gaps             []string      `json:"gaps"`
-	Phase            string        `json:"phase"`
+	SourceCandidates []SourceCandidate  `json:"source_candidates"`
+	SourceHealth     []SourceHealth     `json:"source_health"`
+	Relationships    []IdentityRelation `json:"relationships"`
+	ReusedCaptureIDs []string           `json:"reused_capture_ids"`
+	Request          Request            `json:"request"`
+	RequestDigest    string             `json:"request_digest"`
+	Concepts         []Concept          `json:"concepts"`
+	Candidates       []Candidate        `json:"candidates"`
+	Actions          []Action           `json:"actions"`
+	Captures         []Capture          `json:"captures"`
+	Pending          []Observation      `json:"pending"`
+	CurrentAction    int                `json:"current_action"`
+	CurrentCandidate int                `json:"current_candidate"`
+	Capture          Capture            `json:"capture"`
+	Document         Document           `json:"document"`
+	NetworkRequests  int                `json:"network_requests"`
+	Gaps             []string           `json:"gaps"`
+	Phase            string             `json:"phase"`
 }
 type FieldComparison struct {
 	FeedbackIDs  []string `json:"feedback_ids"`
@@ -228,18 +295,22 @@ type FieldComparison struct {
 	AssertionIDs []string `json:"assertion_ids"`
 }
 type Result struct {
-	Feedback         []Feedback        `json:"feedback"`
-	Comparisons      []FieldComparison `json:"comparisons"`
-	ReusedCaptureIDs []string          `json:"reused_capture_ids"`
-	RequestDigest    string            `json:"request_digest"`
-	Candidates       []Candidate       `json:"candidates"`
-	Actions          []Action          `json:"actions"`
-	Captures         []Capture         `json:"captures"`
-	Gaps             []string          `json:"gaps"`
-	Coverage         string            `json:"coverage"`
-	NetworkRequests  int               `json:"network_requests"`
-	InferenceCalls   int               `json:"inference_calls"`
-	Report           string            `json:"report"`
+	SourceCandidates []SourceCandidate  `json:"source_candidates"`
+	SourceHealth     []SourceHealth     `json:"source_health"`
+	Relationships    []IdentityRelation `json:"relationships"`
+	Summary          DiscoverySummary   `json:"summary"`
+	Feedback         []Feedback         `json:"feedback"`
+	Comparisons      []FieldComparison  `json:"comparisons"`
+	ReusedCaptureIDs []string           `json:"reused_capture_ids"`
+	RequestDigest    string             `json:"request_digest"`
+	Candidates       []Candidate        `json:"candidates"`
+	Actions          []Action           `json:"actions"`
+	Captures         []Capture          `json:"captures"`
+	Gaps             []string           `json:"gaps"`
+	Coverage         string             `json:"coverage"`
+	NetworkRequests  int                `json:"network_requests"`
+	InferenceCalls   int                `json:"inference_calls"`
+	Report           string             `json:"report"`
 }
 
 func Digest(v any) string {
@@ -296,4 +367,96 @@ func Output(v any) (map[string]any, error) {
 	}
 	normalizeArrays(m)
 	return m, nil
+}
+
+// Readiness declares observable completion. The timeout is recipe data, not a sleep.
+type Readiness struct {
+	ResultsSelector string `json:"results_selector"`
+	EmptySelector   string `json:"empty_selector"`
+	BlockedSelector string `json:"blocked_selector"`
+	TimeoutMS       int    `json:"timeout_ms"`
+}
+type Pagination struct {
+	NextStrategy    string `json:"next_strategy,omitempty"`
+	Mode            string `json:"mode"`
+	NextSelector    string `json:"next_selector"`
+	NextPath        string `json:"next_path"`
+	CursorPath      string `json:"cursor_path"`
+	CursorParameter string `json:"cursor_parameter"`
+}
+type SourceOrigin struct {
+	SourceID  string `json:"source_id"`
+	ActionID  string `json:"action_id"`
+	CaptureID string `json:"capture_id"`
+	Family    string `json:"family"`
+	Query     string `json:"query"`
+}
+type SourceCandidate struct {
+	Block          *BlockReference `json:"block,omitempty"`
+	Origins        []SourceOrigin  `json:"origins,omitempty"`
+	DetailURLs     []string        `json:"detail_urls,omitempty"`
+	NegativeCheck  bool            `json:"negative_check"`
+	ID             string          `json:"id"`
+	URL            string          `json:"url"`
+	Family         string          `json:"family"`
+	Status         string          `json:"status"`
+	Preset         string          `json:"preset"`
+	CaptureIDs     []string        `json:"capture_ids"`
+	ProposedSource *Source         `json:"proposed_source,omitempty"`
+	Reason         string          `json:"reason"`
+}
+type SourceHealth struct {
+	Block        *BlockReference `json:"block,omitempty"`
+	Query        string          `json:"query"`
+	ActionID     string          `json:"action_id"`
+	SourceID     string          `json:"source_id"`
+	Family       string          `json:"family"`
+	SourceDigest string          `json:"source_digest"`
+	URL          string          `json:"url"`
+	Outcome      string          `json:"outcome"`
+	Records      int             `json:"records"`
+	Requests     int             `json:"requests"`
+	Fingerprint  string          `json:"fingerprint"`
+	NextURL      string          `json:"next_url"`
+	Reason       string          `json:"reason"`
+	CaptureID    string          `json:"capture_id"`
+}
+type IdentityRelation struct {
+	ID            string `json:"id"`
+	SubjectID     string `json:"subject_id"`
+	Predicate     string `json:"predicate"`
+	ObjectID      string `json:"object_id"`
+	Name          string `json:"name"`
+	URL           string `json:"url"`
+	SourceID      string `json:"source_id"`
+	CaptureID     string `json:"capture_id"`
+	ObservationID string `json:"observation_id"`
+	State         string `json:"state"`
+	Reason        string `json:"reason"`
+}
+type DiscoverySummary struct {
+	SourceRecords           int      `json:"source_records"`
+	UnresolvedOrganizations int      `json:"unresolved_organizations"`
+	ResolvedOrganizations   int      `json:"resolved_organizations"`
+	OfficialWebsites        int      `json:"official_websites"`
+	NewOrganizations        int      `json:"new_organizations"`
+	CrossSourceOverlaps     int      `json:"cross_source_overlaps"`
+	NetworkRequests         int      `json:"network_requests"`
+	VerifiedFamilies        []string `json:"verified_families"`
+}
+
+// Block identity is the exact Forge-published reference, not a mapping digest.
+type BlockReference struct {
+	Name   string `json:"name"`
+	Digest string `json:"digest"`
+}
+type SourceBlockSelection struct {
+	Block   BlockReference `json:"block"`
+	Pages   int            `json:"pages,omitempty"`
+	Queries []string       `json:"queries,omitempty"`
+}
+type SourceBlockDefinition struct {
+	Block  BlockReference
+	Key    string
+	Source Source
 }

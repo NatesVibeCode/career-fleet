@@ -28,6 +28,11 @@ type BrowserRuntimePin struct {
 	BrowserVersion    string `json:"browser_version"`
 }
 type BrowserPermission struct {
+	// PublicRead grants anonymous public HTTPS only for READ. The broker still
+	// refuses private addresses and every method except GET/HEAD. Otherwise
+	// source origins remain explicitly closed. Zero quotas impose no local cap;
+	// the Process owns cancellation and READ always closes its own context.
+	PublicRead    bool              `json:"public_read,omitempty"`
 	Runtime       BrowserRuntimePin `json:"runtime"`
 	ProgramSHA256 string            `json:"program_sha256,omitempty"`
 	ResourceTypes []string          `json:"resource_types"`
@@ -51,11 +56,15 @@ func browserHex64(s string) bool {
 	return e == nil && len(b) == 32 && strings.ToLower(s) == s
 }
 func validateBrowserOperation(op Operation) error {
-	methods := map[string]bool{"OPEN": true, "NAVIGATE": true, "SUBMIT": true, "ADVANCE": true, "CAPTURE": true, "CLOSE": true}
+	methods := map[string]bool{"OPEN": true, "NAVIGATE": true, "SUBMIT": true, "ADVANCE": true, "CAPTURE": true, "CLOSE": true, "READ": true}
 	if !validToken(op.ID) || !methods[op.Method] || op.Destination.Kind != DestinationBrowser || op.Destination.Path != "" || op.Browser == nil || len(op.Credentials) != 0 || len(op.QueryParameters) != 0 || len(op.Headers) != 0 {
 		return fmt.Errorf("invalid local browser operation")
 	}
-	if len(op.Destination.Origins) == 0 {
+	if op.Browser.PublicRead {
+		if op.Method != "READ" || len(op.Destination.Origins) != 0 {
+			return fmt.Errorf("public browser read requires READ without fixed origins")
+		}
+	} else if len(op.Destination.Origins) == 0 {
 		return fmt.Errorf("browser requires explicit source origins")
 	}
 	if err := validateOrigins(op.Destination.Origins); err != nil {
@@ -64,7 +73,7 @@ func validateBrowserOperation(op Operation) error {
 	if op.TimeoutMillis > browserTimerMaxMillis {
 		return fmt.Errorf("browser v1 timeout exceeds Node timer representation; a newly pinned driver is required")
 	}
-	if op.MaxRequests < 1 || op.MaxRequestBytes < 1 || op.MaxResponseBytes < 1 || op.TimeoutMillis < 1 || op.MaxRedirects < 0 {
+	if op.MaxRequests < 0 || op.MaxRequestBytes < 0 || op.MaxResponseBytes < 0 || op.TimeoutMillis < 0 || op.MaxRedirects < 0 {
 		return fmt.Errorf("invalid browser bounds")
 	}
 	if (op.MaxRedirects == 0 && op.RedirectPolicy != RedirectNone) || (op.MaxRedirects > 0 && op.RedirectPolicy != RedirectDeclaredOrigins) {
@@ -78,10 +87,11 @@ func validateBrowserOperation(op Operation) error {
 	if p.MaxContexts > 0 && uint64(p.MaxContexts) > (1<<53)-1 {
 		return fmt.Errorf("browser context quota is not exactly representable by the v1 driver JSON number")
 	}
-	if !browserHex64(r.NodeSHA256) || !browserHex64(r.DriverSHA256) || !browserHex64(r.BundleSHA256) || !browserVersion(r.PlaywrightVersion) || !browserVersion(r.BrowserVersion) || p.MaxContexts < 1 || p.LeaseMillis < 1 {
+	if !browserHex64(r.NodeSHA256) || !browserHex64(r.DriverSHA256) || !browserHex64(r.BundleSHA256) || !browserVersion(r.PlaywrightVersion) || !browserVersion(r.BrowserVersion) || p.MaxContexts < 0 || p.LeaseMillis < 0 {
 		return fmt.Errorf("invalid browser runtime pins or lease")
 	}
-	if (op.Method == "CAPTURE" && !browserHex64(p.ProgramSHA256)) || (op.Method != "CAPTURE" && p.ProgramSHA256 != "") {
+	capture := op.Method == "CAPTURE" || op.Method == "READ"
+	if (capture && !browserHex64(p.ProgramSHA256)) || (!capture && p.ProgramSHA256 != "") {
 		return fmt.Errorf("capture program pin required exactly for CAPTURE")
 	}
 	if len(p.ResourceTypes) > 6 {
@@ -94,7 +104,7 @@ func validateBrowserOperation(op Operation) error {
 		}
 		seen[v] = true
 	}
-	if (op.Method == "NAVIGATE" || op.Method == "SUBMIT" || op.Method == "ADVANCE") && !seen["document"] {
+	if (op.Method == "NAVIGATE" || op.Method == "SUBMIT" || op.Method == "ADVANCE" || op.Method == "READ") && !seen["document"] {
 		return fmt.Errorf("browser navigation needs a document permission")
 	}
 	return nil

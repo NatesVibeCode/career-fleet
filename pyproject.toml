@@ -59,6 +59,7 @@ include = ["harness_fleet*", "career_fleet*"]
 
 [tool.setuptools.package-data]
 career_fleet = [
+    "resources/source_block_evidence.json",
     "resources/company_discovery/*",
     "resources/company_discovery/**/*",
     "resources/skill/career-fleet/*.md",

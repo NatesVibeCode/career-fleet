@@ -1,3 +1,4 @@
+// career-fleet-author-closure-sha256: ca3d469d2866f7b6c42b97a63bae2dc86d06471072b0949465675832ff6fd903
 package capture
 
 import (
@@ -13,10 +14,26 @@ import (
 
 func Entry(client egresscontract.Client, in map[string]any) (map[string]any, error) {
 	var input struct {
-		URL string `json:"url"`
+		URL   string `json:"url"`
+		State *State `json:"state,omitempty"`
 	}
 	if err := Decode(in, &input); err != nil {
 		return nil, err
+	}
+	if input.State != nil {
+		state := *input.State
+		if state.CurrentAction >= 0 && state.CurrentAction < len(state.Actions) && state.Actions[state.CurrentAction].Status == "captured" {
+			c := state.Capture
+			if c.URL != input.URL || c.ID != state.Actions[state.CurrentAction].CaptureID {
+				return nil, fmt.Errorf("discovery: retained capture mismatch")
+			}
+			return Output(&struct {
+				Capture Capture `json:"capture"`
+			}{c})
+		}
+		if !state.Request.Policy.AcquisitionEnabled {
+			return nil, fmt.Errorf("discovery: acquisition disabled by request")
+		}
 	}
 	if err := ValidateURL(input.URL); err != nil {
 		return nil, err

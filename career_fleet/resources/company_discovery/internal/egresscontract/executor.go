@@ -137,6 +137,7 @@ func (h *nativeHandle) Receipt() Receipt {
 	r := h.receipt
 	r.FailureDiagnostic = cloneFailureDiagnostic(r.FailureDiagnostic)
 	r.PublicReadReceipts = append([]PublicReadReceipt(nil), r.PublicReadReceipts...)
+	r.ProviderHTTPSReceipts = append([]ProviderHTTPSReceipt(nil), r.ProviderHTTPSReceipts...)
 	return r
 }
 
@@ -265,6 +266,11 @@ func (h *nativeHandle) do(caller context.Context, input OperationRequest, onEven
 		if receiptSource, ok := h.roundTripper.(interface{ TakePublicReadReceipt() *PublicReadReceipt }); ok {
 			if receipt := receiptSource.TakePublicReadReceipt(); receipt != nil {
 				h.receipt.PublicReadReceipts = append(h.receipt.PublicReadReceipts, *receipt)
+			}
+		}
+		if source, ok := h.roundTripper.(interface{ TakeProviderHTTPSReceipt() *ProviderHTTPSReceipt }); ok {
+			if receipt := source.TakeProviderHTTPSReceipt(); receipt != nil {
+				h.receipt.ProviderHTTPSReceipts = append(h.receipt.ProviderHTTPSReceipts, *receipt)
 			}
 		}
 		if err != nil {

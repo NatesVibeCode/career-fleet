@@ -12,6 +12,9 @@ import (
 )
 
 func ValidateRequest(r Request) error {
+	if err := validateSources(r); err != nil {
+		return err
+	}
 	if strings.TrimSpace(r.Objective) == "" && len(r.Seeds) == 0 && len(r.Prior) == 0 {
 		return fmt.Errorf("discovery: objective or collection required")
 	}
@@ -37,6 +40,14 @@ func ValidateRequest(r Request) error {
 		if err := ValidateURL(capture.URL); err != nil {
 			return err
 		}
+		if capture.BodyRecord != "" && capture.BodyBase64 == "" {
+			if len(capture.BodyRecord) != 64 || capture.BodyRecord != capture.SHA256 || len(capture.BodyRecordDigest) != 64 {
+				return fmt.Errorf("discovery: invalid retained body reference")
+			}
+			reusable[capture.URL] = true
+			captureIDs[capture.ID] = true
+			continue
+		}
 		raw, err := base64.StdEncoding.DecodeString(capture.BodyBase64)
 		if err != nil {
 			return fmt.Errorf("discovery: invalid reusable capture bytes")
@@ -58,12 +69,41 @@ func ValidateRequest(r Request) error {
 		}
 		sources[s.ID] = true
 		switch s.Kind {
-		case "rss", "json", "html", "text":
+		case "rss", "json", "json_mapped", "html", "html_search", "browser_html_search", "collection_html", "embedded_json_mapped", "ocds_json", "text":
 		default:
 			return fmt.Errorf("discovery: unsupported source kind %q", s.Kind)
 		}
-		if err := ValidateURL(strings.ReplaceAll(s.URLTemplate, "{query}", "query")); err != nil {
+		pageable := strings.Contains(s.URLTemplate, "{page}") || strings.Contains(s.URLTemplate, "{offset}") || s.Pagination != nil && (s.Pagination.Mode == "next_link" || s.Pagination.Mode == "cursor")
+		if s.Pages < 0 || s.PageSize < 0 || (s.Pages > 1 && !pageable) || (s.Pages > 1 && strings.Contains(s.URLTemplate, "{offset}") && s.PageSize == 0) {
+			return fmt.Errorf("source %s: pagination requires nonnegative pages and page_size plus a {page} or {offset} template", s.ID)
+		}
+		target := strings.ReplaceAll(strings.ReplaceAll(strings.ReplaceAll(s.URLTemplate, "{query}", "query"), "{page}", "1"), "{offset}", "0")
+		if err := ValidateURL(target); err != nil {
 			return fmt.Errorf("source %s: %w", s.ID, err)
+		}
+		if (s.Kind == "json_mapped" || s.Kind == "embedded_json_mapped") && s.Mapping == nil {
+			return fmt.Errorf("source %s: json_mapped requires an explicit mapping", s.ID)
+		}
+		if s.ExternalLinksOnly && s.Kind != "html_search" && s.Kind != "browser_html_search" {
+			return fmt.Errorf("source %s: external_links_only applies only to HTML search sources", s.ID)
+		}
+		if s.BrowserMapping != nil {
+			if s.Kind != "browser_html_search" || strings.TrimSpace(s.BrowserMapping.ItemSelector) == "" || strings.TrimSpace(s.BrowserMapping.TitleSelector) == "" || (strings.TrimSpace(s.BrowserMapping.URLSelector) == "" && strings.TrimSpace(s.BrowserMapping.KeyAttribute) == "") {
+				return fmt.Errorf("source %s: browser_mapping requires browser_html_search, item/title selectors, and either a URL selector or key attribute", s.ID)
+			}
+		}
+		if s.Mapping != nil {
+			if (s.Kind != "json_mapped" && s.Kind != "embedded_json_mapped") || !validJSONPointer(s.Mapping.ItemsPath) || !validJSONPointer(s.Mapping.TitlePath) || !validJSONPointer(s.Mapping.URLPath) || !validJSONPointer(s.Mapping.TextPath) || !validJSONPointer(s.Mapping.DatePath) || !validJSONPointer(s.Mapping.NamePath) || !validJSONPointer(s.Mapping.LeadKeyPath) {
+				return fmt.Errorf("source %s: JSON mapping paths must be RFC 6901 pointers on a json_mapped source", s.ID)
+			}
+			if s.Mapping.URLPath == "" {
+				return fmt.Errorf("source %s: JSON mapping requires url_path", s.ID)
+			}
+			if s.Mapping.ItemURLTemplate != "" {
+				if !strings.Contains(s.Mapping.ItemURLTemplate, "{key}") || ValidateURL(strings.ReplaceAll(s.Mapping.ItemURLTemplate, "{key}", "record")) != nil {
+					return fmt.Errorf("source %s: item_url_template must be HTTPS and contain {key}", s.ID)
+				}
+			}
 		}
 	}
 	criteria := map[string]bool{}
@@ -175,6 +215,25 @@ func ValidateRequest(r Request) error {
 	return nil
 }
 
+func validJSONPointer(path string) bool {
+	if path == "" {
+		return true
+	}
+	if !strings.HasPrefix(path, "/") {
+		return false
+	}
+	for i := 0; i < len(path); i++ {
+		if path[i] != '~' {
+			continue
+		}
+		i++
+		if i >= len(path) || (path[i] != '0' && path[i] != '1') {
+			return false
+		}
+	}
+	return true
+}
+
 func ValidateURL(raw string) error {
 	u, err := url.Parse(raw)
 	if err != nil {
@@ -197,6 +256,10 @@ func MergeObservation(candidates []Candidate, o Observation) []Candidate {
 	if o.EntityID != "" {
 		id = "entity:" + o.EntityID
 		identity = "source_asserted"
+	} else if o.LeadID != "" {
+		// A stable source record key groups repeated mentions of that record.
+		// It remains unresolved and does not assert company identity.
+		id = o.LeadID
 	}
 	// Dossier membership does not establish company identity.
 	if o.EntityID == "" && o.LeadID != "" {
@@ -214,10 +277,19 @@ func MergeObservation(candidates []Candidate, o Observation) []Candidate {
 		}
 	}
 	if index < 0 {
-		candidates = append(candidates, Candidate{ID: id, Name: o.EntityName, IdentityState: identity, Disposition: "unassessed"})
+		name := o.EntityName
+		if name == "" {
+			name = o.Title
+		}
+		candidates = append(candidates, Candidate{ID: id, Name: name, IdentityState: identity, Disposition: "unassessed"})
 		index = len(candidates) - 1
 	}
 	c := &candidates[index]
+	if o.EntityName != "" {
+		c.Name = o.EntityName
+	} else if c.Name == "" {
+		c.Name = o.Title
+	}
 	for _, prior := range c.Observations {
 		if prior.ID == o.ID {
 			return candidates
