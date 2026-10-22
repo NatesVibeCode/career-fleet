@@ -70,11 +70,11 @@ def test_opencode_prefix_stripping():
     )
     prov = OpenCodeProvider(runner=fake_runner)
 
-    prov.run_prompt("opencode/anthropic/claude-3-5-sonnet", "test prompt")
+    prov.run_prompt("opencode/anthropic/example-model", "test prompt")
     task_config = fake_runner.run.call_args[1]["task_config"]
     args = fake_runner.run.call_args[1]["args"]
-    assert task_config["model"] == "anthropic/claude-3-5-sonnet"
-    assert args[4] == "anthropic/claude-3-5-sonnet"
+    assert task_config["model"] == "anthropic/example-model"
+    assert args[4] == "anthropic/example-model"
 
     prov.run_prompt("opencode:meta/llama-3", "test prompt")
     task_config = fake_runner.run.call_args[1]["task_config"]
