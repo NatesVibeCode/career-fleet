@@ -28,7 +28,7 @@ dependencies = [
     "jsonschema>=4.20.0",
     "httpx>=0.24.0",
     "mcp>=1.26.0,<2",
-    "tzdata>=2022.7",
+    "tzdata>=2026.5",
 ]
 
 [project.urls]
