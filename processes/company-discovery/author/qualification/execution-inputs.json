@@ -1,9 +1,0 @@
-{
-  "capture_directory": "/Users/nate/Documents/Codex/2026-10-16-career-fleet-admission/seed/evidence",
-  "browser": {
-    "node_executable": "/Users/nate/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node",
-    "playwright_directory": "/Users/nate/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright-core",
-    "browser_directory": "/Users/nate/Library/Caches/ms-playwright/chromium_headless_shell-1243",
-    "browser_executable": "/Users/nate/Library/Caches/ms-playwright/chromium_headless_shell-1243/chrome-headless-shell-mac-arm64/chrome-headless-shell"
-  }
-}

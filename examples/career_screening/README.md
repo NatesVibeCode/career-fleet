@@ -25,7 +25,7 @@ No accounts, no API keys, no cost — it uses a built-in fake model that returns
 python -m harness_fleet.cli quickstart --demo --run-id demo-01
 ```
 
-Open `runs/demo-01/clean_packet.csv` afterwards to see the scored, quote-backed rows. (This runs the shared engine that Career Fleet is built on, which is why the command is longer than the usual ones below.)
+Open `runs/demo-01/clean_packet.csv` afterwards to see the scored, quote-backed rows. (This runs the shared engine that the prior Career Fleet was built on, which is why the command is longer than the usual ones below.)
 
 ---
 
@@ -34,18 +34,8 @@ Open `runs/demo-01/clean_packet.csv` afterwards to see the scored, quote-backed 
 Everyday Career Fleet commands, in the order you'd normally run them:
 
 ```bash
-career-fleet init                                  # create the database and your profile
-career-fleet profile                               # see or edit what you're looking for
-career-fleet discover --source yc --target W24 --max 30   # Lane 1: gather companies
-career-fleet triage                                # Lane 2: rule out dealbreakers
-career-fleet recon                                 # Lanes 3-4: technical and culture read
-career-fleet list --status qualified               # see what survived
-career-fleet dossier --company stripe --show-source # one company, with its evidence
-career-fleet export                                # qualified companies to JSON
-career-fleet board --open                          # browse it all in a web page
 ```
 
-`career-fleet board` opens a local web page — the easiest way to look at results if you'd rather not read JSON.
 
 ---
 

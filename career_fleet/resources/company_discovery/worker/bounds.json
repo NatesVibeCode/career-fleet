@@ -1,1 +1,0 @@
-{"bounds":[{"key":"company.research.value.length.nonnegative","kind":"count","params":{"min":0},"subject":"length(*)"}]}

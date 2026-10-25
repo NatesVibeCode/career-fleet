@@ -232,19 +232,3 @@ def default_sources(pages: int = 1, enable_browser: bool = False) -> list[dict]:
 def source_channels(sources: list[dict]) -> set[str]:
     """Return declared source populations; a Block ID is not a population."""
     return {source.get("family") or source["id"].split(".", 1)[0] for source in sources}
-
-
-
-def source_blocks_catalog() -> list[dict]:
-    """Exact Forge-published Blocks bundled with this Process, plus current proof."""
-    import json
-    from career_fleet.process_runtime import checked_manifest
-    package, _ = checked_manifest()
-    index = json.loads((package / 'nodes/open/open/source_block_index.json').read_text())
-    proof_file = __import__('pathlib').Path(__file__).parent / 'resources/source_block_evidence.json'
-    proofs = json.loads(proof_file.read_text())['entries'] if proof_file.exists() else []
-    for entry in index['entries']:
-        for proof in proofs:
-            if proof['block'] == entry['block']:
-                entry.update(status='verified', verification=proof['verification'])
-    return index['entries']

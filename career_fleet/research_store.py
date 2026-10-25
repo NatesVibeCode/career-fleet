@@ -7,9 +7,11 @@ import sqlite3
 
 
 class ResearchStore:
-    def __init__(self, path: Path):
-        self.connection = sqlite3.connect(path)
+    def __init__(self, path: Path, *, readonly: bool = False):
+        self.connection = sqlite3.connect(path.resolve().as_uri() + "?mode=ro", uri=True) if readonly else sqlite3.connect(path)
         self.connection.row_factory = sqlite3.Row
+        if readonly:
+            return
         self.connection.executescript('''
         CREATE TABLE IF NOT EXISTS process_runs (
           sequence INTEGER PRIMARY KEY AUTOINCREMENT,
