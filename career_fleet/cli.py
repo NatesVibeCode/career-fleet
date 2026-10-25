@@ -23,11 +23,12 @@ def main(argv: list[str] | None = None) -> int:
     export.add_argument('--run')
     export.add_argument('--output', type=Path, required=True)
     args = parser.parse_args(argv)
+    args.db = args.db.expanduser()
     store = None
     try:
         if not args.db.is_file():
             raise ValueError(f'no research database: {args.db}')
-        store = ResearchStore(args.db.expanduser(), readonly=True)
+        store = ResearchStore(args.db, readonly=True)
         if args.command == 'dossier':
             output = store.dossier(args.id)
             if not output:
